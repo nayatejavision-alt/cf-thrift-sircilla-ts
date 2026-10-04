@@ -14,6 +14,9 @@ def get_sheets_client():
     client = gspread.authorize(credentials)
     return client
 
+
+
+
 # 1. హోమ్ పేజీ రౌట్ (HTML సెర్చ్ ఫారమ్ చూపిస్తుంది)
 @app.route('/')
 def home():
