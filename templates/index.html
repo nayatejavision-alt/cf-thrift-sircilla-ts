@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>త్రిఫ్ట్ పథకం - లబ్ధిదారుని శోధన</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 550px;
+            margin: 30px auto;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            text-align: center;
+            color: #1a73e8;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-radius;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            background-color: #1a73e8;
+            color: white;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #1557b0;
+        }
+        #statusMessage {
+            margin-top: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .result-box {
+            display: none;
+            margin-top: 20px;
+            border-top: 2px solid #e0e0e0;
+            padding-top: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        td {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        td:first-child {
+            font-weight: bold;
+            color: #555;
+            width: 45%;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>త్రిఫ్ట్ పథకం - లబ్ధిదారుని శోధన</h2>
+    
+    <div class="form-group">
+        <label for="aadharInput">ఆధార్ సంఖ్యను నమోదు చేయండి (12 అంకెలు):</label>
+        <input type="text" id="aadharInput" maxlength="12" placeholder="ఉదా: 123456789012">
+    </div>
+
+    <button onclick="searchBeneficiary()">వెతకండి (Search)</button>
+
+    <div id="statusMessage"></div>
+
+    <div id="resultContainer" class="result-box">
+        <h3 style="color: #2e7d32; margin-top: 0;">లబ్ధిదారుని వివరాలు:</h3>
+        <table>
+            <tr><td>క్రమ సంఖ్య (SNO):</td><td id="resSno"></td></tr>
+            <tr><td>లబ్ధిదారుని పేరు:</td><td id="resName"></td></tr>
+            <tr><td>తండ్రి/భర్త పేరు:</td><td id="resFather"></td></tr>
+            <tr><td>గ్రామం:</td><td id="resVillage"></td></tr>
+            <tr><td>మండలం:</td><td id="resMandal"></td></tr>
+            <tr><td>ఆధార్ సంఖ్య:</td><td id="resAadhar"></td></tr>
+            <tr><td>బ్యాంకు పేరు:</td><td id="resBank"></td></tr>
+            <tr><td>RD 1 స్టేటస్:</td><td id="resRd1"></td></tr>
+            <tr><td>RD 2 స్టేటస్:</td><td id="resRd2"></td></tr>
+        </table>
+    </div>
+</div>
+
+<script>
+async function searchBeneficiary() {
+    const aadharVal = document.getElementById('aadharInput').value.trim();
+    const statusMsg = document.getElementById('statusMessage');
+    const resultBox = document.getElementById('resultContainer');
+
+    statusMsg.innerText = '';
+    statusMsg.style.color = 'black';
+    resultBox.style.display = 'none';
+
+    if (!aadharVal || aadharVal.length !== 12 || isNaN(aadharVal)) {
+        statusMsg.style.color = 'red';
+        statusMsg.innerText = 'దయచేసి సరిగ్గా 12 అంకెల ఆధార్ సంఖ్యను నమోదు చేయండి.';
+        return;
+    }
+
+    statusMsg.innerText = 'వెతుకుతోంది, దయచేసి క్షణం వేచి ఉండండి...';
+
+    try {
+        // అదే సెర్వర్ ని కనెక్ట్ చేయడానికి సాపేక్ష మార్గం (Relative Path) ఉపయోగిస్తున్నాం
+        const response = await fetch('/api/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ aadhar: aadharVal })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            statusMsg.innerText = '';
+            document.getElementById('resSno').innerText = result.data.sno || '-';
+            document.getElementById('resName').innerText = result.data.name || '-';
+            document.getElementById('resFather').innerText = result.data.father_name || '-';
+            document.getElementById('resVillage').innerText = result.data.village || '-';
+            document.getElementById('resMandal').innerText = result.data.mandal || '-';
+            document.getElementById('resAadhar').innerText = result.data.masked_aadhar || '-';
+            document.getElementById('resBank').innerText = result.data.bank_name || '-';
+            document.getElementById('resRd1').innerText = result.data.rd1_status || '-';
+            document.getElementById('resRd2').innerText = result.data.rd2_status || '-';
+            
+            resultBox.style.display = 'block';
+        } else {
+            statusMsg.style.color = 'red';
+            statusMsg.innerText = result.message || 'వివరాలు లభించలేదు.';
+        }
+    } catch (error) {
+        statusMsg.style.color = 'red';
+        statusMsg.innerText = 'సర్వర్‌ను కనెక్ట్ చేయడంలో సమస్య ఏర్పడింది. దయచేసి మళ్లీ ప్రయత్నించండి.';
+    }
+}
+</script>
+
+</body>
+</html>
