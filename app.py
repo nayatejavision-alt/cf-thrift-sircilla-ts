@@ -7,10 +7,29 @@ import gspread
 app = Flask(__name__)
 CORS(app)
 
+import os
+import json
+import google.auth
+from google.oauth2 import service_account
+import gspread
+
 def get_sheets_client():
-    credentials, project = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    )
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    
+    # 1. Render Environment Variables నుండి WIF లేదా Credentials వివరాలు ఉంటే చెక్ చేయడం
+    project_id = os.environ.get('GCP_PROJECT_ID')
+    service_account_email = os.environ.get('GCP_SERVICE_ACCOUNT')
+    provider = os.environ.get('WORKLOAD_IDENTITY_PROVIDER')
+    
+    # Secret File (JSON) ద్వారా వస్తుందో లేదో చెక్ చేయడం
+    cred_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+    
+    if cred_path and os.path.exists(cred_path):
+        credentials = service_account.Credentials.from_service_account_file(cred_path, scopes=scopes)
+    else:
+        # WIF / Environment variables ద్వారా ఆటోమేటిక్ కనెక్షన్
+        credentials, _ = google.auth.default(scopes=scopes)
+        
     client = gspread.authorize(credentials)
     return client
 
