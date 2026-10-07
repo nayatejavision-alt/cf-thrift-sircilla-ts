@@ -3,23 +3,20 @@ name: Deploy Flask API to Google Cloud
 on:
   push:
     branches:
-      - main  # లేదా మీ డిఫాల్ట్ బ్రాంచ్ పేరు (e.g., master)
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    # OIDC టోకెన్ పొందడానికి permissions తప్పనిసరి
     permissions:
       contents: read
       id-token: write
 
     steps:
-    # 1. రిపోజిటరీ కోడ్‌‌ను చెకౌట్ చేయడం
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # 2. Keyless WIF ద్వారా Google Cloud లోకి Authenticate అవ్వడం
     - name: Authenticate to Google Cloud
       id: auth
       uses: google-github-actions/auth@v2
@@ -27,13 +24,10 @@ jobs:
         workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
         service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-    # 3. Google Cloud SDK ని సెటప్ చేయడం
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4. మనం కనెక్ట్ అయ్యామో లేదో చెక్ చేసే చిన్న పరీక్ష
     - name: Test GCP Connection
       run: |
         gcloud info
         gcloud auth list
- 
