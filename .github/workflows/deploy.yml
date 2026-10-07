@@ -1,9 +1,14 @@
-name: Deploy Flask API to Google Cloud
+name: Deploy Flask API to Google Cloud Run
 
 on:
   push:
     branches:
       - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: asia-south1               # మీ ప్రాంతం (e.g., us-central1, asia-south1)
+  SERVICE_NAME: thrift-flask-api    # Cloud Run లో మీ యాప్ పేరు
 
 jobs:
   deploy:
@@ -14,9 +19,11 @@ jobs:
       id-token: write
 
     steps:
+    # 1. Checkout Code
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    # 2. Authenticate to Google Cloud via WIF
     - name: Authenticate to Google Cloud
       id: auth
       uses: google-github-actions/auth@v2
@@ -24,10 +31,15 @@ jobs:
         workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
         service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+    # 3. Set up Cloud SDK
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
 
-    - name: Test GCP Connection
+    # 4. Build and Deploy to Cloud Run
+    - name: Build and Deploy to Cloud Run
       run: |
-        gcloud info
-        gcloud auth list
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --source . \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated
