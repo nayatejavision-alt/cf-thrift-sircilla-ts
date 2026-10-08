@@ -53,13 +53,23 @@ def search_beneficiary():
         if not input_aadhar or len(input_aadhar) != 12 or not input_aadhar.isdigit():
             return jsonify({'success': False, 'message': 'దయచేసి సరైన 12 అంకెల సంఖ్యను ఎంటర్ చేయండి.'}), 400
 
-        client = get_sheets_client()
+       # client = get_sheets_client()
         # షీట్ ఓపెన్ చేయడం
-        spreadsheet = client.open('NEW THRIFT DATA')
-        sheet = spreadsheet.sheet1
+      #  spreadsheet = client.open('NEW THRIFT DATA')
+      #  sheet = spreadsheet.sheet1
         
         # గూగుల్ షీట్ నుండి రికార్డులు పొందడం
-        records = sheet.get_all_records()
+       # records = sheet.get_all_records()
+        client = get_sheets_client()
+
+# 1. గూగుల్ డ్రైవ్‌లోని ఫైల్ పేరుతో స్ప్రెడ్‌షీట్‌ను ఓపెన్ చేయడం
+spreadsheet = client.open('NOT_BANK_SENT_FORM')
+
+# 2. అందులోని 'NEW THRIFT DATA' అనే నిర్దిష్టమైన షీట్‌ను ఎంచుకోవడం
+sheet = spreadsheet.worksheet('NEW THRIFT DATA')
+
+# 3. ఆ షీట్ నుండి రికార్డులను పొందడం
+records = sheet.get_all_records()
 
         matched_record = None
         for row in records:
