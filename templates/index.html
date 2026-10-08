@@ -3,169 +3,199 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>త్రిఫ్ట్ పథకం - లబ్ధిదారుని శోధన</title>
+    <title>త్రిఫ్టు పథకము - పోర్టల్</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f6f9;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 550px;
-            margin: 30px auto;
-            background: #ffffff;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        }
-        h2 {
-            text-align: center;
-            color: #1a73e8;
-            margin-bottom: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            font-weight: bold;
-            margin-bottom: 8px;
-            color: #333;
-        }
-        input[type="text"] {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 16px;
-            box-sizing: border-radius;
-            box-sizing: border-box;
-        }
-        button {
-            width: 100%;
-            background-color: #1a73e8;
-            color: white;
-            padding: 12px;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        button:hover {
-            background-color: #1557b0;
-        }
-        #statusMessage {
-            margin-top: 15px;
-            font-weight: bold;
-            text-align: center;
-        }
-        .result-box {
-            display: none;
-            margin-top: 20px;
-            border-top: 2px solid #e0e0e0;
-            padding-top: 15px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        td {
-            padding: 8px 0;
-            border-bottom: 1px solid #eee;
-        }
-        td:first-child {
-            font-weight: bold;
-            color: #555;
-            width: 45%;
-        }
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .header-banner { background: linear-gradient(135deg, #1e3c72, #2a5298); color: white; padding: 20px 0; }
+        .card-custom { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: none; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>త్రిఫ్ట్ పథకం - లబ్ధిదారుని శోధన</h2>
-    
-    <div class="form-group">
-        <label for="aadharInput">ఆధార్ సంఖ్యను నమోదు చేయండి (12 అంకెలు):</label>
-        <input type="text" id="aadharInput" maxlength="12" placeholder="ఉదా: 123456789012">
+    <!-- Header -->
+    <div class="header-banner text-center mb-4">
+        <h2>🏛️ త్రిఫ్టు పథకము లబ్ధిదారుల పోర్టల్</h2>
+        <p class="mb-0">చేనేత మరియు జౌళి శాఖ</p>
     </div>
 
-    <button onclick="searchBeneficiary()">వెతకండి (Search)</button>
-
-    <div id="statusMessage"></div>
-
-    <div id="resultContainer" class="result-box">
-        <h3 style="color: #2e7d32; margin-top: 0;">లబ్ధిదారుని వివరాలు:</h3>
-        <table>
-            <tr><td>క్రమ సంఖ్య (SNO):</td><td id="resSno"></td></tr>
-            <tr><td>లబ్ధిదారుని పేరు:</td><td id="resName"></td></tr>
-            <tr><td>తండ్రి/భర్త పేరు:</td><td id="resFather"></td></tr>
-            <tr><td>గ్రామం:</td><td id="resVillage"></td></tr>
-            <tr><td>మండలం:</td><td id="resMandal"></td></tr>
-            <tr><td>ఆధార్ సంఖ్య:</td><td id="resAadhar"></td></tr>
-            <tr><td>బ్యాంకు పేరు:</td><td id="resBank"></td></tr>
-            <tr><td>RD 1 స్టేటస్:</td><td id="resRd1"></td></tr>
-            <tr><td>RD 2 స్టేటస్:</td><td id="resRd2"></td></tr>
-        </table>
-    </div>
-</div>
-
-<script>
-async function searchBeneficiary() {
-    const aadharVal = document.getElementById('aadharInput').value.trim();
-    const statusMsg = document.getElementById('statusMessage');
-    const resultBox = document.getElementById('resultContainer');
-
-    statusMsg.innerText = '';
-    statusMsg.style.color = 'black';
-    resultBox.style.display = 'none';
-
-    if (!aadharVal || aadharVal.length !== 12 || isNaN(aadharVal)) {
-        statusMsg.style.color = 'red';
-        statusMsg.innerText = 'దయచేసి సరిగ్గా 12 అంకెల ఆధార్ సంఖ్యను నమోదు చేయండి.';
-        return;
-    }
-
-    statusMsg.innerText = 'వెతుకుతోంది, దయచేసి క్షణం వేచి ఉండండి...';
-
-    try {
-        // అదే సెర్వర్ ని కనెక్ట్ చేయడానికి సాపేక్ష మార్గం (Relative Path) ఉపయోగిస్తున్నాం
-        const response = await fetch('https://cf-thrift-sircilla-ts.onrender.com/api/search', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ aadhar: aadharVal })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            statusMsg.innerText = '';
-            document.getElementById('resSno').innerText = result.data.sno || '-';
-            document.getElementById('resName').innerText = result.data.name || '-';
-            document.getElementById('resFather').innerText = result.data.father_name || '-';
-            document.getElementById('resVillage').innerText = result.data.village || '-';
-            document.getElementById('resMandal').innerText = result.data.mandal || '-';
-            document.getElementById('resAadhar').innerText = result.data.masked_aadhar || '-';
-            document.getElementById('resBank').innerText = result.data.bank_name || '-';
-            document.getElementById('resRd1').innerText = result.data.rd1_status || '-';
-            document.getElementById('resRd2').innerText = result.data.rd2_status || '-';
+    <div class="container-fluid px-4">
+        <div class="row">
             
-            resultBox.style.display = 'block';
-        } else {
-            statusMsg.style.color = 'red';
-            statusMsg.innerText = result.message || 'వివరాలు లభించలేదు.';
-        }
-    } catch (error) {
-        statusMsg.style.color = 'red';
-        statusMsg.innerText = 'సర్వర్‌ను కనెక్ట్ చేయడంలో సమస్య ఏర్పడింది. దయచేసి మళ్లీ ప్రయత్నించండి.';
-    }
-}
-</script>
+            <!-- సైడ్ ప్యానెల్: బ్యాంక్ అధికారుల లాగిన్ -->
+            <div class="col-md-4 mb-4">
+                <div class="card card-custom p-4 bg-white">
+                    <h4 class="text-primary border-bottom pb-2">🔒 బ్యాంక్ లాగిన్</h4>
+                    
+                    <!-- లాగిన్ ఫారమ్ -->
+                    <div id="login-section">
+                        <div class="mb-3">
+                            <label class="form-label font-weight-bold">బ్యాంక్ ఎంచుకోండి:</label>
+                            <select id="bank-select" class="form-select">
+                                 <option value="">-- బ్యాంక్ సెలెక్ట్ చేయండి --</option>
+    
+                                    <!-- Jinja2 లూప్ ద్వారా గూగుల్ షీట్ లోని బ్యాంకులు ఆటోమేటిక్‌గా ఇక్కడ వస్తాయి -->
+                                    {% for bank in banks %}
+                                  <option value="{{ bank }}">{{ bank }}</option>
+                                    {% endfor %}
+    
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">PIN / పాస్‌వర్డ్:</label>
+                            <input type="password" id="bank-pin" class="form-control" placeholder="4 అంకెల PIN ఎంటర్ చేయండి">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="loginBank()">లాగిన్ అవ్వండి</button>
+                        <div id="login-msg" class="mt-2 text-danger"></div>
+                    </div>
 
+                    <!-- లాగిన్ అయ్యాక కనిపించే ప్యానెల్ -->
+                    <div id="bank-dashboard-info" style="display: none;">
+                        <div class="alert alert-success">
+                            <strong id="logged-bank-name"></strong> బ్యాంక్ లాగిన్ విజయవంతమైంది!
+                        </div>
+                        <button class="btn btn-outline-danger w-100" onclick="logoutBank()">లాగౌట్ (Logout)</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- మెయిన్ ప్యానెల్: ఓపెన్ ఆధార్ సెర్చ్ & బ్యాంక్ డాష్‌బోర్డ్ డేటా -->
+            <div class="col-md-8">
+                
+                <!-- 1. ఆధార్ సెర్చ్ కార్డ్ (ఎవరైనా సెర్చ్ చేసుకోవచ్చు) -->
+                <div class="card card-custom p-4 bg-white mb-4">
+                    <h4 class="text-secondary border-bottom pb-2">🔍 లబ్ధిదారుడి శోధన (Aadhaar Search)</h4>
+                    <div class="input-group my-3">
+                        <input type="text" id="search-aadhaar" class="form-control form-control-lg" placeholder="ఆధార్ సంఖ్య ఎంటర్ చేయండి...">
+                        <button class="btn btn-success btn-lg" onclick="searchBeneficiary()">వెతకండి</button>
+                    </div>
+                    <div id="search-results"></div>
+                </div>
+
+                <!-- 2. బ్యాంక్ ప్రత్యేక డాష్‌బోర్డ్ (లాగిన్ అయ్యాక మాత్రమే డేటా కనిపిస్తుంది) -->
+                <div id="bank-data-section" class="card card-custom p-4 bg-white" style="display: none;">
+                    <h4 class="text-success border-bottom pb-2">📊 మీ బ్యాంకు లబ్ధిదారుల జాబితా</h4>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>క్రమ సంఖ్య</th>
+                                    <th>లబ్ధిదారుడి పేరు</th>
+                                    <th>ఆధార్ సంఖ్య</th>
+                                    <th>ఖాతా సంఖ్య</th>
+                                    <th>FILE NAME</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bank-table-body">
+                                <!-- డేటా ఇక్కడ లోడ్ అవుతుంది -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // 1. ఆధార్ సెర్చ్ ఫంక్షన్
+        async function searchBeneficiary() {
+            const aadhaar = document.getElementById('search-aadhaar').value;
+            const resultsDiv = document.getElementById('search-results');
+            resultsDiv.innerHTML = "<p class='text-info'>వెతుకుతున్నాం...</p>";
+
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ aadhaar: aadhaar })
+            });
+            const response = await res.json();
+
+            if (response.data.length > 0) {
+                let html = `<table class="table table-bordered mt-2">
+                    <tr class="table-info"><th>పేరు</th><th>ఆధార్</th><th>బ్యాంక్ ఫైల్</th></tr>`;
+                response.data.forEach(row => {
+                    html += `<tr>
+                        <td>${row['NAME'] || row['Name'] || 'N/A'}</td>
+                        <td>${row['AADHAAR'] || row['Aadhaar'] || 'N/A'}</td>
+                        <td>${row['FILE NAME'] || 'N/A'}</td>
+                    </tr>`;
+                });
+                html += `</table>`;
+                resultsDiv.innerHTML = html;
+            } else {
+                resultsDiv.innerHTML = "<p class='text-danger'>లబ్ధిదారుడి వివరాలు లభించలేదు.</p>";
+            }
+        }
+
+        // 2. బ్యాంక్ లాగిన్ ఫంక్షన్
+        async function loginBank() {
+            const bankName = document.getElementById('bank-select').value;
+            const pin = document.getElementById('bank-pin').value;
+            const msgDiv = document.getElementById('login-msg');
+
+            if (!bankName || !pin) {
+                msgDiv.innerText = "దయచేసి బ్యాంక్ మరియు PIN వివరాలు నమోదు చేయండి.";
+                return;
+            }
+
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ bank_name: bankName, pin: pin })
+            });
+            const response = await res.json();
+
+            if (response.status === 'success') {
+                msgDiv.innerText = "";
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('bank-dashboard-info').style.display = 'block';
+                document.getElementById('logged-bank-name').innerText = bankName;
+                
+                // లాగిన్ అయ్యాక ఆ బ్యాంక్ డేటాను లోడ్ చేయడం
+                loadBankData();
+            } else {
+                msgDiv.innerText = response.message;
+            }
+        }
+
+        // 3. బ్యాంక్ డేటాను లోడ్ చేసే ఫంక్షన్
+        async function loadBankData() {
+            const bankDataSection = document.getElementById('bank-data-section');
+            const tbody = document.getElementById('bank-table-body');
+            bankDataSection.style.display = 'block';
+            tbody.innerHTML = "<tr><td colspan='5' class='text-center'>డేటా లోడ్ అవుతోంది...</td></tr>";
+
+            const res = await fetch('/api/bank-data');
+                method: 'GET'
+            const response = await res.json();
+
+            if (response.status === 'success' && response.data.length > 0) {
+                let html = "";
+                response.data.forEach((row, index) => {
+                    html += `<tr>
+                        <td>${index + 1}</td>
+                        <td>${row['NAME'] || row['Name'] || 'N/A'}</td>
+                        <td>${row['AADHAAR'] || row['Aadhaar'] || 'N/A'}</td>
+                        <td>${row['ACCOUNT NO'] || row['ACCOUNT'] || 'N/A'}</td>
+                        <td>${row['FILE NAME'] || 'N/A'}</td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            } else {
+                tbody.innerHTML = "<tr><td colspan='5' class='text-center text-warning'>ఈ బ్యాంకుకు సంబంధించిన డేటా ఏమీ లభించలేదు.</td></tr>";
+            }
+        }
+
+        // 4. బ్యాంక్ లాగౌట్ ఫంక్షన్
+        async function logoutBank() {
+            await fetch('/api/logout', { method: 'POST' });
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('bank-dashboard-info').style.display = 'none';
+            document.getElementById('bank-data-section').style.display = 'none';
+            document.getElementById('bank-pin').value = '';
+        }
+    </script>
 </body>
 </html>
