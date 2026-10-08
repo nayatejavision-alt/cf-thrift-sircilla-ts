@@ -37,10 +37,21 @@ def get_sheets_client():
     return client
 
 # 1. హోమ్ పేజీ రౌట్
-@app.route('/')
+@app.route("/")
 def home():
-    return render_template('index.html')
+    try:
+        # BANK_LOGINS ట్యాబ్ నుండి బ్యాంకుల వివరాలు తీసుకోవడం
+        login_sheet = sheet.worksheet("BANK_LOGINS")
+        logins = login_sheet.get_all_records()
 
+        # డ్రాప్‌డౌన్ కోసం కేవలం బ్యాంక్ పేర్ల జాబితా (List) తయారు చేయడం
+        bank_list = [row.get("Bank Name").strip() for row in logins if row.get("Bank Name")]
+    except Exception as e:
+        print("Error fetching bank list:", e)
+        bank_list = []
+
+    # బ్యాంకుల లిస్ట్‌ను index.html ఫైల్‌కి పంపడం
+    return render_template("index.html", banks=bank_list)
 # 2. శోధన API రౌట్
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
