@@ -43,9 +43,25 @@ def home():
         # BANK_LOGINS ట్యాబ్ నుండి బ్యాంకుల వివరాలు తీసుకోవడం
         login_sheet = sheet.worksheet("BANK_LOGINS")
         logins = login_sheet.get_all_records()
+        # షీట్ నుండి వచ్చిన డేటాని కమాండ్ ప్రాంప్ట్‌లో ప్రింట్ చేయడం
+        print("--- గూగుల్ షీట్ నుండి వచ్చిన డేటా ---")
+        print(logins)
+        bank_list = []
+        for row in logins:
+            # ఏ నేమ్‌తో ఉందో చెక్ చేయడం
+            b_name = (
+                row.get("Bank Name")
+                or row.get("BANK NAME")
+                or row.get("Bank_Name")
+            )
+            if b_name:
+                bank_list.append(str(b_name).strip())
+
+        print("--- డ్రాప్‌డౌన్ కోసం వచ్చిన బ్యాంకులు ---")
+        print(bank_list)
 
         # డ్రాప్‌డౌన్ కోసం కేవలం బ్యాంక్ పేర్ల జాబితా (List) తయారు చేయడం
-        bank_list = [row.get("Bank Name").strip() for row in logins if row.get("Bank Name")]
+        bank_list = [row.get("Bank Name","Bank_Name").strip() for row in logins if row.get("Bank Name","Bank_Name")]
     except Exception as e:
         print("Error fetching bank list:", e)
         bank_list = []
