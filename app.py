@@ -1,40 +1,38 @@
 import os
+import json
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
+from google.oauth2 import service_account
 import google.auth
 import gspread
 
 app = Flask(__name__)
 CORS(app)
 
-import os
-import json
-import google.auth
-from google.oauth2 import service_account
-import gspread
-
 def get_sheets_client():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
     
-    # 1. Render Environment Variables నుండి WIF లేదా Credentials వివరాలు ఉంటే చెక్ చేయడం
-    project_id = os.environ.get('GCP_PROJECT_ID')
-    service_account_email = os.environ.get('GCP_SERVICE_ACCOUNT')
-    provider = os.environ.get('WORKLOAD_IDENTITY_PROVIDER')
+    # 1. Render లో ఉన్న GOOGLE_CREDENTIALS_JSON Environment Variable ని చెక్ చేయడం
+    credentials_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
     
-    # Secret File (JSON) ద్వారా వస్తుందో లేదో చెక్ చేయడం
-    cred_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-    
-    if cred_path and os.path.exists(cred_path):
-        credentials = service_account.Credentials.from_service_account_file(cred_path, scopes=scopes)
+    if credentials_json_str:
+        # JSON స్ట్రింగ్ ని డిక్షనరీగా మార్చి సర్వీస్ అకౌంట్ క్రెడెన్షియల్స్ పొందడం
+        info = json.loads(credentials_json_str)
+        credentials = service_account.Credentials.from_service_account_info(info, scopes=scopes)
     else:
-        # WIF / Environment variables ద్వారా ఆటోమేటిక్ కనెక్షన్
-        credentials, _ = google.auth.default(scopes=scopes)
-        
+        # క్రెడెన్షియల్ ఫైల్ పాత్ ఉందో లేదో చెక్ చేయడం (Local Development కోసం)
+        cred_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+        if cred_path and os.path.exists(cred_path):
+            credentials = service_account.Credentials.from_service_account_file(cred_path, scopes=scopes)
+        else:
+            # మిగతా డిఫాల్ట్ ఆథెంటికేషన్
+            credentials, _ = google.auth.default(scopes=scopes)
+            
     client = gspread.authorize(credentials)
     return client
-
-
-
 
 # 1. హోమ్ పేజీ రౌట్ (HTML సెర్చ్ ఫారమ్ చూపిస్తుంది)
 @app.route('/')
@@ -48,7 +46,7 @@ def search_beneficiary():
     input_aadhar = str(data.get('aadhar', '')).strip().replace('-', '').replace(' ', '')
 
     if not input_aadhar or len(input_aadhar) != 12 or not input_aadhar.isdigit():
-        return jsonify({'success': False, 'message': 'దయచేసి సరైన 12 అంకెల ఆధార్ సంఖ్యను ఎంటర్ చేయండి.'}), 400
+        return jsonify({'success': False, 'message': 'దయచేసి సరైన 12 అంకెల సంఖ్యను ఎంటర్ చేయండి.'}), 400
 
     try:
         client = get_sheets_client()
@@ -79,7 +77,7 @@ def search_beneficiary():
             }
             return jsonify({'success': True, 'data': result})
         else:
-            return jsonify({'success': False, 'message': 'సదరు ఆధార్ సంఖ్యతో ఎలాంటి వివరాలు లభించలేదు.'})
+            return jsonify({'success': False, 'message': 'సదరు సంఖ్యతో ఎలాంటి వివరాలు లభించలేదు.'})
 
     except Exception as e:
         return jsonify({'success': False, 'message': f'సర్వర్ లోపం సంభవించింది: {str(e)}'}), 500
