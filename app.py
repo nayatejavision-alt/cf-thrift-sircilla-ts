@@ -1,14 +1,29 @@
 import os
 import json
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
 from google.oauth2 import service_account
+from google.oauth2.service_account import Credentials
 import google.auth
 import google.auth.transport.requests
 import gspread
 
 app = Flask(__name__)
+app.secret_key = "thrift_scheme_secret_key"
 CORS(app)
+
+# 1. Google Sheets API Connection Setup
+SCOPE = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+CREDS = Credentials.from_service_account_file("credentials.json", scopes=SCOPE)
+CLIENT = gspread.authorize(CREDS)
+
+# 2. ఇక్కడ 'sheet' వేరియబుల్‌ను క్రియేట్ చేస్తున్నాం!
+# మీ గూగుల్ షీట్ పేరు ఇక్కడ ఖచ్చితంగా రాయండి
+SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"  # <--- ఇక్కడ మీ Google Sheet పేరు ఇవ్వండి
+sheet = CLIENT.open(SPREADSHEET_NAME)
 
 def get_sheets_client():
     scopes = [
