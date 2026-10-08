@@ -4,13 +4,11 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from google.oauth2 import service_account
 import google.auth
+import google.auth.transport.requests
 import gspread
 
 app = Flask(__name__)
 CORS(app)
-
-def home():
-    return render_template('index.html')
 
 def get_sheets_client():
     scopes = [
@@ -30,9 +28,19 @@ def get_sheets_client():
         else:
             credentials, _ = google.auth.default(scopes=scopes)
             
+    # టోకెన్‌ను రీఫ్రెష్ చేయడం వల్ల <Response [200]> ఎర్రర్ రాదు
+    request_session = google.auth.transport.requests.Request()
+    credentials.refresh(request_session)
+            
     client = gspread.authorize(credentials)
     return client
 
+# 1. హోమ్ పేజీ రౌట్ (HTML చూపిస్తుంది)
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+# 2. శోధన API రౌట్
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
     try:
@@ -55,7 +63,6 @@ def search_beneficiary():
 
         matched_record = None
         for row in records:
-            # కాలమ్ పేర్లు మీ గూగుల్ షీట్ ఆధారంగా చెక్ చేసుకోండి
             raw_val = str(row.get('Aadhar Number') or row.get('ADHAR') or row.get('AADHAR') or '').split('.')[0].strip()
             if raw_val == input_aadhar:
                 matched_record = row
@@ -81,8 +88,8 @@ def search_beneficiary():
             return jsonify({'success': False, 'message': 'సదరు సంఖ్యతో ఎలాంటి వివరాలు లభించలేదు.'})
 
     except Exception as e:
-        # ఎర్రర్ వివరాలను సరిగ్గా ప్రింట్ చేయడం
         print(f"Error details: {repr(e)}")
         return jsonify({'success': False, 'message': f'సర్వర్ లోపం సంభవించింది: {str(e)}'}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
