@@ -28,14 +28,15 @@ def get_sheets_client():
         else:
             credentials, _ = google.auth.default(scopes=scopes)
             
-    # టోకెన్‌ను రీఫ్రెష్ చేయడం వల్ల <Response [200]> ఎర్రర్ రాదు
+    # టోకెన్ చెల్లుబాటు పర్యవేక్షణ
     request_session = google.auth.transport.requests.Request()
-    credentials.refresh(request_session)
+    if not credentials.valid:
+        credentials.refresh(request_session)
             
     client = gspread.authorize(credentials)
     return client
 
-# 1. హోమ్ పేజీ రౌట్ (HTML చూపిస్తుంది)
+# 1. హోమ్ పేజీ రౌట్
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -48,42 +49,35 @@ def search_beneficiary():
         if not data:
             return jsonify({'success': False, 'message': 'చెల్లుబాటు అయ్యే వివరాలు పంపలేదు.'}), 400
 
-        input_aadhar = str(data.get('aadhar', '')).strip().replace('-', '').replace(' ', '')
+        input_id = str(data.get('aadhar', '')).strip().replace('-', '').replace(' ', '')
 
-        if not input_aadhar or len(input_aadhar) != 12 or not input_aadhar.isdigit():
+        if not input_id or len(input_id) != 12 or not input_id.isdigit():
             return jsonify({'success': False, 'message': 'దయచేసి సరైన 12 అంకెల సంఖ్యను ఎంటర్ చేయండి.'}), 400
 
-       # client = get_sheets_client()
-        # షీట్ ఓపెన్ చేయడం
-      #  spreadsheet = client.open('NEW THRIFT DATA')
-      #  sheet = spreadsheet.sheet1
-        
-        # గూగుల్ షీట్ నుండి రికార్డులు పొందడం
-       # records = sheet.get_all_records()
         client = get_sheets_client()
 
-# 1. గూగుల్ డ్రైవ్‌లోని ఫైల్ పేరుతో స్ప్రెడ్‌షీట్‌ను ఓపెన్ చేయడం
-spreadsheet = client.open('NOT_BANK_SENT_FORM')
+        # 1. గూగుల్ డ్రైవ్‌లోని ఫైల్ పేరుతో స్ప్రెడ్‌షీట్‌ను ఓపెన్ చేయడం
+        spreadsheet = client.open('NOT_BANK_SENT_FORM')
 
-# 2. అందులోని 'NEW THRIFT DATA' అనే నిర్దిష్టమైన షీట్‌ను ఎంచుకోవడం
-sheet = spreadsheet.worksheet('NEW THRIFT DATA')
+        # 2. అందులోని 'NEW THRIFT DATA' అనే నిర్దిష్టమైన షీట్‌ను ఎంచుకోవడం
+        sheet = spreadsheet.worksheet('NEW THRIFT DATA')
 
-# 3. ఆ షీట్ నుండి రికార్డులను పొందడం
-records = sheet.get_all_records()
+        # 3. ఆ షీట్ నుండి రికార్డులను పొందడం
+        records = sheet.get_all_records()
 
         matched_record = None
         for row in records:
             raw_val = str(row.get('Aadhar Number') or row.get('ADHAR') or row.get('AADHAR') or '').split('.')[0].strip()
-            if raw_val == input_aadhar:
+            if raw_val == input_id:
                 matched_record = row
                 break
 
         if matched_record:
-            masked_aadhar = f"XXXX-XXXX-{input_aadhar[-4:]}"
+            masked_id = f"XXXX-XXXX-{input_id[-4:]}"
 
             result = {
                 'sno': matched_record.get('SNO'),
-                'masked_aadhar': masked_aadhar,
+                'masked_aadhar': masked_id,
                 'name': matched_record.get('Name Of Benificiary') or matched_record.get('NAME'),
                 'father_name': matched_record.get('Father Name') or matched_record.get('FATHER NAME'),
                 'village': matched_record.get('VILLAGE NAME') or matched_record.get('VILLAGE'),
