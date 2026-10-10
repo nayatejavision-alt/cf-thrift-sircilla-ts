@@ -3,7 +3,6 @@ import json
 from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
 from google.oauth2 import service_account
-from google.oauth2.service_account import Credentials
 import google.auth
 import google.auth.transport.requests
 import gspread
@@ -11,6 +10,8 @@ import gspread
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
 CORS(app)
+
+SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"
 
 # Google Sheets API Connection Setup Function
 def get_sheets_client():
@@ -39,29 +40,17 @@ def get_sheets_client():
     client = gspread.authorize(credentials)
     return client
 
-# గ్లోబల్ షీట్ కనెక్షన్
-SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"
-try:
-    CLIENT = get_sheets_client()
-    sheet = CLIENT.open(SPREADSHEET_NAME)
-except Exception as e:
-    print("Error connecting to Google Sheets:", e)
-    sheet = None
-
-# 1. హోమ్ పేజీ రౌట్
+# 1. హోమ్ పేజీ రౌట్ (బ్యాంక్ లిస్ట్‌ను డ్రాప్‌డౌన్ కోసం పంపుతుంది)
 @app.route("/")
 def home():
     bank_list = []
     try:
-        if not sheet:
-            raise Exception("Spreadsheet connection not available.")
-            
-        # BANK_LOGINS ట్యాబ్ నుండి బ్యాంకుల వివరాలు తీసుకోవడం
-        login_sheet = sheet.worksheet("BANK_LOGINS")
-        logins = login_sheet.get_all_records()
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
         
-        print("--- గూగుల్ షీట్ నుండి వచ్చిన డేటా ---")
-        print(logins)
+        # BANK_LOGINS ట్యాబ్ నుండి బ్యాంకుల వివరాలు తీసుకోవడం
+        login_sheet = spreadsheet.worksheet("BANK_LOGINS")
+        logins = login_sheet.get_all_records()
         
         for row in logins:
             b_name = (
@@ -70,19 +59,20 @@ def home():
                 or row.get("Bank_Name")
             )
             if b_name:
-                bank_list.append(str(b_name).strip())
+                cleaned_name = str(b_name).strip()
+                if cleaned_name and cleaned_name not in bank_list:
+                    bank_list.append(cleaned_name)
 
-        print("--- డ్రాప్‌డౌన్ కోసం వచ్చిన బ్యాంకులు ---")
+        print("--- డ్రాప్‌డౌన్ కోసం విజయవంతంగా లోడ్ అయిన బ్యాంకులు ---")
         print(bank_list)
 
     except Exception as e:
         print("Error fetching bank list:", e)
         bank_list = []
 
-    # బ్యాంకుల లిస్ట్‌ను index.html ఫైల్‌కి పంపడం
     return render_template("index.html", banks=bank_list)
 
-# 2. శోధన API రౌట్
+# 2. ఆధార్ శోధన API రౌట్
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
     try:
@@ -96,14 +86,8 @@ def search_beneficiary():
             return jsonify({'success': False, 'message': 'దయచేసి సరైన 12 అంకెల సంఖ్యను ఎంటర్ చేయండి.'}), 400
 
         client = get_sheets_client()
-
-        # 1. గూగుల్ డ్రైవ్‌లోని ఫైల్ పేరుతో స్ప్రెడ్‌షీట్‌ను ఓపెన్ చేయడం
-        spreadsheet = client.open('NOT_BANK_SENT_FORM')
-
-        # 2. అందులోని 'NEW THRIFT DATA' అనే నిర్దిష్టమైన షీట్‌ను ఎంచుకోవడం
+        spreadsheet = client.open(SPREADSHEET_NAME)
         target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-
-        # 3. ఆ షీట్ నుండి రికార్డులను పొందడం
         records = target_sheet.get_all_records()
 
         matched_record = None
@@ -117,7 +101,7 @@ def search_beneficiary():
             masked_id = f"XXXX-XXXX-{input_id[-4:]}"
 
             result = {
-                'sno': matched_record.get('SNO'),
+                'sno': matched_record.get('BANK_SNO'),
                 'masked_aadhar': masked_id,
                 'name': matched_record.get('Name Of Benificiary') or matched_record.get('NAME'),
                 'father_name': matched_record.get('Father Name') or matched_record.get('FATHER NAME'),
@@ -135,6 +119,67 @@ def search_beneficiary():
     except Exception as e:
         print(f"Error details: {repr(e)}")
         return jsonify({'success': False, 'message': f'సర్వర్ లోపం సంభవించింది: {str(e)}'}), 500
+
+# 3. బ్యాంక్ లాగిన్ API
+@app.route("/api/login", methods=["POST"])
+def bank_login():
+    try:
+        data = request.get_json()
+        bank_name = str(data.get("bank_name", "")).strip()
+        pin = str(data.get("pin", "")).strip()
+
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        login_sheet = spreadsheet.worksheet("BANK_LOGINS")
+        logins = login_sheet.get_all_records()
+
+        authenticated = False
+        for row in logins:
+            sheet_bank = str(row.get("Bank Name") or row.get("BANK NAME") or "").strip()
+            sheet_pin = str(row.get("PIN") or row.get("Pin") or "").strip()
+
+            if sheet_bank.lower() == bank_name.lower() and sheet_pin == pin:
+                authenticated = True
+                break
+
+        if authenticated:
+            session["bank_user"] = bank_name
+            return jsonify({"status": "success", "message": "లాగిన్ విజయవంతమైంది!"})
+        else:
+            return jsonify({"status": "error", "message": "తప్పు PIN లేదా బ్యాంక్ పేరు!"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"లాగిన్ లోపం: {str(e)}"})
+
+# 4. లాగిన్ అయిన బ్యాంకు డేటాను తీసుకునే API
+@app.route("/api/bank-data", methods=["GET"])
+def get_bank_data():
+    try:
+        bank_user = session.get("bank_user")
+        if not bank_user:
+            return jsonify({"status": "error", "message": "దయచేసి ముందుగా లాగిన్ అవ్వండి!"})
+
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
+        records = target_sheet.get_all_records()
+
+        filtered_data = []
+        for row in records:
+            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
+            if bank_user.lower() in file_name.lower():
+                filtered_data.append(row)
+
+        return jsonify({"status": "success", "bank": bank_user, "data": filtered_data})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
+
+# 5. లాగౌట్ API
+@app.route("/api/logout", methods=["POST"])
+def bank_logout():
+    session.pop("bank_user", None)
+    return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
