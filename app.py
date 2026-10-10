@@ -12,19 +12,7 @@ app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
 CORS(app)
 
-# 1. Google Sheets API Connection Setup
-SCOPE = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-CREDS = Credentials.from_service_account_file("credentials.json", scopes=SCOPE)
-CLIENT = gspread.authorize(CREDS)
-
-# 2. ఇక్కడ 'sheet' వేరియబుల్‌ను క్రియేట్ చేస్తున్నాం!
-# మీ గూగుల్ షీట్ పేరు ఇక్కడ ఖచ్చితంగా రాయండి
-SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"  # <--- ఇక్కడ మీ Google Sheet పేరు ఇవ్వండి
-sheet = CLIENT.open(SPREADSHEET_NAME)
-
+# Google Sheets API Connection Setup Function
 def get_sheets_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -51,19 +39,31 @@ def get_sheets_client():
     client = gspread.authorize(credentials)
     return client
 
+# గ్లోబల్ షీట్ కనెక్షన్
+SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"
+try:
+    CLIENT = get_sheets_client()
+    sheet = CLIENT.open(SPREADSHEET_NAME)
+except Exception as e:
+    print("Error connecting to Google Sheets:", e)
+    sheet = None
+
 # 1. హోమ్ పేజీ రౌట్
 @app.route("/")
 def home():
+    bank_list = []
     try:
+        if not sheet:
+            raise Exception("Spreadsheet connection not available.")
+            
         # BANK_LOGINS ట్యాబ్ నుండి బ్యాంకుల వివరాలు తీసుకోవడం
         login_sheet = sheet.worksheet("BANK_LOGINS")
         logins = login_sheet.get_all_records()
-        # షీట్ నుండి వచ్చిన డేటాని కమాండ్ ప్రాంప్ట్‌లో ప్రింట్ చేయడం
+        
         print("--- గూగుల్ షీట్ నుండి వచ్చిన డేటా ---")
         print(logins)
-        bank_list = []
+        
         for row in logins:
-            # ఏ నేమ్‌తో ఉందో చెక్ చేయడం
             b_name = (
                 row.get("Bank Name")
                 or row.get("BANK NAME")
@@ -75,14 +75,13 @@ def home():
         print("--- డ్రాప్‌డౌన్ కోసం వచ్చిన బ్యాంకులు ---")
         print(bank_list)
 
-        # డ్రాప్‌డౌన్ కోసం కేవలం బ్యాంక్ పేర్ల జాబితా (List) తయారు చేయడం
-        bank_list = [row.get("Bank Name","Bank_Name").strip() for row in logins if row.get("Bank Name","Bank_Name")]
     except Exception as e:
         print("Error fetching bank list:", e)
         bank_list = []
 
     # బ్యాంకుల లిస్ట్‌ను index.html ఫైల్‌కి పంపడం
     return render_template("index.html", banks=bank_list)
+
 # 2. శోధన API రౌట్
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
@@ -102,10 +101,10 @@ def search_beneficiary():
         spreadsheet = client.open('NOT_BANK_SENT_FORM')
 
         # 2. అందులోని 'NEW THRIFT DATA' అనే నిర్దిష్టమైన షీట్‌ను ఎంచుకోవడం
-        sheet = spreadsheet.worksheet('NEW THRIFT DATA')
+        target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
 
         # 3. ఆ షీట్ నుండి రికార్డులను పొందడం
-        records = sheet.get_all_records()
+        records = target_sheet.get_all_records()
 
         matched_record = None
         for row in records:
