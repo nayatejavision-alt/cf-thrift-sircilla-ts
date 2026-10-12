@@ -22,42 +22,50 @@
     <div class="container-fluid px-4">
         <div class="row">
             
+          
             <!-- సైడ్ ప్యానెల్: బ్యాంక్ అధికారుల లాగిన్ -->
-            <div class="col-md-4 mb-4">
-                <div class="card card-custom p-4 bg-white">
-                    <h4 class="text-primary border-bottom pb-2">🔒 బ్యాంక్ లాగిన్</h4>
-                    
-                    <!-- లాగిన్ ఫారమ్ -->
-                    <div id="login-section">
-                        <div class="mb-3">
-                            <label class="form-label font-weight-bold">బ్యాంక్ ఎంచుకోండి:</label>
-                            <select id="bank-select" class="form-select">
-                                 <option value="">-- బ్యాంక్ సెలెక్ట్ చేయండి --</option>
-    
-                                    <!-- Jinja2 లూప్ ద్వారా గూగుల్ షీట్ లోని బ్యాంకులు ఆటోమేటిక్‌గా ఇక్కడ వస్తాయి -->
-                                    {% for bank in banks %}
-                                  <option value="{{ bank }}">{{ bank }}</option>
-                                    {% endfor %}
-    
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">PIN / పాస్‌వర్డ్:</label>
-                            <input type="password" id="bank-pin" class="form-control" placeholder="4 అంకెల PIN ఎంటర్ చేయండి">
-                        </div>
-                        <button class="btn btn-primary w-100" onclick="loginBank()">లాగిన్ అవ్వండి</button>
-                        <div id="login-msg" class="mt-2 text-danger"></div>
-                    </div>
-
-                    <!-- లాగిన్ అయ్యాక కనిపించే ప్యానెల్ -->
-                    <div id="bank-dashboard-info" style="display: none;">
-                        <div class="alert alert-success">
-                            <strong id="logged-bank-name"></strong> బ్యాంక్ లాగిన్ విజయవంతమైంది!
-                        </div>
-                        <button class="btn btn-outline-danger w-100" onclick="logoutBank()">లాగౌట్ (Logout)</button>
-                    </div>
+<div class="col-md-4 mb-4">
+    <div class="card card-custom p-4 bg-white">
+        
+        <!-- హెడ్డింగ్ - క్లిక్ చేస్తే ఓపెన్/క్లోజ్ అయ్యేలా టోగుల్ బటన్ -->
+        <div class="d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#loginCollapse" aria-expanded="false" aria-controls="loginCollapse">
+            <h4 class="text-primary mb-0">🔒 బ్యాంక్ లాగిన్</h4>
+            <span class="text-muted">▼ క్లిక్ చేయండి</span>
+        </div>
+        
+        <!-- కొలాప్స్ అయ్యే డివిజన్ (Expand / Hide అయ్యే భాగం) -->
+        <div class="collapse show mt-3" id="loginCollapse">
+            
+            <!-- లాగిన్ ఫారమ్ -->
+            <div id="login-section">
+                <div class="mb-3">
+                    <label class="form-label font-weight-bold">బ్యాంక్ ఎంచుకోండి:</label>
+                    <select id="bank-select" class="form-select">
+                        <option value="">-- బ్యాంక్ సెలెక్ట్ చేయండి --</option>
+                        {% for bank in banks %}
+                        <option value="{{ bank }}">{{ bank }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">PIN / పాస్‌వర్డ్:</label>
+                    <input type="password" id="bank-pin" class="form-control" placeholder="4 అంకెల PIN ఎంటర్ చేయండి">
+                </div>
+                <button class="btn btn-primary w-100" onclick="loginBank()">లాగిన్ అవ్వండి</button>
+                <div id="login-msg" class="mt-2 text-danger"></div>
             </div>
+
+            <!-- లాగిన్ అయ్యాక కనిపించే ప్యానెల్ -->
+            <div id="bank-dashboard-info" style="display: none;">
+                <div class="alert alert-success">
+                    <strong id="logged-bank-name"></strong> బ్యాంక్ లాగిన్ విజయవంతమైంది!
+                </div>
+                <button class="btn btn-outline-danger w-100" onclick="logoutBank()">లాగౌట్ (Logout)</button>
+            </div>
+
+        </div>
+    </div>
+</div>
 
             <!-- మెయిన్ ప్యానెల్: ఓపెన్ ఆధార్ సెర్చ్ & బ్యాంక్ డాష్‌బోర్డ్ డేటా -->
             <div class="col-md-8">
