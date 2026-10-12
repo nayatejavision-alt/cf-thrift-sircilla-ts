@@ -237,8 +237,8 @@ def update_rd_accounts():
 
         data = request.get_json()
         bank_sno = str(data.get("bank_sno")).strip()
-        rd1 = f"'{data.get("rd1")}"
-        rd2 = f"'{data.get("rd2")}"
+        rd1 = f"'{data.get('rd1')}'"
+        rd2 = f"'{data.get('rd2')}'"
 
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
