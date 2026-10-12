@@ -176,9 +176,9 @@
                 response.data.forEach((row, index) => {
                     html += `<tr>
                         <td>${index + 1}</td>
-                        <td>${row['NAME'] || row['Name'] || 'N/A'}</td>
-                        <td>${row['AADHAAR'] || row['Aadhaar'] || 'N/A'}</td>
-                        <td>${row['ACCOUNT NO'] || row['ACCOUNT'] || 'N/A'}</td>
+                        <td>${row['Name Of Benificiary'] || row['Name'] || 'N/A'}</td>
+                        <td>${row['Bank Account Number'] || row['Aadhaar'] || 'N/A'}</td>
+                        <td>${row['RD 1'] || row['ACCOUNT'] || 'N/A'}</td>
                         <td>${row['FILE NAME'] || 'N/A'}</td>
                     </tr>`;
                 });
