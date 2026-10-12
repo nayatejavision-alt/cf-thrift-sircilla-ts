@@ -228,6 +228,60 @@ def download_csv():
     response.headers["Content-Type"] = "text/csv"
     return response
     
+@app.route("/api/update-rd-accounts", methods=["POST"])
+def update_rd_accounts():
+    try:
+        bank_user = session.get("bank_user")
+        if not bank_user:
+            return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+
+        data = request.get_json()
+        bank_sno = str(data.get("bank_sno")).strip()
+        rd1 = data.get("rd1")
+        rd2 = data.get("rd2")
+
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+        
+        records = target_sheet.get_all_records()
+        
+        row_index = None
+        for idx, row in enumerate(records):
+            # షీట్‌లోని BANK_SNO మరియు FILE NAME తీసుకోవడం
+            row_bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
+            
+            # డబుల్ చెకింగ్: BANK_SNO మరియు బ్యాంక్ పేరు రెండూ మ్యాచ్ అవ్వాలి!
+            if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
+                row_index = idx + 2  # gspread row index + header row
+                break
+                
+        if row_index:
+            header_row = target_sheet.row_values(1)
+            rd1_col = None
+            rd2_col = None
+            
+            for c_idx, header in enumerate(header_row):
+                h_cleaned = header.strip().upper()
+                if h_cleaned in ["RD 1", "RD_1"]:
+                    rd1_col = c_idx + 1
+                elif h_cleaned in ["RD 2", "RD_2"]:
+                    rd2_col = c_idx + 1
+                    
+            if rd1_col:
+                target_sheet.update_cell(row_index, rd1_col, rd1)
+            if rd2_col:
+                target_sheet.update_cell(row_index, rd2_col, rd2)
+                
+            return jsonify({"status": "success", "message": "RD ఖాతాల వివరాలు అప్‌డేట్ అయ్యాయి!"})
+        else:
+            return jsonify({"status": "error", "message": "సంబంధిత రికార్డు కనుగొనబడలేదు లేదా మీకు ఈ రికార్డును మార్చే అనుమతి లేదు."})
+
+    except Exception as e:
+        print(f"Update RD Error: {repr(e)}")
+        return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
+
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
     bank_user = session.get("bank_user")
