@@ -6,9 +6,11 @@ from google.oauth2 import service_account
 import google.auth
 import google.auth.transport.requests
 import gspread
+from datetime import timedelta
 
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
+app.permanent_session_lifetime = timedelta(days=7) # ఉదాహరణకు 7 రోజుల పాటు లాగిన్ పోదు!
 CORS(app)
 
 SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"
@@ -144,6 +146,7 @@ def bank_login():
 
         if authenticated:
             session["bank_user"] = bank_name
+            session.permanent = True
             return jsonify({"status": "success", "message": "లాగిన్ విజయవంతమైంది!"})
         else:
             return jsonify({"status": "error", "message": "తప్పు PIN లేదా బ్యాంక్ పేరు!"})
