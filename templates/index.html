@@ -32,6 +32,17 @@
             <h4 class="text-primary mb-0">🔒 బ్యాంక్ లాగిన్</h4>
             <span class="text-muted">▼ క్లిక్ చేయండి</span>
         </div>
+        <!-- బ్యాంక్ డాష్‌బోర్డ్ అదనపు ఫీచర్లు -->
+<div class="d-flex justify-content-between align-items-center mt-3">
+    <!-- CSV డౌన్‌లోడ్ బటన్ -->
+    <a href="/api/download-csv" class="btn btn-success">📥 డేటా డౌన్‌లోడ్ (CSV)</a>
+    
+    <!-- ఫైల్ అప్‌లోడ్ ఫారం -->
+    <div class="input-group w-50">
+        <input type="file" id="bank-upload-file" class="form-control">
+        <button class="btn btn-outline-primary" onclick="uploadBankFile()">అప్‌లోడ్</button>
+    </div>
+</div>
         
         <!-- కొలాప్స్ అయ్యే డివిజన్ (Expand / Hide అయ్యే భాగం) -->
         <div class="collapse show mt-3" id="loginCollapse">
