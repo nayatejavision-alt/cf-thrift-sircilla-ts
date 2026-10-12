@@ -7,6 +7,10 @@ import google.auth
 import google.auth.transport.requests
 import gspread
 from datetime import timedelta
+import csv
+from flask import make_response
+import os
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
@@ -14,6 +18,8 @@ app.permanent_session_lifetime = timedelta(days=7) # ఉదాహరణకు 7 
 CORS(app)
 
 SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Google Sheets API Connection Setup Function
 def get_sheets_client():
@@ -177,6 +183,77 @@ def get_bank_data():
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
+
+@app.route("/api/download-csv", methods=["GET"])
+def download_csv():
+    bank_user = session.get("bank_user")
+    if not bank_user:
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+    target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+    records = target_sheet.get_all_records()
+
+    # ఆ బ్యాంక్ డేటాను ఫిల్టర్ చేయడం
+    filtered_data = [
+        row
+        for row in records
+        if bank_user.lower()
+        in str(row.get("FILE NAME") or row.get("File Name") or "").lower()
+    ]
+
+    # CSV రెస్పాన్స్ తయారు చేయడం
+    output = []
+    output.append(["SNO", "Name", "Account No", "File Name"])
+
+    for idx, row in enumerate(filtered_data):
+        output.append(
+            [
+                idx + 1,
+                row.get("Name Of Benificiary") or row.get("NAME") or "",
+                row.get("Bank Account Number") or row.get("ACCOUNT") or "",
+                row.get("FILE NAME") or "",
+            ]
+        )
+
+    response = make_response()
+    writer = csv.writer(response.stream)
+    for row in output:
+        writer.writerow(row)
+
+    response.headers["Content-Disposition"] = (
+        f"attachment; filename={bank_user}_beneficiaries.csv"
+    )
+    response.headers["Content-Type"] = "text/csv"
+    return response
+    
+@app.route("/api/upload-file", methods=["POST"])
+def upload_file():
+    bank_user = session.get("bank_user")
+    if not bank_user:
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "ఫైల్ ఏదీ ఎంచుకోలేదు."})
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"status": "error", "message": "ఫైల్ పేరు ఖాళీగా ఉంది."})
+
+    if file:
+        filename = secure_filename(file.filename)
+        # బ్యాంక్ పేరుతో ఫైల్ సేవ్ అవ్వడానికి
+        safe_bank_name = bank_user.replace(" ", "_")
+        final_filename = f"{safe_bank_name}_{filename}"
+        file.save(os.path.join(UPLOAD_FOLDER, final_filename))
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": "ఫైల్ విజయవంతంగా అప్‌లోడ్ చేయబడింది!",
+            }
+        )
 
 # 5. లాగౌట్ API
 @app.route("/api/logout", methods=["POST"])
