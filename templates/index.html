@@ -179,10 +179,10 @@
                 <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
                 <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
                 <td>
-                    <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" placeholder="RD-1 నంబర్">
+                    <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" style="width: 170px;" maxlength="20" placeholder="RD-1 నంబర్">
                 </td>
                 <td>
-                    <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" placeholder="RD-2 నంబర్">
+                    <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" style="width: 170px;" maxlength="20" placeholder="RD-2 నంబర్">
                 </td>
                 <td>
                     <button class="btn btn-sm btn-success" onclick="updateRdAccount('${bankSno}')">సేవ్</button>
