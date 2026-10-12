@@ -180,8 +180,6 @@
         records.forEach((row, index) => {
             let rd1Val = row['RD 1'] || row['RD_1'] || '';
             let rd2Val = row['RD 2'] || row['RD_2'] || '';
-            
-            // గూగుల్ షీట్‌లోని మీ అసలైన BANK_SNO తీసుకోవడం
             let bankSno = row['BANK_SNO'] || row['Bank SNO'] || index + 1;
 
             html += `<tr>
@@ -189,13 +187,15 @@
                 <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
                 <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
                 <td>
-                    <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" style="width: 170px;" maxlength="20" placeholder="RD-1 నంబర్">
+                    <!-- onblur ద్వారా బాక్స్ నుండి బయటికి రాగానే ఆటో-సేవ్ అవుతుంది -->
+                    <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" style="width: 170px;" maxlength="20" placeholder="RD-1 నంబర్" onblur="autoSaveRd('${bankSno}')">
                 </td>
                 <td>
-                    <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" style="width: 170px;" maxlength="20" placeholder="RD-2 నంబర్">
+                    <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" style="width: 170px;" maxlength="20" placeholder="RD-2 నంబర్" onblur="autoSaveRd('${bankSno}')">
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-success" onclick="updateRdAccount('${bankSno}')">సేవ్</button>
+                    <!-- సేవ్ అయ్యేటప్పుడు స్టేటస్ చూపించే స్పాన్ -->
+                    <span id="status_${bankSno}" class="text-muted" style="font-size: 12px;"></span>
                 </td>
                 <td>${row['FILE NAME'] || 'N/A'}</td>
             </tr>`;
@@ -205,10 +205,38 @@
         tbody.innerHTML = "<tr><td colspan='7' class='text-center text-warning'>ఈ బ్యాంకుకు సంబంధించిన డేటా ఏమీ లభించలేదు.</td></tr>";
     }
 }
+//async function updateRdAccount(bankSno) {
+  //  const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
+    //const rd2Input = document.getElementById(`rd2_${bankSno}`).value.trim();
 
-async function updateRdAccount(bankSno) {
+    //try {
+      //  const res = await fetch('/api/update-rd-accounts', {
+        //    method: 'POST',
+          //  headers: { 'Content-Type': 'application/json' },
+            //body: JSON.stringify({ bank_sno: bankSno, rd1: rd1Input, rd2: rd2Input })
+        //});
+
+        //const result = await res.json();
+        //if (result.status === 'success') {
+          //  alert("విజయవంతంగా అప్‌డేట్ చేయబడింది! ✅");
+        //} else {
+          //  alert("అప్‌డేట్ అవడంలో విఫలమైంది: " + result.message);
+        //}
+    //} catch (error) {
+        //console.error("Error:", error);
+        //alert("సర్వర్ లోపం సంభవించింది.");
+    //}
+//}
+        
+    async function autoSaveRd(bankSno) {
     const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
     const rd2Input = document.getElementById(`rd2_${bankSno}`).value.trim();
+    const statusSpan = document.getElementById(`status_${bankSno}`);
+
+    if (statusSpan) {
+        statusSpan.className = "text-info";
+        statusSpan.innerText = "సేవ్ అవుతోంది...";
+    }
 
     try {
         const res = await fetch('/api/update-rd-accounts', {
@@ -218,17 +246,30 @@ async function updateRdAccount(bankSno) {
         });
 
         const result = await res.json();
-        if (result.status === 'success') {
-            alert("విజయవంతంగా అప్‌డేట్ చేయబడింది! ✅");
-        } else {
-            alert("అప్‌డేట్ అవడంలో విఫలమైంది: " + result.message);
+        
+        if (statusSpan) {
+            if (result.status === 'success') {
+                statusSpan.className = "text-success fw-bold";
+                statusSpan.innerText = "Saved ✅";
+                
+                // 2 సెకన్ల తర్వాత "Saved ✅" మెసేజ్ ఆటోమేటిక్‌గా మాయం కావడానికి
+                setTimeout(() => {
+                    statusSpan.innerText = "";
+                }, 2000);
+            } else {
+                statusSpan.className = "text-danger";
+                statusSpan.innerText = "ఫెయిల్ అయింది ❌";
+            }
         }
     } catch (error) {
-        console.error("Error:", error);
-        alert("సర్వర్ లోపం సంభవించింది.");
+        console.error("Auto-Save Error:", error);
+        if (statusSpan) {
+            statusSpan.className = "text-danger";
+            statusSpan.innerText = "సర్వర్ లోపం ❌";
+        }
     }
 }
-    // 3. ఆధార్ సెర్చ్ ఫంక్షన్
+        // 3. ఆధార్ సెర్చ్ ఫంక్షన్
     async function searchBeneficiary() {
         const aadhaar = document.getElementById('search-aadhaar').value;
         const resultsDiv = document.getElementById('search-results');
