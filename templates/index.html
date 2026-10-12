@@ -17,6 +17,12 @@
     <div class="header-banner text-center mb-4">
         <h2>🏛️ త్రిఫ్టు పథకము లబ్ధిదారుల పోర్టల్</h2>
         <p class="mb-0">చేనేత మరియు జౌళి శాఖ</p>
+        <!-- హెడర్ లో ఉండే లాగౌట్ బటన్ (ఇది డిఫాల్ట్ గా కనిపించదు, లాగిన్ అయ్యాక వస్తుంది) -->
+    <div id="header-logout-btn" style="display: none; position: absolute; right: 20px; top: 20px;">
+        <button class="btn btn-light btn-sm text-danger fw-bold shadow-sm" onclick="logoutBank()">
+            🚪 లాగౌట్ (Logout)
+        </button>
+    </div>
     </div>
 
     <div class="container-fluid px-4">
@@ -128,27 +134,34 @@
         .then(data => {
             const leftPanel = document.getElementById('left-sidebar-panel');
             const mainPanel = document.getElementById('main-content-panel');
+            const headerLogoutBtn = document.getElementById('header-logout-btn');
 
             if (data.status === "success") {
                 console.log("యూజర్ లాగిన్ లో ఉన్నారు:", data.bank);
                 
-                // లాగిన్ అయ్యాక ఎడమ వైపు లాగిన్ బాక్స్ పూర్తిగా హైడ్ అయిపోతుంది
+                // ఎడమ వైపు లాగిన్ బాక్స్ హైడ్ అయిపోతుంది
                 if (leftPanel) leftPanel.style.display = 'none';
                 
-                // కుడి వైపు టేబుల్ ప్యానెల్ మొత్తం స్క్రీన్ స్పేస్ (col-md-12) తీసుకుంటుంది
+                // కుడి వైపు టేబుల్ ప్యానెల్ పూర్తి స్క్రీన్ (col-md-12) తీసుకుంటుంది
                 if (mainPanel) {
                     mainPanel.className = "col-md-12";
                 }
+
+                // హెడర్ లో లాగౌట్ బటన్ కనిపిస్తుంది
+                if (headerLogoutBtn) headerLogoutBtn.style.display = 'block';
 
                 document.getElementById('logged-bank-name').innerText = data.bank;
                 renderBankTable(data.data);
 
             } else {
-                // లాగిన్ లేకపోతే మళ్ళీ నార్మల్ వ్యూ వస్తుంది
+                // లాగిన్ లేకపోతే పాత వ్యూ వస్తుంది
                 if (leftPanel) leftPanel.style.display = 'block';
                 if (mainPanel) {
                     mainPanel.className = "col-md-9";
                 }
+                // హెడర్ లో లాగౌట్ బటన్ కనిపించదు
+                if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
+
                 document.getElementById('bank-data-section').style.display = 'none';
             }
         })
@@ -274,12 +287,13 @@ async function updateRdAccount(bankSno) {
     async function logoutBank() {
         await fetch('/api/logout', { method: 'POST' });
         
-        // లాగౌట్ అవ్వగానే మళ్ళీ పాత డిజైన్‌కి వచ్చేస్తుంది
         const leftPanel = document.getElementById('left-sidebar-panel');
         const mainPanel = document.getElementById('main-content-panel');
+        const headerLogoutBtn = document.getElementById('header-logout-btn');
         
         if (leftPanel) leftPanel.style.display = 'block';
         if (mainPanel) mainPanel.className = "col-md-9";
+        if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
         
         document.getElementById('bank-data-section').style.display = 'none';
         document.getElementById('bank-pin').value = '';
