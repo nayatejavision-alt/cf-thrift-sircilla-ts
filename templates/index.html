@@ -244,6 +244,47 @@
         document.getElementById('bank-pin').value = '';
         document.getElementById('bank-select').value = '';
     }
+        // బ్యాంక్ ఫైల్ అప్‌లోడ్ చేసే జావాస్క్రిప్ట్ ఫంక్షన్
+async function uploadBankFile() {
+    const fileInput = document.getElementById('bank-upload-file');
+    const msgDiv = document.getElementById('upload-msg');
+
+    // ఫైల్ సెలెక్ట్ చేశారా లేదా అని చెక్ చేయడం
+    if (fileInput.files.length === 0) {
+        msgDiv.className = "mt-1 text-danger";
+        msgDiv.innerText = "దయచేసి ముందుగా ఒక ఫైల్‌ను ఎంచుకోండి.";
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append("file", file); // బ్యాకెండ్‌లో 'file' అనే పేరుతో రిసీవ్ చేసుకుంటాం
+
+    msgDiv.className = "mt-1 text-info";
+    msgDiv.innerText = "అప్‌లోడ్ అవుతోంది, దయచేసి వేచి ఉండండి...";
+
+    try {
+        const response = await fetch('/api/upload-file', {
+            method: 'POST',
+            body: formData // ఫైల్ పంపేటప్పుడు headers పెట్టవలసిన పనిలేదు, బ్రౌజరే ఆటోమేటిక్‌గా సెట్ చేస్తుంది
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+            msgDiv.className = "mt-1 text-success";
+            msgDiv.innerText = result.message;
+            fileInput.value = ""; // ఇన్‌పుట్ బాక్స్ క్లియర్ చేయడం
+        } else {
+            msgDiv.className = "mt-1 text-danger";
+            msgDiv.innerText = result.message;
+        }
+    } catch (error) {
+        console.error("Upload Error:", error);
+        msgDiv.className = "mt-1 text-danger";
+        msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌లోడ్ కాలేదు.";
+    }
+}
 </script>
 </body>
 </html>
