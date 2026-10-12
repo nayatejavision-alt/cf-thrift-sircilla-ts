@@ -20,105 +20,99 @@
     </div>
 
     <div class="container-fluid px-4">
-        <div class="row">
-            
-          
-            <!-- సైడ్ ప్యానెల్: బ్యాంక్ అధికారుల లాగిన్ -->
-<div class="col-md-4 mb-4">
-    <div class="card card-custom p-4 bg-white">
+    <div class="row">
         
-        <!-- హెడ్డింగ్ - క్లిక్ చేస్తే ఓపెన్/క్లోజ్ అయ్యేలా టోగుల్ బటన్ -->
-        <div class="d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#loginCollapse" aria-expanded="false" aria-controls="loginCollapse">
-            <h4 class="text-primary mb-0">🔒 బ్యాంక్ లాగిన్</h4>
-            <span class="text-muted">▼ క్లిక్ చేయండి</span>
-        </div>
-        <!-- బ్యాంక్ డాష్‌బోర్డ్ అదనపు ఫీచర్లు -->
-<div class="d-flex justify-content-between align-items-center mt-3">
-    <!-- CSV డౌన్‌లోడ్ బటన్ -->
-    <a href="/api/download-csv" class="btn btn-success">📥 డేటా డౌన్‌లోడ్ (CSV)</a>
-    
-    <!-- ఫైల్ అప్‌లోడ్ ఫారం -->
-    <div class="input-group w-50">
-        <input type="file" id="bank-upload-file" class="form-control">
-        <button class="btn btn-outline-primary" onclick="uploadBankFile()">అప్‌లోడ్</button>
-    </div>
-</div>
-        
-        <!-- కొలాప్స్ అయ్యే డివిజన్ (Expand / Hide అయ్యే భాగం) -->
-        <div class="collapse show mt-3" id="loginCollapse">
-            
-            <!-- లాగిన్ ఫారమ్ -->
-            <div id="login-section">
-                <div class="mb-3">
-                    <label class="form-label font-weight-bold">బ్యాంక్ ఎంచుకోండి:</label>
-                    <select id="bank-select" class="form-select">
-                        <option value="">-- బ్యాంక్ సెలెక్ట్ చేయండి --</option>
-                        {% for bank in banks %}
-                        <option value="{{ bank }}">{{ bank }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">PIN / పాస్‌వర్డ్:</label>
-                    <input type="password" id="bank-pin" class="form-control" placeholder="4 అంకెల PIN ఎంటర్ చేయండి">
-                </div>
-                <button class="btn btn-primary w-100" onclick="loginBank()">లాగిన్ అవ్వండి</button>
-                <div id="login-msg" class="mt-2 text-danger"></div>
-            </div>
-
-            <!-- లాగిన్ అయ్యాక కనిపించే ప్యానెల్ -->
-            <div id="bank-dashboard-info" style="display: none;">
-                <div class="alert alert-success">
-                    <strong id="logged-bank-name"></strong> బ్యాంక్ లాగిన్ విజయవంతమైంది!
-                </div>
-                <button class="btn btn-outline-danger w-100" onclick="logoutBank()">లాగౌట్ (Logout)</button>
-            </div>
-
-        </div>
-    </div>
-</div>
-
-            <!-- మెయిన్ ప్యానెల్: ఓపెన్ ఆధార్ సెర్చ్ & బ్యాంక్ డాష్‌బోర్డ్ డేటా -->
-            <div class="col-md-8">
+        <!-- సైడ్ ప్యానెల్: బ్యాంక్ అధికారుల లాగిన్ (దీనికి id="left-sidebar-panel" ఇద్దాం) -->
+        <div class="col-md-3 mb-4" id="left-sidebar-panel">
+            <div class="card card-custom p-3 bg-white">
+                <h4 class="text-primary border-bottom pb-2">🔒 బ్యాంక్ లాగిన్</h4>
                 
-                <!-- 1. ఆధార్ సెర్చ్ కార్డ్ (ఎవరైనా సెర్చ్ చేసుకోవచ్చు) -->
-                <div class="card card-custom p-4 bg-white mb-4">
-                    <h4 class="text-secondary border-bottom pb-2">🔍 లబ్ధిదారుడి శోధన (Aadhaar Search)</h4>
-                    <div class="input-group my-3">
-                        <input type="text" id="search-aadhaar" class="form-control form-control-lg" placeholder="ఆధార్ సంఖ్య ఎంటర్ చేయండి...">
-                        <button class="btn btn-success btn-lg" onclick="searchBeneficiary()">వెతకండి</button>
+                <!-- లాగిన్ ఫారమ్ -->
+                <div id="login-section">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">బ్యాంక్ ఎంచుకోండి:</label>
+                        <select id="bank-select" class="form-select">
+                            <option value="">-- సెలెక్ట్ చేయండి --</option>
+                            {% for bank in banks %}
+                            <option value="{{ bank }}">{{ bank }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    <div id="search-results"></div>
+                    <div class="mb-3">
+                        <label class="form-label">PIN / పాస్‌వర్డ్:</label>
+                        <input type="password" id="bank-pin" class="form-control" placeholder="4 అంకెల PIN">
+                    </div>
+                    <button class="btn btn-primary w-100" onclick="loginBank()">లాగిన్ అవ్వండి</button>
+                    <div id="login-msg" class="mt-2 text-danger"></div>
                 </div>
 
-                <!-- 2. బ్యాంక్ ప్రత్యేక డాష్‌బోర్డ్ (లాగిన్ అయ్యాక మాత్రమే డేటా కనిపిస్తుంది) -->
-                <div id="bank-data-section" class="card card-custom p-4 bg-white" style="display: none;">
-                    <h4 class="text-success border-bottom pb-2">📊 మీ బ్యాంకు లబ్ధిదారుల జాబితా</h4>
-                    <div class="table-responsive mt-3">
-                        <table class="table table-striped table-hover">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th>క్రమ సంఖ్య</th>
-                                    <th>లబ్ధిదారుడి పేరు</th>
-                                    <th>ఖాతా సంఖ్య</th>
-                                    <th>RD ఖాతా సంఖ్య-1</th>
-                                    <th>RD ఖాతా సంఖ్య-2</th>
-                                    <th>అప్‌డేట్/సేవ్</th>
-                                    <th>FILE NAME</th>
-                                </tr>
-                            </thead>
-                            <tbody id="bank-table-body">
-                                <!-- డేటా ఇక్కడ లోడ్ అవుతుంది -->
-                            </tbody>
-                        </table>
+                <!-- లాగిన్ అయ్యాక కనిపించే ప్యానెల్ -->
+                <div id="bank-dashboard-info" style="display: none;">
+                    <div class="alert alert-success p-2">
+                        <small>లాగిన్ అయిన వారు:</small><br>
+                        <strong id="logged-bank-name"></strong>
                     </div>
+                    <button class="btn btn-outline-danger btn-sm w-100" onclick="logoutBank()">లాగౌต์ (Logout)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- మెయిన్ ప్యానెల్: టేబుల్ (ఇది ఇప్పుడు col-md-9 కి పెరిగింది, కాబట్టి చాలా ఎక్కువ స్పేస్ వస్తుంది!) -->
+        <div class="col-md-9" id="main-content-panel">
+            
+            <!-- 1. ఆధార్ సెర్చ్ కార్డ్ -->
+            <div class="card card-custom p-4 bg-white mb-4">
+                <h4 class="text-secondary border-bottom pb-2">🔍 లబ్ధిదారుడి శోధన (Aadhaar Search)</h4>
+                <div class="input-group my-3">
+                    <input type="text" id="search-aadhaar" class="form-control form-control-lg" placeholder="ఆధార్ సంఖ్య ఎంటర్ చేయండి...">
+                    <button class="btn btn-success btn-lg" onclick="searchBeneficiary()">వెతకండి</button>
+                </div>
+                <div id="search-results"></div>
+            </div>
+
+            <!-- 2. బ్యాంక్ ప్రత్యేక డాష్‌బోర్డ్ -->
+            <div id="bank-data-section" class="card card-custom p-4 bg-white" style="display: none;">
+                <h4 class="text-success border-bottom pb-2">📊 మీ బ్యాంకు లబ్ధిదారుల జాబితా & RD అప్‌డేట్</h4>
+                
+                <!-- ఫైల్ అప్‌లోడ్ సెక్షన్ -->
+                <div class="card my-3 p-3 bg-light border">
+                    <h6 class="text-secondary">📤 డేటా ఫైల్ అప్‌లోడ్ చేయండి</h6>
+                    <div class="input-group input-group-sm my-1">
+                        <input type="file" id="bank-upload-file" class="form-control" accept=".csv, .xlsx, .xls">
+                        <button class="btn btn-primary btn-sm" onclick="uploadBankFile()">అప్‌లోడ్</button>
+                    </div>
+                    <div id="upload-msg" class="mt-1 font-weight-bold" style="font-size: 13px;"></div>
                 </div>
 
+                <!-- CSV డౌన్‌లోడ్ బటన్ -->
+                <div class="mb-3">
+                    <a href="/api/download-csv" class="btn btn-sm btn-success">📥 డేటా డౌన్‌లోడ్ (CSV)</a>
+                </div>
+
+                <div class="table-responsive mt-2">
+                    <table class="table table-striped table-hover table-bordered">
+                        <thead class="table-dark" style="font-size: 14px;">
+                            <tr>
+                                <th>క్రమ సంఖ్య</th>
+                                <th>లబ్ధిదారుడి పేరు</th>
+                                <th>ఖాతా సంఖ్య</th>
+                                <th>RD ఖాతా సంఖ్య-1</th>
+                                <th>RD ఖాతా సంఖ్య-2</th>
+                                <th>చర్య (Action)</th>
+                                <th>FILE NAME</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bank-table-body" style="font-size: 14px;">
+                            <!-- డేటా ఇక్కడ లోడ్ అవుతుంది -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
         </div>
-    </div>
 
+    </div>
+</div>
     <script>
     // 1. పేజీ లోడ్ అవ్వగానే యూజర్ లాగిన్ స్థితిని చెక్ చేసే ఫంక్షన్
     window.addEventListener("DOMContentLoaded", function() {
@@ -128,29 +122,33 @@
     function checkUserLoginStatus() {
         fetch('/api/bank-data', {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            headers: { 'Content-Type': 'application/json' }
         })
         .then(response => response.json())
         .then(data => {
+            const leftPanel = document.getElementById('left-sidebar-panel');
+            const mainPanel = document.getElementById('main-content-panel');
+
             if (data.status === "success") {
-                // యూజర్ ఇంకా లాగిన్ లోనే ఉన్నారు కాబట్టి డ్యాష్‌బోర్డ్ చూపించాలి
                 console.log("యూజర్ లాగిన్ లో ఉన్నారు:", data.bank);
                 
-                // UI ని లాగిన్ స్టేట్‌కి మార్చడం
-                document.getElementById('login-section').style.display = 'none';
-                document.getElementById('bank-dashboard-info').style.display = 'block';
-                document.getElementById('logged-bank-name').innerText = data.bank;
+                // లాగిన్ అయ్యాక ఎడమ వైపు లాగిన్ బాక్స్ పూర్తిగా హైడ్ అయిపోతుంది
+                if (leftPanel) leftPanel.style.display = 'none';
                 
-                // ఆటోమేటిక్‌గా టేబుల్‌లో డేటా నింపడం
+                // కుడి వైపు టేబుల్ ప్యానెల్ మొత్తం స్క్రీన్ స్పేస్ (col-md-12) తీసుకుంటుంది
+                if (mainPanel) {
+                    mainPanel.className = "col-md-12";
+                }
+
+                document.getElementById('logged-bank-name').innerText = data.bank;
                 renderBankTable(data.data);
 
             } else {
-                // లాగిన్ లో లేకపోతే లేదా సెషన్ ఎక్స్‌పైర్ అయితే...
-                console.log("సెషన్ గడువు ముగిసింది.");
-                document.getElementById('login-section').style.display = 'block';
-                document.getElementById('bank-dashboard-info').style.display = 'none';
+                // లాగిన్ లేకపోతే మళ్ళీ నార్మల్ వ్యూ వస్తుంది
+                if (leftPanel) leftPanel.style.display = 'block';
+                if (mainPanel) {
+                    mainPanel.className = "col-md-9";
+                }
                 document.getElementById('bank-data-section').style.display = 'none';
             }
         })
@@ -158,7 +156,6 @@
             console.error("లాగిన్ చెక్ చేయడంలో లోపం:", error);
         });
     }
-
     // 2. టేబుల్‌లో డేటాను రెండర్ చేసే హెల్పర్ ఫంక్షన్
     function renderBankTable(records) {
     const bankDataSection = document.getElementById('bank-data-section');
@@ -276,11 +273,19 @@ async function updateRdAccount(bankSno) {
     // 5. బ్యాంక్ లాగౌట్ ఫంక్షన్
     async function logoutBank() {
         await fetch('/api/logout', { method: 'POST' });
-        document.getElementById('login-section').style.display = 'block';
-        document.getElementById('bank-dashboard-info').style.display = 'none';
+        
+        // లాగౌట్ అవ్వగానే మళ్ళీ పాత డిజైన్‌కి వచ్చేస్తుంది
+        const leftPanel = document.getElementById('left-sidebar-panel');
+        const mainPanel = document.getElementById('main-content-panel');
+        
+        if (leftPanel) leftPanel.style.display = 'block';
+        if (mainPanel) mainPanel.className = "col-md-9";
+        
         document.getElementById('bank-data-section').style.display = 'none';
         document.getElementById('bank-pin').value = '';
         document.getElementById('bank-select').value = '';
+        
+        checkUserLoginStatus();
     }
         // బ్యాంక్ ఫైల్ అప్‌లోడ్ చేసే జావాస్క్రిప్ట్ ఫంక్షన్
 async function uploadBankFile() {
