@@ -170,20 +170,44 @@ def get_bank_data():
 
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
+        
+        # 1. మాస్టర్ డేటా తీసుకోవడం
         target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-        records = target_sheet.get_all_records()
+        master_records = target_sheet.get_all_records()
+
+        # 2. ట్రాన్సాక్షన్ డేటా (Transactions_Year1) తీసుకోవడం (డూప్లికేట్ చెక్ చేయడానికి)
+        try:
+            trans_sheet = spreadsheet.worksheet('Transactions_Year1')
+            trans_records = trans_sheet.get_all_records()
+        except Exception:
+            trans_records = [] # ఒకవేళ షీట్ లేకపోతే ఎంప్టీ లిస్ట్
+
+        current_month = 1  # ప్రస్తుత నెల సంఖ్య (month_number = 1)
 
         filtered_data = []
-        for row in records:
+        for row in master_records:
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             if bank_user.lower() in file_name.lower():
+                bank_sno = str(row.get("BANK_SNO") or "").strip()
+                
+                # Transactions_Year1 లో ఈ bank_sno మరియు month_number (1) ఉందో లేదో చెక్ చేయడం
+                is_completed = False
+                for t in trans_records:
+                    t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
+                    t_month = str(t.get("month_number") or t.get("MONTH") or "").strip()
+                    if t_sno == bank_sno and t_month == str(current_month):
+                        is_completed = True
+                        break
+                
+                # రో డేటాకు ఈ స్టేటస్ జోడించడం
+                row['is_completed'] = is_completed
                 filtered_data.append(row)
 
         return jsonify({"status": "success", "bank": bank_user, "data": filtered_data})
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
-
+        
 @app.route("/api/download-csv", methods=["GET"])
 def download_csv():
     bank_user = session.get("bank_user")
