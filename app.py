@@ -371,9 +371,9 @@ def update_rd_accounts():
                     new_row_data.append(current_month)
                 elif h_clean == "BANK_SNO" or h_clean == "Bank SNO":
                     new_row_data.append(bank_sno)
-                elif "Name" in h_clean:
+                elif "Name Of Benificiary" in h_clean:
                     new_row_data.append(beneficiary_name)
-                elif "Account" in h_clean:
+                elif "Bank Account Number" in h_clean:
                     new_row_data.append(beneficiary_acc)
                 elif h_clean == rd1_col_name:
                     new_row_data.append(rd1)
