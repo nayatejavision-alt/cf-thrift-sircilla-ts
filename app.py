@@ -11,7 +11,8 @@ import csv
 from flask import make_response
 import os
 from werkzeug.utils import secure_filename
-
+from admin_routes import admin_bp
+app.register_blueprint(admin_bp)
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
 app.permanent_session_lifetime = timedelta(days=7) # ఉదాహరణకు 7 రోజుల పాటు లాగిన్ పోదు!
