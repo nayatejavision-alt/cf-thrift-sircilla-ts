@@ -209,6 +209,9 @@
                     mainPanel.className = "col-md-12";
                 }
 
+                const headerSupportBadge = document.getElementById('header-support-badge');
+                if (headerSupportBadge) headerSupportBadge.style.display = 'block';
+
                 // హెడర్ లో లాగౌట్ బటన్ కనిపిస్తుంది
                 if (headerLogoutBtn) headerLogoutBtn.style.display = 'block';
 
@@ -225,6 +228,8 @@
                 if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
 
                 document.getElementById('bank-data-section').style.display = 'none';
+                const headerSupportBadge = document.getElementById('header-support-badge');
+                if (headerSupportBadge) headerSupportBadge.style.display = 'none';
             }
         })
         .catch(error => {
