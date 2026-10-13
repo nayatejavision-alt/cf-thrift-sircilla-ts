@@ -282,10 +282,12 @@ def update_rd_accounts():
         rd2 = str(data.get("rd2", "")).strip()
         bank_closing_balance = str(data.get("bank_closing_balance", "")).strip()
 
+        print(f"--- Update Request: Bank={bank_user}, SNO={bank_sno}, RD1={rd1}, Bal={bank_closing_balance} ---")
+
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # 1. ముందుగా 'NEW THRIFT DATA' లో RD 1 మరియు RD 2 అప్‌డేట్ చేయడం
+        # 1. NEW THRIFT DATA అప్‌డేట్
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
         master_records = target_sheet.get_all_records()
         
@@ -298,7 +300,7 @@ def update_rd_accounts():
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
             if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
-                master_row_index = idx + 2  # gspread row index + header row
+                master_row_index = idx + 2
                 beneficiary_name = str(row.get("Name Of Benificiary") or row.get("NAME") or "").strip()
                 beneficiary_acc = str(row.get("Bank Account Number") or row.get("ACCOUNT") or "").strip()
                 break
@@ -306,7 +308,6 @@ def update_rd_accounts():
         if master_row_index:
             header_row = target_sheet.row_values(1)
             rd1_col, rd2_col = None, None
-            
             for c_idx, header in enumerate(header_row):
                 h_cleaned = header.strip().upper()
                 if h_cleaned in ["RD 1", "RD_1"]:
@@ -318,13 +319,11 @@ def update_rd_accounts():
                 target_sheet.update_cell(master_row_index, rd1_col, rd1)
             if rd2_col:
                 target_sheet.update_cell(master_row_index, rd2_col, rd2)
+            print("Master Sheet Updated Successfully.")
 
-        # 2. ఇప్పుడు 'Transactions_Year1' షీట్‌లో అప్‌డేట్ లేదా కొత్త ఎంట్రీ చేయడం
-        try:
-            trans_sheet = spreadsheet.worksheet("Transactions_Year1")
-            trans_records = trans_sheet.get_all_records()
-        except Exception:
-            trans_records = []
+        # 2. Transactions_Year1 అప్‌డేట్
+        trans_sheet = spreadsheet.worksheet("Transactions_Year1")
+        trans_records = trans_sheet.get_all_records()
 
         current_month = 1
         trans_row_index = None
@@ -339,29 +338,21 @@ def update_rd_accounts():
                 break
 
         trans_headers = trans_sheet.row_values(1)
-        
-        # కాలమ్ ఇండెక్స్‌లను కనుగొనడం కోసం మ్యాపింగ్
-        col_map = {}
-        for c_idx, h in enumerate(trans_headers):
-            col_map[h.strip()] = c_idx + 1
+        col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
         rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
         balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
 
+        print(f"Trans Row Index found: {trans_row_index}")
+
         if trans_row_index:
-            # ఒకవేళ ఆల్రెడీ ఎంట్రీ ఉంటే అప్‌డేట్ చేయడం
             if rd1_col_name in col_map:
                 trans_sheet.update_cell(trans_row_index, col_map[rd1_col_name], rd1)
             if balance_col_name in col_map:
                 trans_sheet.update_cell(trans_row_index, col_map[balance_col_name], bank_closing_balance)
+            print("Transactions_Year1 Existing Row Updated.")
         else:
-            # ఒకవేళ కొత్త ఎంట్రీ అయితే డిక్షనరీ ద్వారా పర్ఫెక్ట్‌గా రో డేటా తయారు చేయడం
-            row_data_dict = {}
-            for h in trans_headers:
-                h_clean = h.strip()
-                row_data_dict[h_clean] = "" # డిఫాల్ట్‌గా ఖాళీగా ఉంచడం
-
-            # సరైన కాలమ్స్‌లో సరైన విలువలను సెట్ చేయడం
+            row_data_dict = {h.strip(): "" for h in trans_headers}
             for h in trans_headers:
                 h_clean = h.strip()
                 h_upper = h_clean.upper()
@@ -381,16 +372,15 @@ def update_rd_accounts():
                 elif h_clean == "FILE NAME":
                     row_data_dict[h_clean] = bank_user
 
-            # హెడర్ ఆర్డర్ ప్రకారం లిస్ట్‌గా మార్చడం
             new_row_data = [row_data_dict.get(h.strip(), "") for h in trans_headers]
             trans_sheet.append_row(new_row_data)
+            print("Transactions_Year1 New Row Appended.")
 
         return jsonify({"status": "success", "message": "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!"})
 
     except Exception as e:
-        print(f"Update Error: {repr(e)}")
+        print(f"Update Error Exception: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
-
 
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
