@@ -230,64 +230,56 @@
     if (records && records.length > 0) {
         let pendingHtml = "";
         let completedHtml = "";
-        
-        let pCount = 1;
-        let cCount = 1;
+        let pCount = 1, cCount = 1;
 
         records.forEach((row, index) => {
             let rd1Val = row['RD 1'] || row['RD_1'] || '';
             let rd2Val = row['RD 2'] || row['RD_2'] || '';
+            let balanceVal = row['Bank Closing Balance'] || ''; // బ్యాలెన్స్ విలువ
             let bankSno = row['BANK_SNO'] || row['Bank SNO'] || index + 1;
-            let isCompleted = row['is_completed']; // బ్యాక్‌ఎండ్ నుండి వచ్చిన స్టేటస్
+            let isCompleted = row['is_completed'];
 
             if (!isCompleted) {
-                // 1. ఇంకా ఎంట్రీ కానివి (Pending List) - ఇక్కడ అధికారులు ఎంట్రీ చేయవచ్చు
                 pendingHtml += `<tr>
                     <td>${pCount++}</td>
                     <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
                     <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
                     <td>
-                        <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" style="width: 160px;" maxlength="20" placeholder="RD-1 నంబర్" onblur="autoSaveRd('${bankSno}')">
+                        <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-1" onblur="autoSaveRd('${bankSno}')">
                     </td>
                     <td>
-                        <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" style="width: 160px;" maxlength="20" placeholder="RD-2 నంబర్" onblur="autoSaveRd('${bankSno}')">
+                        <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-2" onblur="autoSaveRd('${bankSno}')">
                     </td>
                     <td>
-                        <span id="status_${bankSno}" class="text-muted" style="font-size: 12px;">పెండింగ్</span>
+                        <input type="text" id="balance_${bankSno}" value="${balanceVal}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="బ్యాలెన్స్" onblur="autoSaveRd('${bankSno}')">
+                    </td>
+                    <td>
+                        <span id="status_${bankSno}" class="text-muted" style="font-size: 11px;">పెండింగ్</span>
                     </td>
                     <td>${row['FILE NAME'] || 'N/A'}</td>
                 </tr>`;
             } else {
-                // 2. ఇప్పటికే ఎంట్రీ అయినవి (Completed List)
                 completedHtml += `<tr class="table-success">
                     <td>${cCount++}</td>
                     <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
                     <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
                     <td>${rd1Val || 'N/A'}</td>
                     <td>${rd2Val || 'N/A'}</td>
+                    <td>${balanceVal || 'N/A'}</td>
                     <td><span class="badge bg-success">పూర్తయింది ✅</span></td>
                     <td>${row['FILE NAME'] || 'N/A'}</td>
                 </tr>`;
             }
         });
 
-        // టేబుల్ రెండర్ అయ్యేటప్పుడు కౌంట్స్ సెట్ చేయడం
-document.getElementById('total-count').innerText = records.length;
-document.getElementById('pending-count').innerText = pCount - 1;
-document.getElementById('completed-count').innerText = cCount - 1;
+        // టేబుల్ రెండర్ అయ్యేటప్పుడు కౌంట్స్ ఆటోమేటిక్‌గా సెట్ అవుతాయి
+        document.getElementById('total-count').innerText = records.length;
+        document.getElementById('pending-count').innerText = pCount - 1;
+        document.getElementById('completed-count').innerText = cCount - 1;
 
-        // టేబుల్ బాడీలలో డేటాను సెట్ చేయడం
-        if (tbodyPending) {
-            tbodyPending.innerHTML = pendingHtml !== "" ? pendingHtml : "<tr><td colspan='7' class='text-center text-success'>అన్ని ఎంట్రీలు పూర్తయ్యాయి! 🎉</td></tr>";
-        }
-        if (tbodyCompleted) {
-            tbodyCompleted.innerHTML = completedHtml !== "" ? completedHtml : "<tr><td colspan='7' class='text-center text-muted'>ఇదివరకు పూర్తయిన ఎంట్రీలు ఏవీ లేవు.</td></tr>";
-        }
-
-    } else {
-        if (tbodyPending) tbodyPending.innerHTML = "<tr><td colspan='7' class='text-center text-warning'>ఈ బ్యాంకుకు సంబంధించిన డేటా ఏమీ లభించలేదు.</td></tr>";
+        if (tbodyPending) tbodyPending.innerHTML = pendingHtml !== "" ? pendingHtml : "<tr><td colspan='8' class='text-center text-success'>అన్ని ఎంట్రీలు పూర్తయ్యాయి! 🎉</td></tr>";
+        if (tbodyCompleted) tbodyCompleted.innerHTML = completedHtml !== "" ? completedHtml : "<tr><td colspan='8' class='text-center text-muted'>ఇదివరకు పూర్తయిన ఎంట్రీలు ఏవీ లేవు.</td></tr>";
     }
-        
 }
 //async function updateRdAccount(bankSno) {
   //  const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
@@ -312,9 +304,10 @@ document.getElementById('completed-count').innerText = cCount - 1;
     //}
 //}
         
-    async function autoSaveRd(bankSno) {
+   async function autoSaveRd(bankSno) {
     const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
     const rd2Input = document.getElementById(`rd2_${bankSno}`).value.trim();
+    const balanceInput = document.getElementById(`balance_${bankSno}`).value.trim();
     const statusSpan = document.getElementById(`status_${bankSno}`);
 
     if (statusSpan) {
@@ -326,7 +319,12 @@ document.getElementById('completed-count').innerText = cCount - 1;
         const res = await fetch('/api/update-rd-accounts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bank_sno: bankSno, rd1: rd1Input, rd2: rd2Input })
+            body: JSON.stringify({ 
+                bank_sno: bankSno, 
+                rd1: rd1Input, 
+                rd2: rd2Input, 
+                bank_closing_balance: balanceInput 
+            })
         });
 
         const result = await res.json();
@@ -335,21 +333,17 @@ document.getElementById('completed-count').innerText = cCount - 1;
             if (result.status === 'success') {
                 statusSpan.className = "text-success fw-bold";
                 statusSpan.innerText = "Saved ✅";
-                
-                // 2 సెకన్ల తర్వాత "Saved ✅" మెసేజ్ ఆటోమేటిక్‌గా మాయం కావడానికి
-                setTimeout(() => {
-                    statusSpan.innerText = "";
-                }, 2000);
+                setTimeout(() => { statusSpan.innerText = ""; }, 2000);
             } else {
                 statusSpan.className = "text-danger";
-                statusSpan.innerText = "ఫెయిల్ అయింది ❌";
+                statusSpan.innerText = "ఫెయిల్ ❌";
             }
         }
     } catch (error) {
         console.error("Auto-Save Error:", error);
         if (statusSpan) {
             statusSpan.className = "text-danger";
-            statusSpan.innerText = "సర్వర్ లోపం ❌";
+            statusSpan.innerText = "లోపం ❌";
         }
     }
 }
