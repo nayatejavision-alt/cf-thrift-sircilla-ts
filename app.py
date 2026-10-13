@@ -277,30 +277,29 @@ def update_rd_accounts():
 
         data = request.get_json()
         bank_sno = str(data.get("bank_sno")).strip()
-        rd1 = f"'{data.get('rd1')}'"
-        rd2 = f"'{data.get('rd2')}'"
+        rd1 = str(data.get("rd1", "")).strip()
+        rd2 = str(data.get("rd2", "")).strip()
+        bank_closing_balance = str(data.get("bank_closing_balance", "")).strip()
 
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
+        
+        # 1. ముందుగా 'NEW THRIFT DATA' లో RD 1 మరియు RD 2 అప్‌డేట్ చేయడం
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+        master_records = target_sheet.get_all_records()
         
-        records = target_sheet.get_all_records()
-        
-        row_index = None
-        for idx, row in enumerate(records):
-            # షీట్‌లోని BANK_SNO మరియు FILE NAME తీసుకోవడం
+        master_row_index = None
+        for idx, row in enumerate(master_records):
             row_bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
-            # డబుల్ చెకింగ్: BANK_SNO మరియు బ్యాంక్ పేరు రెండూ మ్యాచ్ అవ్వాలి!
             if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
-                row_index = idx + 2  # gspread row index + header row
+                master_row_index = idx + 2  # gspread row index + header row
                 break
                 
-        if row_index:
+        if master_row_index:
             header_row = target_sheet.row_values(1)
-            rd1_col = None
-            rd2_col = None
+            rd1_col, rd2_col = None, None
             
             for c_idx, header in enumerate(header_row):
                 h_cleaned = header.strip().upper()
@@ -310,18 +309,90 @@ def update_rd_accounts():
                     rd2_col = c_idx + 1
                     
             if rd1_col:
-                target_sheet.update_cell(row_index, rd1_col, rd1)
+                target_sheet.update_cell(master_row_index, rd1_col, rd1)
             if rd2_col:
-                target_sheet.update_cell(row_index, rd2_col, rd2)
-                
-            return jsonify({"status": "success", "message": "RD ఖాతాల వివరాలు అప్‌డేట్ అయ్యాయి!"})
+                target_sheet.update_cell(master_row_index, rd2_col, rd2)
+
+        # 2. ఇప్పుడు 'Transactions_Year1' షీట్‌లో అప్‌డేట్ లేదా కొత్త ఎంట్రీ చేయడం
+        try:
+            trans_sheet = spreadsheet.worksheet("Transactions_Year1")
+            trans_records = trans_sheet.get_all_records()
+        except Exception:
+            trans_records = []
+
+        current_month = 1
+        trans_row_index = None
+        
+        for idx, row in enumerate(trans_records):
+            t_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            t_month = str(row.get("MONTH_NUMBER") or row.get("month_number") or "").strip()
+            t_filename = str(row.get("FILE NAME") or row.get("File Name") or "").strip().lower()
+            
+            if t_sno == bank_sno and t_month == str(current_month) and bank_user.lower() in t_filename:
+                trans_row_index = idx + 2
+                break
+
+        trans_headers = trans_sheet.row_values(1)
+        
+        # కాలమ్ ఇండెక్స్‌లను కనుగొనడం
+        col_map = {}
+        for c_idx, h in enumerate(trans_headers):
+            h_clean = h.strip()
+            col_map[h_clean] = c_idx + 1
+
+        # Transactions_Year1 లో కాలమ్స్ పేర్లు మన డేటా ప్రకారం మ్యాచ్ చేసుకోవడం
+        rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
+        balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
+
+        if trans_row_index:
+            # ఒకవేళ ఆల్రెడీ ఎంట్రీ ఉంటే అప్‌డేట్ చేయడం
+            if rd1_col_name in col_map:
+                trans_sheet.update_cell(trans_row_index, col_map[rd1_col_name], rd1)
+            if balance_col_name in col_map:
+                trans_sheet.update_cell(trans_row_index, col_map[balance_col_name], bank_closing_balance)
         else:
-            return jsonify({"status": "error", "message": "సంబంధిత రికార్డు కనుగొనబడలేదు లేదా మీకు ఈ రికార్డును మార్చే అనుమతి లేదు."})
+            # ఒకవేళ కొత్త ఎంట్రీ అయితే కొత్త రో (Row) యాడ్ చేయడం
+            # లబ్ధిదారుడి పేరు మరియు అకౌంట్ నంబర్ మాస్టర్ డేటా నుండి తీసుకోవచ్చు
+            beneficiary_name = ""
+            beneficiary_acc = ""
+            if master_row_index:
+                row_data = target_sheet.row_values(master_row_index)
+                # హెడర్ ఆధారంగా పేరు, అకౌంట్ తెచ్చుకోవచ్చు లేదా సింపుల్‌గా డిక్షనరీ నుండి వాడొచ్చు
+                for c_idx, h in enumerate(target_sheet.row_values(1)):
+                    if "Name Of Benificiary" in h or "NAME" in h:
+                        beneficiary_name = row_data[c_idx]
+                    if "Bank Account Number" in h or "ACCOUNT" in h:
+                        beneficiary_acc = row_data[c_idx]
+
+            new_row_data = []
+            for h in trans_headers:
+                h_clean = h.strip()
+                if h_clean == "MONTH_NUMBER" or h_clean == "month_number":
+                    new_row_data.append(current_month)
+                elif h_clean == "BANK_SNO" or h_clean == "Bank SNO":
+                    new_row_data.append(bank_sno)
+                elif "Name" in h_clean:
+                    new_row_data.append(beneficiary_name)
+                elif "Account" in h_clean:
+                    new_row_data.append(beneficiary_acc)
+                elif h_clean == rd1_col_name:
+                    new_row_data.append(rd1)
+                elif h_clean == balance_col_name:
+                    new_row_data.append(bank_closing_balance)
+                elif h_clean == "FILE NAME":
+                    new_row_data.append(bank_user)
+                else:
+                    new_row_data.append("")
+            
+            trans_sheet.append_row(new_row_data)
+
+        return jsonify({"status": "success", "message": "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!"})
 
     except Exception as e:
-        print(f"Update RD Error: {repr(e)}")
+        print(f"Update Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
-
+        
+        
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
     bank_user = session.get("bank_user")
