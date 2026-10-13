@@ -220,7 +220,8 @@
         });
     }
     // 2. టేబుల్‌లో డేటాను రెండర్ చేసే హెల్పర్ ఫంక్షన్
-    function renderBankTable(records) {
+    // టేబుల్ రెండర్ చేసేటప్పుడు పాత విలువలను స్టోర్ చేసుకోవడం కోసం 'data-old' వాడతాం
+function renderBankTable(records) {
     const bankDataSection = document.getElementById('bank-data-section');
     bankDataSection.style.display = 'block';
 
@@ -235,7 +236,7 @@
         records.forEach((row, index) => {
             let rd1Val = row['RD 1'] || row['RD_1'] || '';
             let rd2Val = row['RD 2'] || row['RD_2'] || '';
-            let balanceVal = row['Bank Closing Balance'] || ''; // బ్యాలెన్స్ విలువ
+            let balanceVal = row['Bank Closing Balance'] || '';
             let bankSno = row['BANK_SNO'] || row['Bank SNO'] || index + 1;
             let isCompleted = row['is_completed'];
 
@@ -245,13 +246,13 @@
                     <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
                     <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
                     <td>
-                        <input type="text" id="rd1_${bankSno}" value="${rd1Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-1" onblur="autoSaveRd('${bankSno}')">
+                        <input type="text" id="rd1_${bankSno}" value="${rd1Val}" data-old="${rd1Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-1" onblur="autoSaveRd('${bankSno}')">
                     </td>
                     <td>
-                        <input type="text" id="rd2_${bankSno}" value="${rd2Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-2" onblur="autoSaveRd('${bankSno}')">
+                        <input type="text" id="rd2_${bankSno}" value="${rd2Val}" data-old="${rd2Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-2" onblur="autoSaveRd('${bankSno}')">
                     </td>
                     <td>
-                        <input type="text" id="balance_${bankSno}" value="${balanceVal}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="బ్యాలెన్స్" onblur="autoSaveRd('${bankSno}')">
+                        <input type="text" id="balance_${bankSno}" value="${balanceVal}" data-old="${balanceVal}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="బ్యాలెన్స్" onblur="autoSaveRd('${bankSno}')">
                     </td>
                     <td>
                         <span id="status_${bankSno}" class="text-muted" style="font-size: 11px;">పెండింగ్</span>
@@ -272,7 +273,6 @@
             }
         });
 
-        // టేబుల్ రెండర్ అయ్యేటప్పుడు కౌంట్స్ ఆటోమేటిక్‌గా సెట్ అవుతాయి
         document.getElementById('total-count').innerText = records.length;
         document.getElementById('pending-count').innerText = pCount - 1;
         document.getElementById('completed-count').innerText = cCount - 1;
@@ -304,12 +304,28 @@
     //}
 //}
         
-   async function autoSaveRd(bankSno) {
-    const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
-    const rd2Input = document.getElementById(`rd2_${bankSno}`).value.trim();
-    const balanceInput = document.getElementById(`balance_${bankSno}`).value.trim();
-    const statusSpan = document.getElementById(`status_${bankSno}`);
+   // డేటా మారితేనే సేవ్ అవ్వడం మరియు సేవ్ అయిన తర్వాత టేబుల్ రిఫ్రెష్ అవ్వడం
+async function autoSaveRd(bankSno) {
+    const rd1Elem = document.getElementById(`rd1_${bankSno}`);
+    const rd2Elem = document.getElementById(`rd2_${bankSno}`);
+    const balanceElem = document.getElementById(`balance_${bankSno}`);
+    
+    if (!rd1Elem) return;
 
+    const rd1Input = rd1Elem.value.trim();
+    const rd2Input = rd2Elem.value.trim();
+    const balanceInput = balanceElem.value.trim();
+
+    // పాత విలువలు మరియు కొత్త విలువలు ఒకటే అయితే సర్వర్‌కి రిక్వెస్ట్ వెళ్ళదు (అనవసరమైన లోడ్ తప్పుతుంది)
+    const oldRd1 = rd1Elem.getAttribute('data-old') || '';
+    const oldRd2 = rd2Elem.getAttribute('data-old') || '';
+    const oldBalance = balanceElem.getAttribute('data-old') || '';
+
+    if (rd1Input === oldRd1 && rd2Input === oldRd2 && balanceInput === oldBalance) {
+        return; // ఎలాంటి మార్పు లేకపోతే ఏమీ చేయვద్దు
+    }
+
+    const statusSpan = document.getElementById(`status_${bankSno}`);
     if (statusSpan) {
         statusSpan.className = "text-info";
         statusSpan.innerText = "సేవ్ అవుతోంది...";
@@ -329,12 +345,17 @@
 
         const result = await res.json();
         
-        if (statusSpan) {
-            if (result.status === 'success') {
+        if (result.status === 'success') {
+            if (statusSpan) {
                 statusSpan.className = "text-success fw-bold";
                 statusSpan.innerText = "Saved ✅";
-                setTimeout(() => { statusSpan.innerText = ""; }, 2000);
-            } else {
+            }
+            // విలువ సక్సెస్‌గా మారిన తర్వాత డేటాను మళ్లీ తెచ్చి టేబుల్ రిఫ్రెష్ చేయడం (దీనివల్ల కంప్లీట్ లిస్ట్‌లోకి మారుతుంది)
+            setTimeout(() => {
+                checkUserLoginStatus(); 
+            }, 1000);
+        } else {
+            if (statusSpan) {
                 statusSpan.className = "text-danger";
                 statusSpan.innerText = "ఫెయిల్ ❌";
             }
