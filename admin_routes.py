@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
 import pandas as pd
 # మీ ప్రధాన అప్ నుండి గూగుల్ షీట్స్ క్లైంట్ మరియు కాన్స్టెంట్స్ ఇంపోర్ట్ చేసుకోవాలి
-from app import get_sheets_client, SPREADSHEET_NAME 
+#from app import get_sheets_client, SPREADSHEET_NAME 
 
 admin_bp = Blueprint('admin_bp', __name__, template_folder='templates')
 
@@ -33,6 +33,7 @@ def admin_logout():
 # 3. ఓవరాల్ డాష్‌బోర్డ్ & బ్యాంక్-వైజ్ రిపోర్ట్స్
 @admin_bp.route('/admin/dashboard')
 def admin_dashboard():
+    from app import get_sheets_client, SPREADSHEET_NAME
     # అడ్మిన్ లాగిన్ అయ్యారా లేదా అని చెక్ చేయడం
     if not session.get('admin_logged_in'):
         return redirect(url_for('admin_bp.admin_login'))
