@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
 import pandas as pd
-# మీ ప్రధాన అప్ నుండి గూగుల్ షీట్స్ క్లైంట్ మరియు కాన్స్టెంట్స్ ఇంపోర్ట్ చేసుకోవాలి
+# మీ ప్రధాన అప్ నుండి గూగుల్ షీట్స్ క్లైంట్ మరియు కాన్స్టెంట్స్ ఇంపోర్ట్ చేసుకోవాలి.
 
 admin_bp = Blueprint('admin_bp', __name__, template_folder='templates')
 
