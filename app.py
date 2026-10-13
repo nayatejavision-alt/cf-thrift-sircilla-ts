@@ -280,29 +280,42 @@ def update_rd_accounts():
         bank_sno = str(data.get("bank_sno")).strip()
         rd1 = str(data.get("rd1", "")).strip()
         rd2 = str(data.get("rd2", "")).strip()
-        bank_closing_balance = str(data.get("bank_closing_balance", "")).strip()
-
-        print(f"--- Update Request: Bank={bank_user}, SNO={bank_sno}, RD1={rd1}, Bal={bank_closing_balance} ---")
+        bank_closing_balance_str = str(data.get("bank_closing_balance", "")).strip()
+        
+        # బ్యాలెన్స్‌ను నంబర్‌గా మార్చడం (లెక్కల కోసం)
+        try:
+            bank_closing_balance = float(bank_closing_balance_str) if bank_closing_balance_str else 0.0
+        except ValueError:
+            bank_closing_balance = 0.0
 
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # 1. NEW THRIFT DATA అప్‌డేట్
+        # 1. 'NEW THRIFT DATA' (Master) లో RD 1 మరియు RD 2 అప్‌డేట్ చేయడం
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
         master_records = target_sheet.get_all_records()
         
         master_row_index = None
         beneficiary_name = ""
         beneficiary_acc = ""
+        monthly_wages = 0.0
         
         for idx, row in enumerate(master_records):
             row_bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
             if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
-                master_row_index = idx + 2
+                master_row_index = idx + 2  # gspread row index + header row
                 beneficiary_name = str(row.get("Name Of Benificiary") or row.get("NAME") or "").strip()
                 beneficiary_acc = str(row.get("Bank Account Number") or row.get("ACCOUNT") or "").strip()
+                
+                # '8% Of Monthly Wages' లేదా డ్యూ లెక్కించడానికి మాస్టర్ డేటా నుండి విలువ తీసుకోవడం
+                # (మీ షీట్‌లో ఆ కాలమ్ పేరు ఎలా ఉందో దాని ప్రకారం ఇక్కడ తీసుకోవచ్చు, ఉదాహరణకు 'Monthly Wages' లేదా డైరెక్ట్ డ్యూ)
+                try:
+                    wages_val = row.get("8% Of Monthly Wages") or row.get("MONTHLY WAGES") or 0
+                    monthly_wages = float(wages_val)
+                except ValueError:
+                    monthly_wages = 0.0
                 break
                 
         if master_row_index:
@@ -319,9 +332,12 @@ def update_rd_accounts():
                 target_sheet.update_cell(master_row_index, rd1_col, rd1)
             if rd2_col:
                 target_sheet.update_cell(master_row_index, rd2_col, rd2)
-            print("Master Sheet Updated Successfully.")
 
-        # 2. Transactions_Year1 అప్‌డేట్
+        # మాస్టర్ నుండి డ్యూ (Due = 8% of Monthly Wages) లెక్కించడం (లేదా మాస్టర్ రో నుండి నేరుగా తెచ్చుకోవడం)
+        # ఒకవేళ మీ మాస్టర్ షీట్‌లో డ్యూ నేరుగా ఉంటే ఆ కాలమ్ వాల్యూ వాడొచ్చు. ఉదాహరణకు 8% వేతనం:
+        due_amount = monthly_wages  # ఒకవేళ వేతనాలు లేకపోతే డిఫాల్ట్ డ్యూ లేదా మాస్టర్ నుండి తెచ్చుకోవచ్చు
+
+        # 2. 'Transactions_Year1' షీట్‌లో డిపెండెన్సీ ఫార్ములాలతో అప్‌డేట్ చేయడం
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
         trans_records = trans_sheet.get_all_records()
 
@@ -335,24 +351,65 @@ def update_rd_accounts():
             
             if t_sno == bank_sno and t_month == str(current_month) and bank_user.lower() in t_filename:
                 trans_row_index = idx + 2
+                # ఒకవేళ ఆల్రెడీ ఆ రో లో Due ఉంటే దానిని కూడా తీసుకోవచ్చు
+                try:
+                    existing_due = float(row.get("(C) ఈ నెల డ్యూ(Due)") or 0)
+                    if existing_due > 0:
+                        due_amount = existing_due
+                except ValueError:
+                    pass
                 break
 
         trans_headers = trans_sheet.row_values(1)
         col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
+        # మీరు చెప్పిన ఫార్ములాల ప్రకారం లెక్కలు కట్టడం:
+        previous_arrears = 0.0  # (B) మొదటి నెల కాబట్టి 0
+        actual_paid = bank_closing_balance  # (D) మొదటి నెల కాబట్టి Closing Balance సమానం
+        
+        # Govt_Share = min(Due, Actual Paid)
+        govt_share = min(due_amount, actual_paid)
+        
+        # Remaining Arrears = max(0, Previous Arrears + Due - Actual Paid)
+        remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
+        
+        # Govt RD Closing Bal (H) = Govt_Share
+        govt_rd_closing_bal = govt_share
+        
+        # Govt RD Status (I) = "MATCHED" ఒకవేళ Arrears <= 0 లేదంటే "PENDING"
+        govt_rd_status = "MATCHED" if remaining_arrears <= 0 else "PENDING"
+
+        # కాలమ్ పేర్లు మీ షీట్ ప్రకారం:
         rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
         balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
-
-        print(f"Trans Row Index found: {trans_row_index}")
+        arrears_b_name = "(B) పాత బాకీ(Previous Arrears)"
+        due_c_name = "(C) ఈ నెల డ్యూ(Due)"
+        actual_paid_d_name = "(D) Actual Paid"
+        govt_share_name = "Govt_Share"
+        remaining_f_name = "(F) మిగిలిన బాకీ(Remaining Arrears)"
+        govt_closing_h_name = "Govt RD Closing Bal (H)"
+        govt_status_i_name = "Govt RD Status (I)"
 
         if trans_row_index:
-            if rd1_col_name in col_map:
-                trans_sheet.update_cell(trans_row_index, col_map[rd1_col_name], rd1)
-            if balance_col_name in col_map:
-                trans_sheet.update_cell(trans_row_index, col_map[balance_col_name], bank_closing_balance)
-            print("Transactions_Year1 Existing Row Updated.")
+            # ఒకవేళ ఆల్రెడీ ఎంట్రీ ఉంటే అన్ని డిపెండెంట్ కాలమ్స్‌ని అప్‌డేట్ చేయడం
+            updates = [
+                (rd1_col_name, rd1),
+                (balance_col_name, bank_closing_balance_str),
+                (arrears_b_name, previous_arrears),
+                (due_c_name, due_amount),
+                (actual_paid_d_name, actual_paid),
+                (govt_share_name, govt_share),
+                (remaining_f_name, remaining_arrears),
+                (govt_closing_h_name, govt_rd_closing_bal),
+                (govt_status_i_name, govt_rd_status)
+            ]
+            for col_name, val in updates:
+                if col_name in col_map:
+                    trans_sheet.update_cell(trans_row_index, col_map[col_name], val)
         else:
+            # కొత్త ఎంట్రీ అయితే డిక్షనరీ ద్వారా అన్ని కాలమ్స్‌ని ఫిల్ చేసి అపెండ్ చేయడం
             row_data_dict = {h.strip(): "" for h in trans_headers}
+            
             for h in trans_headers:
                 h_clean = h.strip()
                 h_upper = h_clean.upper()
@@ -368,20 +425,32 @@ def update_rd_accounts():
                 elif h_clean == rd1_col_name:
                     row_data_dict[h_clean] = rd1
                 elif h_clean == balance_col_name:
-                    row_data_dict[h_clean] = bank_closing_balance
+                    row_data_dict[h_clean] = bank_closing_balance_str
+                elif h_clean == arrears_b_name:
+                    row_data_dict[h_clean] = previous_arrears
+                elif h_clean == due_c_name:
+                    row_data_dict[h_clean] = due_amount
+                elif h_clean == actual_paid_d_name:
+                    row_data_dict[h_clean] = actual_paid
+                elif h_clean == govt_share_name:
+                    row_data_dict[h_clean] = govt_share
+                elif h_clean == remaining_f_name:
+                    row_data_dict[h_clean] = remaining_arrears
+                elif h_clean == govt_closing_h_name:
+                    row_data_dict[h_clean] = govt_rd_closing_bal
+                elif h_clean == govt_status_i_name:
+                    row_data_dict[h_clean] = govt_rd_status
                 elif h_clean == "FILE NAME":
                     row_data_dict[h_clean] = bank_user
 
             new_row_data = [row_data_dict.get(h.strip(), "") for h in trans_headers]
             trans_sheet.append_row(new_row_data)
-            print("Transactions_Year1 New Row Appended.")
 
-        return jsonify({"status": "success", "message": "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!"})
+        return jsonify({"status": "success", "message": "డేటా మరియు ఫార్ములా లెక్కలు విజయవంతంగా అప్‌డేట్ చేయబడ్డాయి!"})
 
     except Exception as e:
         print(f"Update Error Exception: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
-
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
     bank_user = session.get("bank_user")
