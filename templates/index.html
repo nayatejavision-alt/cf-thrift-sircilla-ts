@@ -79,6 +79,27 @@
             <!-- 2. బ్యాంక్ ప్రత్యేక డాష్‌బోర్డ్ -->
             <div id="bank-data-section" class="card card-custom p-4 bg-white" style="display: none;">
     <h4 class="text-success border-bottom pb-2">📊 మీ బ్యాంకు లబ్ధిదారుల జాబితా (Month: 1)</h4>
+                <!-- కౌంట్ స్టేటస్ చూపించే బాక్సులు -->
+<div class="row my-3">
+    <div class="col-md-4">
+        <div class="card bg-light p-2 text-center border">
+            <span class="text-muted" style="font-size: 13px;">మొత్తం లబ్ధిదారులు (Total)</span>
+            <h4 id="total-count" class="text-primary mb-0">0</h4>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-warning-subtle p-2 text-center border">
+            <span class="text-muted" style="font-size: 13px;">పెండింగ్‌లో ఉన్నవి (Pending)</span>
+            <h4 id="pending-count" class="text-danger mb-0">0</h4>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-success-subtle p-2 text-center border">
+            <span class="text-muted" style="font-size: 13px;">పూర్తయినవి (Completed)</span>
+            <h4 id="completed-count" class="text-success mb-0">0</h4>
+        </div>
+    </div>
+</div>
                 
                 <!-- ఫైల్ అప్‌లోడ్ సెక్షన్ -->
                 <div class="card my-3 p-3 bg-light border">
@@ -250,6 +271,11 @@
             }
         });
 
+        // టేబుల్ రెండర్ అయ్యేటప్పుడు కౌంట్స్ సెట్ చేయడం
+document.getElementById('total-count').innerText = records.length;
+document.getElementById('pending-count').innerText = pCount - 1;
+document.getElementById('completed-count').innerText = cCount - 1;
+
         // టేబుల్ బాడీలలో డేటాను సెట్ చేయడం
         if (tbodyPending) {
             tbodyPending.innerHTML = pendingHtml !== "" ? pendingHtml : "<tr><td colspan='7' class='text-center text-success'>అన్ని ఎంట్రీలు పూర్తయ్యాయి! 🎉</td></tr>";
@@ -261,6 +287,7 @@
     } else {
         if (tbodyPending) tbodyPending.innerHTML = "<tr><td colspan='7' class='text-center text-warning'>ఈ బ్యాంకుకు సంబంధించిన డేటా ఏమీ లభించలేదు.</td></tr>";
     }
+        
 }
 //async function updateRdAccount(bankSno) {
   //  const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
