@@ -14,27 +14,28 @@
 <body>
 
     <!-- Header -->
-    <div class="header-banner text-center mb-4">
-        <h2>🏛️ త్రిఫ్టు పథకము లబ్ధిదారుల పోర్టల్</h2>
-        <p class="mb-0">చేనేత మరియు జౌళి శాఖ</p>
-        <!-- హెడర్ లో ఉండే లాగౌట్ బటన్ (ఇది డిఫాల్ట్ గా కనిపించదు, లాగిన్ అయ్యాక వస్తుంది) -->
-    <!-- హెడర్ లో లాగౌట్ మరియు డెవలపర్ సపోర్ట్ కాంటాక్ట్ -->
-<div id="header-logout-btn" style="display: none; position: absolute; right: 20px; top: 15px;">
-    <div class="d-flex align-items-center gap-2">
-        <!-- డెవలపర్ హెల్ప్‌లైన్ బాడ్జ్ -->
-        <div class="bg-white text-dark px-3 py-1 rounded-pill shadow-sm border text-start">
-            <small class="text-muted d-block" style="font-size: 10px; line-height: 1.1;">🛠️ సాంకేతిక సహాయం (Technical Support):</small>
-            <strong class="text-primary" style="font-size: 12px;">Gajula Srikanth, CF | 📞 +91-9700389438</strong>
+    <!-- Header -->
+    <div class="header-banner text-center mb-4 position-relative">
+        
+        <!-- 1. ఎడమ వైపు డెవలపర్ / సాంకేతిక సహాయం బాడ్జ్ -->
+        <div style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); display: none;" id="header-support-badge">
+            <div class="bg-white text-dark px-3 py-1 rounded-pill shadow-sm border text-start">
+                <small class="text-muted d-block" style="font-size: 10px; line-height: 1.1;">🛠️ సాంకేతిక సహాయం (Support):</small>
+                <strong class="text-primary" style="font-size: 12px;">Gajula Srikanth, CF| 📞 +91-9700389438</strong>
+            </div>
         </div>
 
-        <!-- లాగౌట్ బటన్ -->
-        <button class="btn btn-light btn-sm text-danger fw-bold shadow-sm" onclick="logoutBank()">
-            🚪 లాగౌట్ (Logout)
-        </button>
+        <!-- హెడర్ ప్రధాన టైటిల్ -->
+        <h2>🏛️ త్రిఫ్టు పథకము లబ్ధిదారుల పోర్టల్</h2>
+        <p class="mb-0">చేనేత మరియు జౌళి శాఖ</p>
+        
+        <!-- 2. కుడి వైపు లాగౌట్ బటన్ -->
+        <div id="header-logout-btn" style="display: none; position: absolute; right: 20px; top: 50%; transform: translateY(-50%);">
+            <button class="btn btn-light btn-sm text-danger fw-bold shadow-sm" onclick="logoutBank()">
+                🚪 లాగౌట్ (Logout)
+            </button>
+        </div>
     </div>
-</div>
-    </div>
-
     <div class="container-fluid px-4">
     <div class="row">
         
@@ -494,5 +495,9 @@ async function uploadBankFile() {
     }
 }
 </script>
+<!-- ఫిక్స్డ్ ఫుటర్ / సపోర్ట్ బార్ -->
+<footer class="bg-dark text-white text-center py-2 fixed-bottom shadow-lg" style="font-size: 13px;">
+    <span>Need Help / సాంకేతిక సందేహాలకు సంప్రదించండి: <strong>Gajula Srikanth, CF</strong> (Developer) 📞 <a href="tel:9700389438" class="text-warning text-decoration-none fw-bold">9700389438</a></span>
+</footer>    
 </body>
 </html>
