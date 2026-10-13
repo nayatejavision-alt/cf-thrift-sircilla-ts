@@ -183,13 +183,13 @@ def get_bank_data():
             trans_records = []
 
         current_month = 1  # ప్రస్తుత నెల సంఖ్య (month_number = 1)
-        bank_user_lower = bank_user.lower()
+        bank_user_clean = bank_user.strip().lower()
 
-        # 💡 ఆప్టిమైజేషన్: ట్రాన్సాక్షన్స్ కోసం ఒక 'Set' క్రియేట్ చేయడం (స్టెప్ వెనుక లూప్ లేకుండా వేగంగా చెక్ చేయడానికి)
+        # 💡 ఆప్టిమైజేషన్: ట్రాన్సాక్షన్స్ కోసం పక్కా సెట్ క్రియేట్ చేయడం
         completed_transactions = set()
         for t in trans_records:
-            t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip().lower()
-            t_month = str(t.get("month_number") or t.get("MONTH") or "").strip()
+            t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
+            t_month = str(t.get("month_number") or t.get("MONTH") or t.get("MONTH_NUMBER") or "").strip()
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
             
             try:
@@ -197,21 +197,21 @@ def get_bank_data():
             except ValueError:
                 govt_share = 0
 
-            # కండిషన్స్ మ్యాచ్ అయితే సెట్‌లో యాడ్ చేయడం
-            if t_month == str(current_month) and govt_share > 0 and bank_user_lower in t_filename:
-                completed_transactions.add((t_sno, t_filename))
+            # ఎగ్జాక్ట్ మ్యాచ్ (Exact Match) చెక్ చేయడం
+            if t_month == str(current_month) and govt_share > 0 and t_filename == bank_user_clean:
+                completed_transactions.add(t_sno)
 
-        # 3. మాస్టర్ డేటాను ఫిల్టర్ చేయడం (చాలా వేగంగా పనిచేస్తుంది)
+        # 3. మాస్టర్ డేటాను ఫిల్టర్ చేయడం
         filtered_data = []
         for row in master_records:
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
-            if bank_user_lower in file_name.lower():
-                bank_sno = str(row.get("BANK_SNO") or "").strip().lower()
-                file_name_lower = file_name.lower()
+            # మాస్టర్ డేటాలో బ్యాంక్ పేరు మ్యాచ్ అయితేనే తీసుకోవడం
+            if bank_user_clean in file_name.lower():
+                bank_sno = str(row.get("BANK_SNO") or "").strip()
                 
-                # O(1) టైమ్‌లో సెట్ లో ఉందో లేదో చెక్ చేయడం
-                is_completed = (bank_sno, file_name_lower) in completed_transactions
+                # కేవలం BANK_SNO ఆధారంగా సెట్‌లో ఉందో లేదో చెక్ చేయడం (ఎందుకంటే ఆల్రెడీ బ్యాంక్ ఫిల్టర్ అయింది కాబట్టి)
+                is_completed = bank_sno in completed_transactions
                 
                 row['is_completed'] = is_completed
                 filtered_data.append(row)
@@ -221,7 +221,6 @@ def get_bank_data():
     except Exception as e:
         print(f"Get Bank Data Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
-
 @app.route("/api/download-csv", methods=["GET"])
 def download_csv():
     bank_user = session.get("bank_user")
