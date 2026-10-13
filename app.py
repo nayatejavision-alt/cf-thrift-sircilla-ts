@@ -175,7 +175,7 @@ def get_bank_data():
         target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
         master_records = target_sheet.get_all_records()
 
-        # 2. ట్రాన్సాక్షన్ డేటా (Transactions_Year1) తీసుకోవడం (డూప్లికేట్ చెక్ చేయడానికి)
+        # 2. ట్రాన్సాక్షన్ డేటా (Transactions_Year1) తీసుకోవడం
         try:
             trans_sheet = spreadsheet.worksheet('Transactions_Year1')
             trans_records = trans_sheet.get_all_records()
@@ -187,15 +187,33 @@ def get_bank_data():
         filtered_data = []
         for row in master_records:
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
+            
+            # లాగిన్ అయిన బ్యాంకు పేరు మాస్టర్ డేటాలోని FILE NAME లో మ్యాచ్ అయితేనే తీసుకోవడం
             if bank_user.lower() in file_name.lower():
                 bank_sno = str(row.get("BANK_SNO") or "").strip()
                 
-                # Transactions_Year1 లో ఈ bank_sno మరియు month_number (1) ఉందో లేదో చెక్ చేయడం
+                # Transactions_Year1 లో డూప్లికేట్ మరియు షేర్ కండిషన్ చెక్ చేయడం
                 is_completed = False
                 for t in trans_records:
                     t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
                     t_month = str(t.get("month_number") or t.get("MONTH") or "").strip()
-                    if t_sno == bank_sno and t_month == str(current_month):
+                    t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip()
+                    
+                    # Govt_Share విలువను నంబర్‌గా మార్చి చెక్ చేయడం (సేఫ్టీ కోసం)
+                    try:
+                        govt_share = float(t.get("Govt_Share") or t.get("GOVT_SHARE") or 0)
+                    except ValueError:
+                        govt_share = 0
+
+                    # 1. BANK_SNO మ్యాచ్ కావాలి
+                    # 2. month_number మ్యాచ్ కావాలి
+                    # 3. FILE NAME (బ్యాంక్ పేరు) మ్యాచ్ కావాలి
+                    # 4. Govt_Share సున్నా కంటే ఎక్కువగా ఉండాలి (> 0)
+                    if (t_sno == bank_sno and 
+                        t_month == str(current_month) and 
+                        bank_user.lower() in t_filename.lower() and 
+                        govt_share > 0):
+                        
                         is_completed = True
                         break
                 
@@ -206,8 +224,9 @@ def get_bank_data():
         return jsonify({"status": "success", "bank": bank_user, "data": filtered_data})
 
     except Exception as e:
-        return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
-        
+        return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})        
+
+
 @app.route("/api/download-csv", methods=["GET"])
 def download_csv():
     bank_user = session.get("bank_user")
