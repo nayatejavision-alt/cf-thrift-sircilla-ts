@@ -268,6 +268,7 @@ def download_csv():
     response.headers["Content-Type"] = "text/csv"
     return response
     
+
 @app.route("/api/update-rd-accounts", methods=["POST"])
 def update_rd_accounts():
     try:
@@ -289,12 +290,17 @@ def update_rd_accounts():
         master_records = target_sheet.get_all_records()
         
         master_row_index = None
+        beneficiary_name = ""
+        beneficiary_acc = ""
+        
         for idx, row in enumerate(master_records):
             row_bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
             if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
                 master_row_index = idx + 2  # gspread row index + header row
+                beneficiary_name = str(row.get("Name Of Benificiary") or row.get("NAME") or "").strip()
+                beneficiary_acc = str(row.get("Bank Account Number") or row.get("ACCOUNT") or "").strip()
                 break
                 
         if master_row_index:
@@ -334,13 +340,11 @@ def update_rd_accounts():
 
         trans_headers = trans_sheet.row_values(1)
         
-        # కాలమ్ ఇండెక్స్‌లను కనుగొనడం
+        # కాలమ్ ఇండెక్స్‌లను కనుగొనడం కోసం మ్యాపింగ్
         col_map = {}
         for c_idx, h in enumerate(trans_headers):
-            h_clean = h.strip()
-            col_map[h_clean] = c_idx + 1
+            col_map[h.strip()] = c_idx + 1
 
-        # Transactions_Year1 లో కాలమ్స్ పేర్లు మన డేటా ప్రకారం మ్యాచ్ చేసుకోవడం
         rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
         balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
 
@@ -351,39 +355,34 @@ def update_rd_accounts():
             if balance_col_name in col_map:
                 trans_sheet.update_cell(trans_row_index, col_map[balance_col_name], bank_closing_balance)
         else:
-            # ఒకవేళ కొత్త ఎంట్రీ అయితే కొత్త రో (Row) యాడ్ చేయడం
-            # లబ్ధిదారుడి పేరు మరియు అకౌంట్ నంబర్ మాస్టర్ డేటా నుండి తీసుకోవచ్చు
-            beneficiary_name = ""
-            beneficiary_acc = ""
-            if master_row_index:
-                row_data = target_sheet.row_values(master_row_index)
-                # హెడర్ ఆధారంగా పేరు, అకౌంట్ తెచ్చుకోవచ్చు లేదా సింపుల్‌గా డిక్షనరీ నుండి వాడొచ్చు
-                for c_idx, h in enumerate(target_sheet.row_values(1)):
-                    if "Name Of Benificiary" in h or "NAME" in h:
-                        beneficiary_name = row_data[c_idx]
-                    if "Bank Account Number" in h or "ACCOUNT" in h:
-                        beneficiary_acc = row_data[c_idx]
-
-            new_row_data = []
+            # ఒకవేళ కొత్త ఎంట్రీ అయితే డిక్షనరీ ద్వారా పర్ఫెక్ట్‌గా రో డేటా తయారు చేయడం
+            row_data_dict = {}
             for h in trans_headers:
                 h_clean = h.strip()
-                if h_clean == "MONTH_NUMBER" or h_clean == "month_number":
-                    new_row_data.append(current_month)
-                elif h_clean == "BANK_SNO" or h_clean == "Bank SNO":
-                    new_row_data.append(bank_sno)
-                elif "Name Of Benificiary" in h_clean:
-                    new_row_data.append(beneficiary_name)
-                elif "Bank Account Number" in h_clean:
-                    new_row_data.append(beneficiary_acc)
+                row_data_dict[h_clean] = "" # డిఫాల్ట్‌గా ఖాళీగా ఉంచడం
+
+            # సరైన కాలమ్స్‌లో సరైన విలువలను సెట్ చేయడం
+            for h in trans_headers:
+                h_clean = h.strip()
+                h_upper = h_clean.upper()
+                
+                if h_clean in ["MONTH_NUMBER", "month_number"]:
+                    row_data_dict[h_clean] = current_month
+                elif h_clean in ["BANK_SNO", "Bank SNO"]:
+                    row_data_dict[h_clean] = bank_sno
+                elif "NAME OF BENIFICIARY" in h_upper or h_clean == "Name Of Benificiary":
+                    row_data_dict[h_clean] = beneficiary_name
+                elif "BANK ACCOUNT NUMBER" in h_upper or h_clean == "Bank Account Number":
+                    row_data_dict[h_clean] = beneficiary_acc
                 elif h_clean == rd1_col_name:
-                    new_row_data.append(rd1)
+                    row_data_dict[h_clean] = rd1
                 elif h_clean == balance_col_name:
-                    new_row_data.append(bank_closing_balance)
+                    row_data_dict[h_clean] = bank_closing_balance
                 elif h_clean == "FILE NAME":
-                    new_row_data.append(bank_user)
-                else:
-                    new_row_data.append("")
-            
+                    row_data_dict[h_clean] = bank_user
+
+            # హెడర్ ఆర్డర్ ప్రకారం లిస్ట్‌గా మార్చడం
+            new_row_data = [row_data_dict.get(h.strip(), "") for h in trans_headers]
             trans_sheet.append_row(new_row_data)
 
         return jsonify({"status": "success", "message": "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!"})
@@ -391,8 +390,8 @@ def update_rd_accounts():
     except Exception as e:
         print(f"Update Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
-        
-        
+
+
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
     bank_user = session.get("bank_user")
