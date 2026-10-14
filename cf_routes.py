@@ -132,14 +132,18 @@ def cf_download_report_by_bank():
         )
         df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
         
-        allowed_banks = CF_BANK_MAPPING.get(cf_name, [])
+allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
         
         def match_bank(row):
-            # మాస్టర్ షీట్ లోని బ్యాంక్ కాలమ్ నుండి పేరు తీసుకోవడం
             b_name = str(row.get(bank_col, '')).strip().upper()
+            
+            # ఒకవేళ షీట్‌లో బ్యాంక్ పేరు ఖాళీగా ఉంటే వెంటనే బయటికి పంపేయాలి
+            if not b_name or b_name == 'NAN' or b_name == 'NONE':
+                return False
+                
             for allowed in allowed_banks:
-                # ఒకవేళ కేటాయించిన బ్యాంకు పేరు షీట్ లో ఉంటే మాత్రమే True అవుతుంది
-                if allowed in b_name or b_name in allowed:
+                # కేవలం పూర్తి పేరు సరిపోలితే లేదా allowed బ్యాంకు పేరు షీట్ పేరులో పూర్తిగా ఉంటేనే
+                if allowed == b_name or allowed in b_name:
                     return True
             return False
 
