@@ -12,6 +12,7 @@ from flask import make_response
 import os
 from werkzeug.utils import secure_filename
 from admin_routes import admin_bp
+from cf_routes import cf_bp
 
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
@@ -23,7 +24,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app.register_blueprint(admin_bp)
-
+app.register_blueprint(cf_bp)
 # Google Sheets API Connection Setup Function
 def get_sheets_client():
     scopes = [
