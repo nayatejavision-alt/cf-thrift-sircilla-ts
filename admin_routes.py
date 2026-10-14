@@ -1,4 +1,7 @@
 from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
+from flask import make_response
+import csv
+import io
 import pandas as pd
 # మీ ప్రధాన అప్ నుండి గూగుల్ షీట్స్ క్లైంట్ మరియు కాన్స్టెంట్స్ ఇంపోర్ట్ చేసుకోవాలి.
 
@@ -28,6 +31,78 @@ def admin_logout():
     session.pop('admin_logged_in', None)
     session.pop('admin_user', None)
     return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
+
+
+
+# 4. అడ్మిన్ బ్యాంక్-వైజ్ రిపోర్ట్ ఎక్సెల్ / CSV డౌన్‌లోడ్
+@admin_bp.route('/admin/download-report', methods=['GET'])
+def admin_download_report():
+    from app import get_sheets_client, SPREADSHEET_NAME
+    if not session.get('admin_logged_in'):
+        return redirect(url_for('admin_bp.admin_login'))
+        
+    try:
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        
+        master_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+        trans_sheet = spreadsheet.worksheet("Transactions_Year1")
+        
+        master_records = master_sheet.get_all_records()
+        trans_records = trans_sheet.get_all_records()
+        
+        # కంప్లీటెడ్ ట్రాన్సాక్షన్స్ సెట్
+        completed_set = set()
+        for row in trans_records:
+            t_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            t_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
+            t_month = str(row.get("MONTH_NUMBER") or row.get("month_number") or "").strip()
+            try:
+                govt_share = float(row.get("Govt_Share") or 0)
+            except ValueError:
+                govt_share = 0.0
+                
+            if t_month == '1' and govt_share > 0:
+                completed_set.add(t_rd1)
+                
+        # బ్యాంక్ వారీగా సమ్మరీ కట్టడం
+        bank_summary = {}
+        for row in master_records:
+            bank_name = str(row.get("FILE NAME") or row.get("File Name") or "Other").strip()
+            bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            bank_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
+            
+            if bank_name not in bank_summary:
+                bank_summary[bank_name] = {"total": 0, "completed": 0, "pending": 0}
+                
+            bank_summary[bank_name]["total"] += 1
+            if bank_rd1 in completed_set:
+                bank_summary[bank_name]["completed"] += 1
+            else:
+                bank_summary[bank_name]["pending"] += 1
+
+        # CSV / Excel-compatible ఫైల్ జనరేట్ చేయడం
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # హెడర్స్
+        writer.writerow(["Bank Name", "Total Beneficiaries", "Completed", "Pending", "Progress Percentage (%)"])
+        
+        # డేటా రోస్
+        for bank_name, stats in bank_summary.items():
+            total = stats["total"]
+            completed = stats["completed"]
+            pending = stats["pending"]
+            pct = round((completed / total * 100), 1) if total > 0 else 0.0
+            writer.writerow([bank_name, total, completed, pending, f"{pct}%"])
+            
+        response = make_response(output.getvalue())
+        response.headers["Content-Disposition"] = "attachment; filename=Thrift_Bank_Progress_Report.csv"
+        response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        return response
+
+    except Exception as e:
+        return f"డౌన్‌లోడ్ చేయడంలో లోపం సంభవించింది: {str(e)}"
 
 # 3. ఓవరాల్ డాష్‌బోర్డ్ & బ్యాంక్-వైజ్ రిపోర్ట్స్
 @admin_bp.route('/admin/dashboard')
