@@ -120,7 +120,7 @@ def cf_download_report_by_bank():
         df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
         df_trans_month['RD1_Clean'] = df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)'].astype(str).str.strip()
         
-        df_cross = pd.merge(df_thrift, df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER', 'FILE NAME']], left_on='RD 1_Clean', right_on='RD1_Clean', how='left')
+        df_cross = pd.merge(df_thrift, df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']], left_on='RD 1_Clean', right_on='RD1_Clean', how='left')
         df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
         
         allowed_banks = CF_BANK_MAPPING.get(cf_name, [])
