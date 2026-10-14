@@ -16,15 +16,29 @@
         <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
             <h4 class="fw-bold text-secondary mb-4 text-center">📥 మీ నెలవారీ రిపోర్ట్‌ని డౌన్‌లోడ్ చేసుకోండి</h4>
             
-            <form action="/cf/download-report" method="POST">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">నెలను ఎంచుకోండి (Select Month):</label>
-                    <select name="month_number" class="form-select form-select-lg">
-                        {% for m_num, m_name in months.items() %}
-                        <option value="{{ m_num }}">Month {{ m_num }} ({{ m_name }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
+           <form method="POST">
+    <div class="mb-3">
+        <label class="form-label fw-semibold">నెలను ఎంచుకోండి (Select Month):</label>
+        <select name="month_number" id="month_select" class="form-select form-select-lg">
+            {% for m_num, m_name in months.items() %}
+            <option value="{{ m_num }}">Month {{ m_num }} ({{ m_name }})</option>
+            {% endfor %}
+        </select>
+    </div>
+    
+    <div class="row g-2">
+        <div class="col-md-6">
+            <button type="submit" formaction="/cf/download-report" class="btn btn-primary w-100 py-3 fw-bold shadow-sm">
+                📊 ఏరియా/నేమ్ వైజ్ రిపోర్ట్
+            </button>
+        </div>
+        <div class="col-md-6">
+            <button type="submit" formaction="/cf/download-report-allotted-bank" class="btn btn-success w-100 py-3 fw-bold shadow-sm">
+                🏦 బ్యాంక్ అలొకేషన్ వైజ్ రిపోర్ట్
+            </button>
+        </div>
+    </div>
+</form>
                 <button type="submit" class="btn btn-success w-100 py-3 fw-bold shadow-sm fs-5">
                     📊 ఎక్సెల్ రిపోర్ట్ డౌన్‌లోడ్ (Download Excel)
                 </button>
