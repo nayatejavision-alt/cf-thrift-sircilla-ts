@@ -54,14 +54,15 @@ def admin_dashboard():
         completed_set = set()
         for row in trans_records:
             t_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            t_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
             t_month = str(row.get("MONTH_NUMBER") or row.get("month_number") or "").strip()
             try:
                 govt_share = float(row.get("Govt_Share") or 0)
             except ValueError:
                 govt_share = 0.0
                 
-            if t_month == 1 and govt_share > 0:
-                completed_set.add(t_sno)
+            if t_month == '1' and govt_share > 0:
+                completed_set.add(t_rd1)
                 
         completed_count = len(completed_set)
         pending_count = total_beneficiaries - completed_count
