@@ -72,12 +72,13 @@ def admin_dashboard():
         for row in master_records:
             bank_name = str(row.get("FILE NAME") or row.get("File Name") or "Other").strip()
             bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            bank_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
             
             if bank_name not in bank_summary:
                 bank_summary[bank_name] = {"total": 0, "completed": 0, "pending": 0}
                 
             bank_summary[bank_name]["total"] += 1
-            if bank_sno in completed_set:
+            if bank_rd1 in completed_set:
                 bank_summary[bank_name]["completed"] += 1
             else:
                 bank_summary[bank_name]["pending"] += 1
