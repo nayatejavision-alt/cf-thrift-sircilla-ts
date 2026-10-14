@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CF లాగిన్ - త్రిఫ్టు పథకం</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-primary d-flex align-items-center justify-content-center vh-100">
+    <div class="card p-4 shadow-lg rounded-4" style="width: 100%; max-width: 400px;">
+        <h3 class="text-center fw-bold text-primary mb-3">👨‍💼 CF పోర్టల్ లాగిన్</h3>
+        <form onsubmit="handleCFLogin(event)">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">మీ పేరు (CF Name)</label>
+                <input type="text" id="cf_name" class="form-control" required placeholder="ఉదా: SRIKANTH, NARESH">
+            </div>
+            <button type="submit" class="btn btn-primary w-100 fw-bold py-2">లాగిన్ అవ్వండి</button>
+        </form>
+    </div>
+    <script>
+        async function handleCFLogin(e) {
+            e.preventDefault();
+            const cf_name = document.getElementById('cf_name').value.trim();
+            const res = await fetch('/cf/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({cf_name})
+            });
+            const data = await res.json();
+            if(data.status === 'success') window.location.href = '/cf/dashboard';
+            else alert(data.message);
+        }
+    </script>
+</body>
+</html>
