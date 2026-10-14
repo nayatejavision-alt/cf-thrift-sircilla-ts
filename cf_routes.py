@@ -159,7 +159,7 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
     ws1 = wb.active
     ws1.title = 'Sent_To_Bank_List'
     ws1.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Govt Share Amount', 'Status'])
-    for col_num in range(1, 9):
+    for col_num in range(1, 10):
         ws1.cell(row=1, column=col_num).font = header_font
         ws1.cell(row=1, column=col_num).fill = blue_fill
         
@@ -173,7 +173,7 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
     # --- Sheet 2: Missing ---
     ws2 = wb.create_sheet(title='Missing_or_Zero_List')
     ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Status'])
-    for col_num in range(1, 8):
+    for col_num in range(1, 9):
         ws2.cell(row=1, column=col_num).font = header_font
         ws2.cell(row=1, column=col_num).fill = red_fill
         
@@ -187,7 +187,7 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
     # --- Sheet 3: All ---
     ws3 = wb.create_sheet(title='All_Beneficiaries_Master')
     ws3.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Govt_Share'])
-    for col_num in range(1, 8):
+    for col_num in range(1, 9):
         ws3.cell(row=1, column=col_num).font = header_font
         ws3.cell(row=1, column=col_num).fill = green_fill
         
