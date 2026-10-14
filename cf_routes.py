@@ -120,14 +120,25 @@ def cf_download_report_by_bank():
         df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
         df_trans_month['RD1_Clean'] = df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)'].astype(str).str.strip()
         
-        df_cross = pd.merge(df_thrift, df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']], left_on='RD 1_Clean', right_on='RD1_Clean', how='left')
+        # 💡 ఇక్కడ గమనించండి: మాస్టర్ షీట్ (df_thrift) లోని బ్యాంక్ కాలమ్ పేరును గుర్తించి మర్జ్ చేస్తున్నాం
+        bank_col = 'FILE NAME' if 'FILE NAME' in df_thrift.columns else ('File Name' if 'File Name' in df_thrift.columns else 'Bank Name')
+        
+        df_cross = pd.merge(
+            df_thrift, 
+            df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']], 
+            left_on='RD 1_Clean', 
+            right_on='RD1_Clean', 
+            how='left'
+        )
         df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
         
         allowed_banks = CF_BANK_MAPPING.get(cf_name, [])
         
         def match_bank(row):
-            b_name = str(row.get('FILE NAME') or row.get('File Name') or '').strip().upper()
+            # మాస్టర్ షీట్ లోని బ్యాంక్ కాలమ్ నుండి పేరు తీసుకోవడం
+            b_name = str(row.get(bank_col, '')).strip().upper()
             for allowed in allowed_banks:
+                # ఒకవేళ కేటాయించిన బ్యాంకు పేరు షీట్ లో ఉంటే మాత్రమే True అవుతుంది
                 if allowed in b_name or b_name in allowed:
                     return True
             return False
@@ -135,13 +146,12 @@ def cf_download_report_by_bank():
         group_df = df_cross[df_cross.apply(match_bank, axis=1)].copy()
         
         if group_df.empty:
-            return "మీ పరిధిలోని బ్యాంకులకు సంబంధించిన ఎలాంటి డేటా లభించలేదు.", 404
+            return f"మీ పరిధిలోని బ్యాంకులకు ({allowed_banks}) సంబంధించిన ఎలాంటి డేటా లభించలేదు.", 404
             
         return generate_excel_response(group_df, cf_name, current_month, "Bank_Allotted")
 
     except Exception as e:
         return f"రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}"
-
 
 # 💡 కామన్ ఎక్సెల్ జనరేషన్ హెల్పర్ ఫంక్షన్ (కోడ్ రిపీటేషన్ తగ్గించడానికి)
 def generate_excel_response(group_df, cf_name, current_month, report_type):
