@@ -60,7 +60,7 @@ def admin_dashboard():
             except ValueError:
                 govt_share = 0.0
                 
-            if t_month == "1" and govt_share > 0:
+            if t_month == 1 and govt_share > 0:
                 completed_set.add(t_sno)
                 
         completed_count = len(completed_set)
