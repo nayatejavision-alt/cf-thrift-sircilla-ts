@@ -13,6 +13,9 @@ import os
 from werkzeug.utils import secure_filename
 from admin_routes import admin_bp
 from cf_routes import cf_bp
+import io
+import pandas as pd
+from flask import send_file
 
 
 app = Flask(__name__)
@@ -456,6 +459,8 @@ def update_rd_accounts():
     except Exception as e:
         print(f"Update Error Exception: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
+
+
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
     bank_user = session.get("bank_user")
@@ -482,6 +487,215 @@ def upload_file():
                 "message": "ఫైల్ విజయవంతంగా అప్‌లోడ్ చేయబడింది!",
             }
         )
+
+
+
+@app.route("/api/download-excel", methods=["GET"])
+def download_excel():
+    bank_user = session.get("bank_user")
+    if not bank_user:
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+
+    try:
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+        records = target_sheet.get_all_records()
+
+        # ఆ బ్యాంక్ డేటాను మాత్రమే ఫిల్టర్ చేయడం
+        filtered_data = []
+        for idx, row in enumerate(records):
+            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
+            if bank_user.lower() in file_name.lower():
+                # ఎక్సెల్ లో చూపించడానికి కావలసిన కాలమ్స్
+                filtered_data.append({
+                    "BANK_SNO": row.get("BANK_SNO") or row.get("Bank SNO") or idx + 1,
+                    "Name Of Benificiary": row.get("Name Of Benificiary") or row.get("NAME") or "",
+                    "Bank Account Number": row.get("Bank Account Number") or row.get("ACCOUNT") or "",
+                    "RD ACCOUNT_1": row.get("RD 1") or row.get("RD_1") or "",
+                    "RD ACCOUNT_2": row.get("RD 2") or row.get("RD_2") or "",
+                    "Bank Closing Balance": row.get("Bank Closing Balance") or "",
+                    "FILE NAME": file_name
+                })
+
+        if not filtered_data:
+            return jsonify({"status": "error", "message": "డెటా ఏదీ అందుబాటులో లేదు."})
+
+        # పాండాస్ (Pandas) ఉపయోగించి ఎక్సెల్ ఫైల్ మెమరీలో క్రియేట్ చేయడం
+        df = pd.DataFrame(filtered_data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Pending_Entries')
+        output.seek(0)
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f"{bank_user.replace(' ', '_')}_Thrift_Data.xlsx"
+        )
+    except Exception as e:
+        print(f"Excel Download Error: {repr(e)}")
+        return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
+
+@app.route("/api/bulk-upload", methods=["POST"])
+def bulk_upload():
+    try:
+        bank_user = session.get("bank_user")
+        if not bank_user:
+            return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "ఫైల్ ఏదీ ఎంచుకోలేదు."})
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"status": "error", "message": "ఫైల్ పేరు ఖాళీగా ఉంది."})
+
+        # పాండాస్ ద్వారా అప్‌లోడ్ అయిన ఎక్సెల్ ఫైల్‌ను చదవడం
+        df = pd.read_excel(file)
+        
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        
+        target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+        master_records = target_sheet.get_all_records()
+        master_headers = target_sheet.row_values(1)
+        master_col_map = {h.strip().upper(): c_idx + 1 for c_idx, h in enumerate(master_headers)}
+
+        trans_sheet = spreadsheet.worksheet("Transactions_Year1")
+        trans_records = trans_sheet.get_all_records()
+        trans_headers = trans_sheet.row_values(1)
+        trans_col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
+
+        current_month = 1
+        updated_count = 0
+
+        # ఎక్సెల్ ఫైల్‌లోని ప్రతీ రో (Row) ని లూప్ తిప్పుతూ అప్‌డేట్ చేయడం
+        for _, row in df.iterrows():
+            bank_sno = str(row.get("BANK_SNO") or "").strip()
+            rd1 = str(row.get("RD ACCOUNT_1") or "").strip()
+            rd2 = str(row.get("RD ACCOUNT_2") or "").strip()
+            balance_str = str(row.get("Bank Closing Balance") or "").strip()
+
+            if not bank_sno:
+                continue
+
+            try:
+                bank_closing_balance = float(balance_str) if balance_str else 0.0
+            except ValueError:
+                bank_closing_balance = 0.0
+
+            # 1. Master Sheet లో అప్‌డేట్ చేయడానికి రో ఇండెక్స్ కనుగొనడం
+            master_row_idx = None
+            monthly_wages = 0.0
+            beneficiary_name = ""
+            beneficiary_acc = ""
+
+            for idx, m_row in enumerate(master_records):
+                m_sno = str(m_row.get("BANK_SNO") or "").strip()
+                m_file = str(m_row.get("FILE NAME") or m_row.get("File Name") or "").strip()
+                if m_sno == bank_sno and bank_user.lower() in m_file.lower():
+                    master_row_idx = idx + 2
+                    beneficiary_name = str(m_row.get("Name Of Benificiary") or m_row.get("NAME") or "").strip()
+                    beneficiary_acc = str(m_row.get("Bank Account Number") or m_row.get("ACCOUNT") or "").strip()
+                    try:
+                        monthly_wages = float(m_row.get("8% Of Monthly Wages") or m_row.get("MONTHLY WAGES") or 0)
+                    except ValueError:
+                        monthly_wages = 0.0
+                    break
+
+            if master_row_idx:
+                if "RD 1" in master_col_map:
+                    target_sheet.update_cell(master_row_idx, master_col_map["RD 1"], rd1)
+                elif "RD_1" in master_col_map:
+                    target_sheet.update_cell(master_row_idx, master_col_map["RD_1"], rd1)
+                    
+                if "RD 2" in master_col_map:
+                    target_sheet.update_cell(master_row_idx, master_col_map["RD 2"], rd2)
+                elif "RD_2" in master_col_map:
+                    target_sheet.update_cell(master_row_idx, master_col_map["RD_2"], rd2)
+
+            # 2. Transactions Sheet లో లెక్కలు కట్టి అప్‌డేట్ చేయడం
+            due_amount = monthly_wages
+            previous_arrears = 0.0
+            actual_paid = bank_closing_balance
+            govt_share = min(due_amount, actual_paid)
+            remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
+            govt_rd_closing_bal = govt_share
+            govt_rd_status = "MATCHED" if remaining_arrears <= 0 else "PENDING"
+
+            trans_row_idx = None
+            for idx, t_row in enumerate(trans_records):
+                t_sno = str(t_row.get("BANK_SNO") or t_row.get("Bank SNO") or "").strip()
+                t_month = str(t_row.get("MONTH_NUMBER") or t_row.get("month_number") or "").strip()
+                t_filename = str(t_row.get("FILE NAME") or t_row.get("File Name") or "").strip().lower()
+                if t_sno == bank_sno and t_month == str(current_month) and bank_user.lower() in t_filename:
+                    trans_row_idx = idx + 2
+                    break
+
+            rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
+            balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
+            arrears_b_name = "(B) పాత బాకీ(Previous Arrears)"
+            due_c_name = "(C) ఈ నెల డ్యూ(Due)"
+            actual_paid_d_name = "(D) Actual Paid"
+            govt_share_name = "Govt_Share"
+            remaining_f_name = "(F) మిగిలిన బాకీ(Remaining Arrears)"
+            govt_closing_h_name = "Govt RD Closing Bal (H)"
+            govt_status_i_name = "Govt RD Status (I)"
+
+            if trans_row_idx:
+                updates = [
+                    (rd1_col_name, rd1),
+                    (balance_col_name, balance_str),
+                    (due_c_name, due_amount),
+                    (actual_paid_d_name, actual_paid),
+                    (govt_share_name, govt_share),
+                    (remaining_f_name, remaining_arrears),
+                    (govt_closing_h_name, govt_rd_closing_bal),
+                    (govt_status_i_name, govt_rd_status)
+                ]
+                for col_name, val in updates:
+                    if col_name in trans_col_map:
+                        trans_sheet.update_cell(trans_row_idx, trans_col_map[col_name], val)
+            else:
+                row_data_dict = {h.strip(): "" for h in trans_headers}
+                for h in trans_headers:
+                    h_clean = h.strip()
+                    if h_clean in ["MONTH_NUMBER", "month_number"]:
+                        row_data_dict[h_clean] = current_month
+                    elif h_clean in ["BANK_SNO", "Bank SNO"]:
+                        row_data_dict[h_clean] = bank_sno
+                    elif h_clean == rd1_col_name:
+                        row_data_dict[h_clean] = rd1
+                    elif h_clean == balance_col_name:
+                        row_data_dict[h_clean] = balance_str
+                    elif h_clean == due_c_name:
+                        row_data_dict[h_clean] = due_amount
+                    elif h_clean == actual_paid_d_name:
+                        row_data_dict[h_clean] = actual_paid
+                    elif h_clean == govt_share_name:
+                        row_data_dict[h_clean] = govt_share
+                    elif h_clean == remaining_f_name:
+                        row_data_dict[h_clean] = remaining_arrears
+                    elif h_clean == govt_closing_h_name:
+                        row_data_dict[h_clean] = govt_rd_closing_bal
+                    elif h_clean == govt_status_i_name:
+                        row_data_dict[h_clean] = govt_rd_status
+                    elif h_clean == "FILE NAME":
+                        row_data_dict[h_clean] = bank_user
+
+                new_row_data = [row_data_dict.get(h.strip(), "") for h in trans_headers]
+                trans_sheet.append_row(new_row_data)
+
+            updated_count += 1
+
+        return jsonify({"status": "success", "message": f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు విజయవంతంగా బల్క్ అప్‌డేట్ చేయబడ్డాయి! 🎉"})
+
+    except Exception as e:
+        print(f"Bulk Upload Error: {repr(e)}")
+        return jsonify({"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"})
+
 
 # 5. లాగౌట్ API
 @app.route("/api/logout", methods=["POST"])
