@@ -29,6 +29,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.register_blueprint(admin_bp)
 app.register_blueprint(cf_bp)
 # Google Sheets API Connection Setup Function
+
 def get_sheets_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
