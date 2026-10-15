@@ -122,9 +122,9 @@
                     <div id="upload-msg" class="mt-1 font-weight-bold" style="font-size: 13px;"></div>
                 </div>
 
-                <!-- CSV డౌన్‌లోడ్ బటన్ -->
+               <!-- ఎక్సెల్ డౌన్‌లోడ్ బటన్ -->
                 <div class="mb-3">
-                    <a href="/api/download-csv" class="btn btn-sm btn-success">📥 డేటా డౌన్‌లోడ్ (CSV)</a>
+                    <a href="/api/download-excel" class="btn btn-sm btn-success">📥 డేటా డౌన్‌లోడ్ (Excel)</a>
                 </div>
 
                 <!-- ఎంట్రీ కావాల్సిన వారు (Pending Section) -->
@@ -463,24 +463,23 @@ async function uploadBankFile() {
     const fileInput = document.getElementById('bank-upload-file');
     const msgDiv = document.getElementById('upload-msg');
 
-    // ఫైల్ సెలెక్ట్ చేశారా లేదా అని చెక్ చేయడం
     if (fileInput.files.length === 0) {
         msgDiv.className = "mt-1 text-danger";
-        msgDiv.innerText = "దయచేసి ముందుగా ఒక ఫైల్‌ను ఎంచుకోండి.";
+        msgDiv.innerText = "దయచేసి ముందుగా ఎక్సెల్ ఫైల్‌ను ఎంచుకోండి.";
         return;
     }
 
     const file = fileInput.files[0];
     const formData = new FormData();
-    formData.append("file", file); // బ్యాకెండ్‌లో 'file' అనే పేరుతో రిసీవ్ చేసుకుంటాం
+    formData.append("file", file);
 
     msgDiv.className = "mt-1 text-info";
-    msgDiv.innerText = "అప్‌లోడ్ అవుతోంది, దయచేసి వేచి ఉండండి...";
+    msgDiv.innerText = "బల్క్ అప్‌లోడ్ జరుగుతోంది, దయచేసి వేచి ఉండండి...";
 
     try {
-        const response = await fetch('/api/upload-file', {
+        const response = await fetch('/api/bulk-upload', {
             method: 'POST',
-            body: formData // ఫైల్ పంపేటప్పుడు headers పెట్టవలసిన పనిలేదు, బ్రౌజరే ఆటోమేటిక్‌గా సెట్ చేస్తుంది
+            body: formData
         });
 
         const result = await response.json();
@@ -488,18 +487,22 @@ async function uploadBankFile() {
         if (result.status === "success") {
             msgDiv.className = "mt-1 text-success";
             msgDiv.innerText = result.message;
-            fileInput.value = ""; // ఇన్‌పుట్ బాక్స్ క్లియర్ చేయడం
+            fileInput.value = ""; 
+            // అప్‌డేట్ కాగానే టేబుల్‌ని రిఫ్రెష్ చేయడానికి
+            setTimeout(() => {
+                checkUserLoginStatus();
+            }, 1500);
         } else {
             msgDiv.className = "mt-1 text-danger";
             msgDiv.innerText = result.message;
         }
     } catch (error) {
-        console.error("Upload Error:", error);
+        console.error("Bulk Upload Error:", error);
         msgDiv.className = "mt-1 text-danger";
-        msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌లోడ్ కాలేదు.";
+        msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌డేట్ కాలేదు.";
     }
 }
-</script>
+    </script>
 <!-- పోర్టల్స్ యాక్సెస్ కోసం ప్రొఫెషనల్ ఫుటర్ లింక్స్ -->
 <footer class="text-center mt-5 mb-4">
     <div class="text-muted" style="font-size: 14px;">
