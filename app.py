@@ -190,44 +190,45 @@ def get_bank_data():
         except Exception:
             trans_records = []
 
-        current_month = 1  # ప్రస్తుత నెల సంఖ్య (month_number = 1)
+        current_month = 1  
         bank_user_clean = bank_user.strip().lower()
 
-        # 💡 ఆప్టిమైజేషన్: ట్రాన్సాక్షన్స్ కోసం సెట్ క్రియేట్ చేయడం
+        # 💡 బ్యాలెన్స్‌లను మ్యాప్ చేయడానికి డిక్షనరీ
+        balance_map = {}
         completed_transactions = set()
+        
         for t in trans_records:
             t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
             t_month = str(t.get("month_number") or t.get("MONTH") or t.get("MONTH_NUMBER") or "").strip()
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
-
+            
+            # ఒకవేళ నెల 1 మరియు బ్యాంక్ పేరు మ్యాచ్ అయితే బ్యాలెన్స్ తీసుకోవడం
             if t_month == str(current_month) and (bank_user_clean in t_filename or t_filename in bank_user_clean):
                 bal_val = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
-                balance_map[t_sno] = bal_val
-            
+                if t_sno:
+                    balance_map[t_sno] = bal_val
+
             try:
                 govt_share = float(t.get("Govt_Share") or t.get("GOVT_SHARE") or 0)
             except ValueError:
                 govt_share = 0
 
-            # నెల, govt_share > 0 మరియు బ్యాంక్ పేరు మ్యాచ్ అవ్వడం (సబ్-స్ట్రింగ్ మ్యాచ్)
             if t_month == str(current_month) and govt_share > 0 and (bank_user_clean in t_filename or t_filename in bank_user_clean):
                 completed_transactions.add(t_sno)
 
-        # 3. మాస్టర్ డేటాను ఫిల్టర్ చేయడం
+        # 3. మాస్టర్ డేటాను ఫిల్టర్ చేయడం మరియు బ్యాలెన్స్ అటాచ్ చేయడం
         filtered_data = []
         for row in master_records:
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
             if bank_user_clean in file_name.lower():
                 bank_sno = str(row.get("BANK_SNO") or "").strip()
-
-                # ట్రాన్సాక్షన్ షీట్‌లో బ్యాలెన్స్ ఉంటే దానిని రో లోకి సెట్ చేయడం
+                
+                # ట్రాన్సాక్షన్ షీట్‌లో సేవ్ అయిన బ్యాలెన్స్ ఉంటే దానిని రో లోకి సెట్ చేయడం
                 if bank_sno in balance_map:
                     row['Bank Closing Balance'] = balance_map[bank_sno]
                 
-                # ట్రాన్సాక్షన్ షీట్‌లో ఈ BANK_SNO ఉందో లేదో చెక్ చేయడం
                 is_completed = bank_sno in completed_transactions
-                
                 row['is_completed'] = is_completed
                 filtered_data.append(row)
 
@@ -236,7 +237,6 @@ def get_bank_data():
     except Exception as e:
         print(f"Get Bank Data Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
-
 
 
         
