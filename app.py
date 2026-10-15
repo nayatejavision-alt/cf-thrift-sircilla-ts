@@ -17,7 +17,6 @@ import io
 import pandas as pd
 from flask import send_file
 
-
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
 app.permanent_session_lifetime = timedelta(days=7) # ఉదాహరణకు 7 రోజుల పాటు లాగిన్ పోదు! 
