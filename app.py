@@ -499,29 +499,57 @@ def download_excel():
     try:
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
+        
+        # మాస్టర్ డేటా తీసుకోవడం మరియు FILE NAME తో ఫిల్టర్ చేయడం
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
-        records = target_sheet.get_all_records()
+        master_records = target_sheet.get_all_records()
+        df_master = pd.DataFrame(master_records)
+        
+        # కేవలం లాగిన్ అయిన బ్యాంకుకు సంబంధించిన రికార్డ్స్ మాత్రమే ఫిల్టర్ చేయడం (case-insensitive సురక్షితంగా ఉండటానికి)
+        df_master = df_master[df_master['FILE NAME'].astype(str).str.strip().str.lower() == bank_user.strip().lower()].copy()
 
-        # ఆ బ్యాంక్ డేటాను మాత్రమే ఫిల్టర్ చేయడం
+        # ట్రాన్సాక్షన్ డేటా తీసుకోవడం
+        try:
+            trans_sheet = spreadsheet.worksheet("Transactions_Year1")
+            trans_records = trans_sheet.get_all_records()
+            df_trans = pd.DataFrame(trans_records)
+            df_trans = df_trans[df_trans['FILE NAME'].astype(str).str.strip().str.lower() == bank_user.strip().lower()].copy()
+        except Exception:
+            df_trans = pd.DataFrame()
+
+        # ట్రాన్సాక్షన్స్ నుండి బ్యాలెన్స్‌లను మ్యాప్ చేయడానికి ఒక డిక్షనరీ తయారు చేయడం (iterrows వాడాలి)
+        balance_map = {}
+        if not df_trans.empty:
+            for _, t in df_trans.iterrows():
+                t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
+                t_month = str(t.get("MONTH_NUMBER") or t.get("month_number") or "").strip()
+                t_balance = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
+                
+                if t_month == "1" and t_sno:
+                    balance_map[t_sno] = t_balance
+
         filtered_data = []
-        for idx, row in enumerate(records):
+        # ఇక్కడ iterrows() వాడటం వల్ల ప్రతి రో (row) సరిగ్గా వస్తుంది
+        for idx, (_, row) in enumerate(df_master.iterrows()):
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
-            if bank_user.lower() in file_name.lower():
-                # ఎక్సెల్ లో చూపించడానికి కావలసిన కాలమ్స్
-                filtered_data.append({
-                    "BANK_SNO": row.get("BANK_SNO") or row.get("Bank SNO") or idx + 1,
-                    "Name Of Benificiary": row.get("Name Of Benificiary") or row.get("NAME") or "",
-                    "Bank Account Number": row.get("Bank Account Number") or row.get("ACCOUNT") or "",
-                    "RD ACCOUNT_1": row.get("RD 1") or row.get("RD_1") or "",
-                    "RD ACCOUNT_2": row.get("RD 2") or row.get("RD_2") or "",
-                    "Bank Closing Balance": row.get("Bank Closing Balance") or "",
-                    "FILE NAME": file_name
-                })
+            bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            
+            # ట్రాన్సాక్షన్ షీట్ నుండి లేదా మాస్టర్ నుండి బ్యాలెన్స్ తీసుకోవడం
+            closing_balance = balance_map.get(bank_sno, row.get("Bank Closing Balance", ""))
+
+            filtered_data.append({
+                "BANK_SNO": bank_sno or idx + 1,
+                "Name Of Benificiary": row.get("Name Of Benificiary") or row.get("NAME") or "",
+                "Bank Account Number": row.get("Bank Account Number") or row.get("ACCOUNT") or "",
+                "RD ACCOUNT_1": row.get("RD 1") or row.get("RD_1") or "",
+                "RD ACCOUNT_2": row.get("RD 2") or row.get("RD_2") or "",
+                "Bank Closing Balance": closing_balance,
+                "FILE NAME": file_name
+            })
 
         if not filtered_data:
             return jsonify({"status": "error", "message": "డెటా ఏదీ అందుబాటులో లేదు."})
 
-        # పాండాస్ (Pandas) ఉపయోగించి ఎక్సెల్ ఫైల్ మెమరీలో క్రియేట్ చేయడం
         df = pd.DataFrame(filtered_data)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -537,7 +565,7 @@ def download_excel():
     except Exception as e:
         print(f"Excel Download Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
-
+        
 @app.route("/api/bulk-upload", methods=["POST"])
 def bulk_upload():
     try:
