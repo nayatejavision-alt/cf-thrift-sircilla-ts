@@ -199,6 +199,10 @@ def get_bank_data():
             t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
             t_month = str(t.get("month_number") or t.get("MONTH") or t.get("MONTH_NUMBER") or "").strip()
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
+
+            if t_month == str(current_month) and (bank_user_clean in t_filename or t_filename in bank_user_clean):
+                bal_val = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
+                balance_map[t_sno] = bal_val
             
             try:
                 govt_share = float(t.get("Govt_Share") or t.get("GOVT_SHARE") or 0)
@@ -216,6 +220,10 @@ def get_bank_data():
             
             if bank_user_clean in file_name.lower():
                 bank_sno = str(row.get("BANK_SNO") or "").strip()
+
+                # ట్రాన్సాక్షన్ షీట్‌లో బ్యాలెన్స్ ఉంటే దానిని రో లోకి సెట్ చేయడం
+                if bank_sno in balance_map:
+                    row['Bank Closing Balance'] = balance_map[bank_sno]
                 
                 # ట్రాన్సాక్షన్ షీట్‌లో ఈ BANK_SNO ఉందో లేదో చెక్ చేయడం
                 is_completed = bank_sno in completed_transactions
