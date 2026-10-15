@@ -620,11 +620,17 @@ def bulk_upload():
             m_sno = str(m_row.get("BANK_SNO") or "").strip()
             m_file = str(m_row.get("FILE NAME") or m_row.get("File Name") or "").strip()
             if m_sno and bank_user.lower() in m_file.lower():
+                # సేఫ్ ఫ్లోట్ కన్వర్షన్ కోసం
+                try:
+                    wages_val = float(m_row.get("8% Of Monthly Wages") or m_row.get("MONTHLY WAGES") or 0)
+                except (ValueError, TypeError):
+                    wages_val = 0.0
+
                 master_row_dict[m_sno] = {
                     "row_idx": idx + 2,
                     "name": str(m_row.get("Name Of Benificiary") or m_row.get("NAME") or "").strip(),
                     "acc": str(m_row.get("Bank Account Number") or m_row.get("ACCOUNT") or "").strip(),
-                    "wages": float(m_row.get("8% Of Monthly Wages") or m_row.get("MONTHLY WAGES") or 0) rescue_float(m_row.get("8% Of Monthly Wages"))
+                    "wages": wages_val
                 }
 
         trans_row_dict = {}
@@ -686,7 +692,6 @@ def bulk_upload():
 
             if bank_sno in trans_row_dict:
                 t_row_idx = trans_row_dict[bank_sno]
-                # ఇప్పటికే ఉంటే కాలమ్స్ అప్‌డేట్ చేయడానికి
                 t_updates_map = {
                     rd1_col_name: rd1,
                     balance_col_name: balance_str,
@@ -701,7 +706,6 @@ def bulk_upload():
                     if c_name in trans_col_map:
                         trans_cell_updates.append(gspread.Cell(t_row_idx, trans_col_map[c_name], val))
             else:
-                # కొత్త ఎంట్రీ అయితే అపెండ్ చేయడానికి ప్రిపేర్ చేయడం
                 row_data_dict = {h.strip(): "" for h in trans_headers}
                 for h in trans_headers:
                     h_clean = h.strip()
@@ -736,7 +740,7 @@ def bulk_upload():
 
             updated_count += 1
 
-        # 🚀 **బ్యాచ్ అప్‌డేట్స్ (Batch Updates) అమలు చేయడం (ఒకే ఒక్క API కాల్‌లో అన్నీ అప్‌డేట్ అవుతాయి!)**
+        # బ్యాచ్ అప్‌డేట్స్ అమలు చేయడం
         if master_cell_updates:
             target_sheet.update_cells(master_cell_updates)
         
@@ -751,7 +755,7 @@ def bulk_upload():
     except Exception as e:
         print(f"Bulk Upload Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"})
-
+        
 # చిన్న హెల్పర్ ఫంక్షన్ (ఫ్లోట్ మ్యాపింగ్ కోసం)
 def rescue_float(val):
     try:
