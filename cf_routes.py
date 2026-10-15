@@ -131,8 +131,8 @@ def cf_download_report_by_bank():
             how='left'
         )
         df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
-        
-allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
+        allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
+
         
         def match_bank(row):
             b_name = str(row.get(bank_col, '')).strip().upper()
