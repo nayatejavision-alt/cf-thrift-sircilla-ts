@@ -325,8 +325,6 @@ def update_rd_accounts():
                 beneficiary_name = str(row.get("Name Of Benificiary") or row.get("NAME") or "").strip()
                 beneficiary_acc = str(row.get("Bank Account Number") or row.get("ACCOUNT") or "").strip()
                 
-                # '8% Of Monthly Wages' లేదా డ్యూ లెక్కించడానికి మాస్టర్ డేటా నుండి విలువ తీసుకోవడం
-                # (మీ షీట్‌లో ఆ కాలమ్ పేరు ఎలా ఉందో దాని ప్రకారం ఇక్కడ తీసుకోవచ్చు, ఉదాహరణకు 'Monthly Wages' లేదా డైరెక్ట్ డ్యూ)
                 try:
                     wages_val = row.get("8% Of Monthly Wages") or row.get("MONTHLY WAGES") or 0
                     monthly_wages = float(wages_val)
@@ -349,9 +347,15 @@ def update_rd_accounts():
             if rd2_col:
                 target_sheet.update_cell(master_row_index, rd2_col, rd2)
 
-        # మాస్టర్ నుండి డ్యూ (Due = 8% of Monthly Wages) లెక్కించడం (లేదా మాస్టర్ రో నుండి నేరుగా తెచ్చుకోవడం)
-        # ఒకవేళ మీ మాస్టర్ షీట్‌లో డ్యూ నేరుగా ఉంటే ఆ కాలమ్ వాల్యూ వాడొచ్చు. ఉదాహరణకు 8% వేతనం:
-        due_amount = monthly_wages  # ఒకవేళ వేతనాలు లేకపోతే డిఫాల్ట్ డ్యూ లేదా మాస్టర్ నుండి తెచ్చుకోవచ్చు
+        due_amount = monthly_wages  
+
+        # 💡 కండిషన్ చెక్: Bank Closing Balance అనేది monthly_wages (Due) కంటే తక్కువగా ఉంటే 
+        # Transactions_Year1 లో అప్‌డేట్ జరగకూడదు (ఇక్కడ ఫ్లోట్ వేరియబుల్ వాడాలి)
+        if bank_closing_balance < monthly_wages:
+            return jsonify({
+                "status": "success", 
+                "message": "మాస్టర్ షీట్ అప్‌డేట్ అయింది. అయితే బ్యాలెన్స్ డ్యూ కన్నా తక్కువగా ఉన్నందున ట్రాన్సాక్షన్ అప్‌డేట్ కాలేదు."
+            })
 
         # 2. 'Transactions_Year1' షీట్‌లో డిపెండెన్సీ ఫార్ములాలతో అప్‌డేట్ చేయడం
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
@@ -367,7 +371,6 @@ def update_rd_accounts():
             
             if t_sno == bank_sno and t_month == str(current_month) and bank_user.lower() in t_filename:
                 trans_row_index = idx + 2
-                # ఒకవేళ ఆల్రెడీ ఆ రో లో Due ఉంటే దానిని కూడా తీసుకోవచ్చు
                 try:
                     existing_due = float(row.get("(C) ఈ నెల డ్యూ(Due)") or 0)
                     if existing_due > 0:
@@ -379,23 +382,15 @@ def update_rd_accounts():
         trans_headers = trans_sheet.row_values(1)
         col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
-        # మీరు చెప్పిన ఫార్ములాల ప్రకారం లెక్కలు కట్టడం:
-        previous_arrears = 0.0  # (B) మొదటి నెల కాబట్టి 0
-        actual_paid = bank_closing_balance  # (D) మొదటి నెల కాబట్టి Closing Balance సమానం
+        # లెక్కలు కట్టడం:
+        previous_arrears = 0.0  
+        actual_paid = bank_closing_balance  
         
-        # Govt_Share = min(Due, Actual Paid)
         govt_share = min(due_amount, actual_paid)
-        
-        # Remaining Arrears = max(0, Previous Arrears + Due - Actual Paid)
         remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
-        
-        # Govt RD Closing Bal (H) = Govt_Share
         govt_rd_closing_bal = govt_share
-        
-        # Govt RD Status (I) = "MATCHED" ఒకవేళ Arrears <= 0 లేదంటే "PENDING"
         govt_rd_status = "MATCHED" if remaining_arrears <= 0 else "PENDING"
 
-        # కాలమ్ పేర్లు మీ షీట్ ప్రకారం:
         rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
         balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
         arrears_b_name = "(B) పాత బాకీ(Previous Arrears)"
@@ -407,7 +402,6 @@ def update_rd_accounts():
         govt_status_i_name = "Govt RD Status (I)"
 
         if trans_row_index:
-            # ఒకవేళ ఆల్రెడీ ఎంట్రీ ఉంటే అన్ని డిపెండెంట్ కాలమ్స్‌ని అప్‌డేట్ చేయడం
             updates = [
                 (rd1_col_name, rd1),
                 (balance_col_name, bank_closing_balance_str),
@@ -423,7 +417,6 @@ def update_rd_accounts():
                 if col_name in col_map:
                     trans_sheet.update_cell(trans_row_index, col_map[col_name], val)
         else:
-            # కొత్త ఎంట్రీ అయితే డిక్షనరీ ద్వారా అన్ని కాలమ్స్‌ని ఫిల్ చేసి అపెండ్ చేయడం
             row_data_dict = {h.strip(): "" for h in trans_headers}
             
             for h in trans_headers:
@@ -467,7 +460,6 @@ def update_rd_accounts():
     except Exception as e:
         print(f"Update Error Exception: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
-
 
 @app.route("/api/upload-file", methods=["POST"])
 def upload_file():
@@ -609,7 +601,7 @@ def bulk_upload():
         current_month = 1
         updated_count = 0
 
-        # గూగుల్ షీట్స్ కోటా తగ్గించడానికి బ్యాచ్ అప్డేట్స్ కోసం లిస్ట్స్ తయారు చేయడం
+        # బ్యాచ్ అప్‌డేట్స్ కోసం లిస్ట్‌లు
         master_cell_updates = []
         trans_cell_updates = []
         new_trans_rows = []
@@ -620,7 +612,6 @@ def bulk_upload():
             m_sno = str(m_row.get("BANK_SNO") or "").strip()
             m_file = str(m_row.get("FILE NAME") or m_row.get("File Name") or "").strip()
             if m_sno and bank_user.lower() in m_file.lower():
-                # సేఫ్ ఫ్లోట్ కన్వర్షన్ కోసం
                 try:
                     wages_val = float(m_row.get("8% Of Monthly Wages") or m_row.get("MONTHLY WAGES") or 0)
                 except (ValueError, TypeError):
@@ -665,13 +656,18 @@ def bulk_upload():
             beneficiary_name = m_info["name"]
             beneficiary_acc = m_info["acc"]
 
-            # Master Sheet అప్‌డేట్స్ Prepare చేయడం
+            # 1. Master Sheet అప్‌డేట్‌లు (ఎల్లప్పుడూ యాడ్ అవుతాయి)
             if rd1_col:
                 master_cell_updates.append(gspread.Cell(master_row_idx, rd1_col, rd1))
             if rd2_col:
                 master_cell_updates.append(gspread.Cell(master_row_idx, rd2_col, rd2))
 
-            # Transactions Sheet లెక్కలు
+            # 💡 కండిషన్ చెక్: Closing Balance అనేది వేజెస్/డ్యూ కంటే తక్కువగా ఉంటే ట్రాన్సాక్షన్స్ అప్‌డేట్ చేయకూడదు
+            if bank_closing_balance < monthly_wages:
+                updated_count += 1
+                continue  # ట్రాన్సాక్షన్ షీట్ ప్రాసెస్‌ను స్కిప్ చేసి తర్వాతి రో కి వెళ్తుంది
+
+            # 2. Transactions Sheet లెక్కలు (బ్యాలెన్స్ డ్యూ కంటే ఎక్కువ లేదా సమానంగా ఉంటేనే ఇక్కడికి వస్తుంది)
             due_amount = monthly_wages
             previous_arrears = 0.0
             actual_paid = bank_closing_balance
@@ -750,7 +746,7 @@ def bulk_upload():
         if new_trans_rows:
             trans_sheet.append_rows(new_trans_rows)
 
-        return jsonify({"status": "success", "message": f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు విజయవంతంగా బల్క్ అప్‌డేట్ చేయబడ్డాయి! 🎉"})
+        return jsonify({"status": "success", "message": f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు ప్రాసెస్ చేయబడ్డాయి! 🎉"})
 
     except Exception as e:
         print(f"Bulk Upload Error: {repr(e)}")
