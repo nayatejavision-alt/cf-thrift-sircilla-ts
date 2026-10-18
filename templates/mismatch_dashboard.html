@@ -7,13 +7,29 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        .card-widget { border-radius: 15px; border: none; }
-        .badge-exact { background-color: #dc3545; color: white; }
-        .badge-similar { background-color: #ffc107; color: black; }
-        .badge-approved { background-color: #198754; color: white; }
-        .clickable-name { cursor: pointer; color: #0d6efd; text-decoration: underline; }
-        .clickable-name:hover { color: #0a58ca; }
-    </style>
+    .card-widget { border-radius: 15px; border: none; }
+    .badge-exact { background-color: #dc3545; color: white; font-size: 11px; }
+    .badge-similar { background-color: #ffc107; color: black; font-size: 11px; }
+    .badge-approved { background-color: #198754; color: white; font-size: 11px; }
+    .clickable-name { cursor: pointer; color: #0d6efd; text-decoration: underline; }
+    .clickable-name:hover { color: #0a58ca; }
+    
+    /* టేబుల్ స్క్రీన్‌కు తగినట్లు ఆటో-అడ్జస్ట్ అయ్యేలా చేయడం కోసం */
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .custom-table th, .custom-table td {
+        font-size: 12.5px; /* ఫాంట్ సైజ్ కాస్త చిన్నదిగా చేసి ఎక్కువ స్పేస్ ఆదా చేయడం */
+        padding: 6px 8px !important; /* అనవసరమైన ప్యాడింగ్ తగ్గించడం */
+        vertical-align: middle;
+    }
+    /* యాక్షన్ బటన్లు చిన్నవిగా మరియు అందంగా ఉండేలా */
+    .custom-table .btn-sm {
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+</style>
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <meta name="theme-color" content="#212529">
     <apple-meta name="apple-mobile-web-app-capable" content="yes">
@@ -86,31 +102,31 @@
             </div>
         </div>
 
-        <!-- Review Table -->
+       <!-- Review Table -->
         <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
             <div class="card-header bg-white py-3">
                 <h5 class="fw-bold mb-0 text-secondary">📋 ఫ్లాగ్ అయిన పేర్ల లావాదేవీల పట్టిక (లబ్ధిదారుని పేరుపై క్లిక్ చేయండి)</h5>
             </div>
             <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+                <table class="table table-hover table-sm custom-table mb-0">
                     <thead class="table-dark">
                         <tr>
                             <th>S.No</th>
                             <th>బ్యాంక్ S.No</th>
-                            <th>ఒరిజినల్ పేరు (Original)</th>
-                            <th>పోల్చబడిన పేరు (Matched)</th>
+                            <th>ఒరిజినల్ పేరు</th>
+                            <th>పోల్చబడిన పేరు</th>
                             <th>ఖాతా నెంబరు</th>
                             <th>RD 1 అకౌంట్</th>
                             <th>ఫోన్ నెంబర్</th>
                             <th>బ్యాంక్</th>
                             <th>అమౌంట్ (₹)</th>
-                            <th>రిస్క్ రకం</th>
-                            <th>స్టేటస్</th>
-                            <th class="text-center">చర్యలు (Actions)</th>
+                            <th style="width: 110px;">రిస్క్ రకం</th>
+                            <th style="width: 80px;">స్టేటస్</th>
+                            <th class="text-center" style="width: 120px;">చర్యలు</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for r in records %}
+                        <!-- మీ బాడీ లూప్ ఇక్కడ ఉంటుంది -->                        {% for r in records %}
                         <tr>
                             <td>{{ loop.index }}</td>
                             <td><span class="badge bg-info text-dark">{{ r.bank_sno or 'N/A' }}</span></td>
