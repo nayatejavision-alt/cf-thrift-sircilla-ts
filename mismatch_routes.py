@@ -20,7 +20,7 @@ mismatch_bp = Blueprint('mismatch_bp', __name__, template_folder='templates')
 DB_PATH = 'thrift_audit.db'
 
 
-# 1. Database Setup
+# 1. Database Setup (Added bank_sno and contact_no)
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
@@ -34,6 +34,8 @@ def init_db():
             account_no TEXT,
             rd1_acc TEXT,
             bank_name TEXT,
+            bank_sno TEXT,
+            contact_no TEXT,
             amount REAL,
             match_score REAL,
             flag_type TEXT,
@@ -50,70 +52,88 @@ init_db()
 
 
 # 2. Dashboard View with Bank List Filter
-# బ్యాంక్ డ్రాప్‌డౌన్ కోసం కేవలం flagged_records కాకుండా గూగుల్ షీట్ నుండి నేరుగా బ్యాంక్ లిస్ట్ తెచ్చుకోవడం మంచిది:
 @mismatch_bp.route('/audit/dashboard')
 def audit_dashboard():
-    if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
-        return redirect('/admin/login')
+  if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
+    return redirect('/admin/login')
 
-    selected_bank = request.args.get('bank_name', '')
+  selected_bank = request.args.get('bank_name', '')
 
-    conn = sqlite3.connect(DB_PATH)
-    
-    bank_list = []
-    try:
-        # 1. మొదట డేటాబేస్ (flagged_records) నుండి బ్యాంక్ లిస్ట్ ట్రై చేయడం
-        df_banks = pd.read_sql_query("SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT NULL AND bank_name != ''", conn)
-        bank_list = df_banks['bank_name'].tolist()
-    except:
-        pass
+  conn = sqlite3.connect(DB_PATH)
 
-    # 2. డేటాబేస్ ఖాళీగా ఉంటే, నేరుగా గూగుల్ షీట్ నుండి బ్యాంకుల పేర్లు తెచ్చుకోవడం
-    if not bank_list:
-        try:
-            from app import get_sheets_client, SPREADSHEET_NAME
-            client = get_sheets_client()
-            spreadsheet = client.open(SPREADSHEET_NAME)
-            df_thrift = pd.DataFrame(spreadsheet.worksheet('NEW THRIFT DATA').get_all_records())
-            
-            bank_col = 'FILE NAME' if 'FILE NAME' in df_thrift.columns else 'Bank Name'
-            if bank_col in df_thrift.columns:
-                bank_list = df_thrift[bank_col].astype(str).str.strip().unique().tolist()
-                bank_list = [b for b in bank_list if b and b != 'nan' and b != 'None']
-                bank_list.sort() # అక్షరాల క్రమంలో అమర్చడం
-        except Exception as e:
-            print("Bank list fetch error from sheet:", e)
-
-    query = "SELECT * FROM flagged_records"
-    params = []
-    if selected_bank:
-        query += " WHERE bank_name = ?"
-        params.append(selected_bank)
-
-    df_flags = pd.read_sql_query(query, conn, params=params)
-    conn.close()
-
-    # Widgets Data
-    total_scanned = len(df_flags)
-    exact_duplicates = len(df_flags[df_flags['flag_type'] == 'EXACT_DUPLICATE'])
-    similar_mismatches = len(df_flags[df_flags['flag_type'] == 'SIMILAR_MISMATCH'])
-    pending_records = len(df_flags[df_flags['status'] == 'PENDING'])
-    total_amount_at_risk = df_flags[df_flags['status'] == 'PENDING']['amount'].sum()
-
-    records = df_flags.to_dict(orient='records')
-
-    return render_template(
-        'mismatch_dashboard.html',
-        records=records,
-        bank_list=bank_list,
-        selected_bank=selected_bank,
-        total_scanned=total_scanned,
-        exact_duplicates=exact_duplicates,
-        similar_mismatches=similar_mismatches,
-        pending_records=pending_records,
-        total_amount_at_risk=total_amount_at_risk
+  bank_list = []
+  try:
+    df_banks = pd.read_sql_query(
+        'SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT'
+        " NULL AND bank_name != ''",
+        conn,
     )
-    
+    bank_list = df_banks['bank_name'].tolist()
+  except:
+    pass
+
+  if not bank_list:
+    try:
+      from app import SPREADSHEET_NAME, get_sheets_client
+
+      client = get_sheets_client()
+      spreadsheet = client.open(SPREADSHEET_NAME)
+      df_thrift = pd.DataFrame(
+          spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
+      )
+
+      bank_col = (
+          'FILE NAME' if 'FILE NAME' in df_thrift.columns else 'Bank Name'
+      )
+      if bank_col in df_thrift.columns:
+        bank_list = (
+            df_thrift[bank_col]
+            .astype(str)
+            .str.strip()
+            .unique()
+            .tolist()
+        )
+        bank_list = [
+            b for b in bank_list if b and b != 'nan' and b != 'None'
+        ]
+        bank_list.sort()
+    except Exception as e:
+      print('Bank list fetch error from sheet:', e)
+
+  query = 'SELECT * FROM flagged_records'
+  params = []
+  if selected_bank:
+    query += ' WHERE bank_name = ?'
+    params.append(selected_bank)
+
+  df_flags = pd.read_sql_query(query, conn, params=params)
+  conn.close()
+
+  total_scanned = len(df_flags)
+  exact_duplicates = len(df_flags[df_flags['flag_type'] == 'EXACT_DUPLICATE'])
+  similar_mismatches = len(
+      df_flags[df_flags['flag_type'] == 'SIMILAR_MISMATCH']
+  )
+  pending_records = len(df_flags[df_flags['status'] == 'PENDING'])
+  total_amount_at_risk = df_flags[df_flags['status'] == 'PENDING'][
+      'amount'
+  ].sum()
+
+  records = df_flags.to_dict(orient='records')
+
+  return render_template(
+      'mismatch_dashboard.html',
+      records=records,
+      bank_list=bank_list,
+      selected_bank=selected_bank,
+      total_scanned=total_scanned,
+      exact_duplicates=exact_duplicates,
+      similar_mismatches=similar_mismatches,
+      pending_records=pending_records,
+      total_amount_at_risk=total_amount_at_risk,
+  )
+
+
 # 3. Bank-wise Audit Scanning API
 @mismatch_bp.route('/api/scan-mismatches', methods=['POST'])
 def scan_mismatches():
@@ -151,8 +171,15 @@ def scan_mismatches():
     bank_col = (
         'FILE NAME' if 'FILE NAME' in df_thrift.columns else 'Bank Name'
     )
+    bank_sno_col = (
+        'BANK_SNO' if 'BANK_SNO' in df_thrift.columns else 'Bank SNO'
+    )
+    contact_col = (
+        'Contact Number'
+        if 'Contact Number' in df_thrift.columns
+        else 'CONTACT_NUMBER'
+    )
 
-    # Filter by specific bank if selected
     if target_bank:
       df_thrift = df_thrift[
           df_thrift[bank_col].astype(str).str.strip() == target_bank.strip()
@@ -164,7 +191,6 @@ def scan_mismatches():
           'message': f'సెలెక్ట్ చేసిన బ్యాంక్ ({target_bank}) కి డేటా దొరకలేదు!',
       })
 
-    # Data Cleaning
     df_thrift[name_col] = (
         df_thrift[name_col].astype(str).str.strip().str.upper()
     )
@@ -184,12 +210,9 @@ def scan_mismatches():
 
     flagged_count = 0
 
-    # 1. Exact Duplicate Search (Name + Account Number + RD 1 Account)
     duplicates = df_thrift[
         df_thrift.duplicated(subset=[name_col], keep=False)
-        | df_thrift.duplicated(
-            subset=[acc_col], keep=False
-        )  # Bank Account Duplicate Check
+        | df_thrift.duplicated(subset=[acc_col], keep=False)
     ]
 
     for _, row in duplicates.iterrows():
@@ -198,12 +221,14 @@ def scan_mismatches():
       acc = str(row.get(acc_col, ''))
       rd1 = str(row.get('RD 1', ''))
       bank = str(row.get(bank_col, ''))
+      bank_sno = str(row.get(bank_sno_col, ''))
+      contact = str(row.get(contact_col, ''))
 
       cursor.execute(
           """
                 INSERT INTO flagged_records 
-                (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, amount, match_score, flag_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, bank_sno, contact_no, amount, match_score, flag_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
           (
               'SCAN_BATCH_1',
@@ -212,6 +237,8 @@ def scan_mismatches():
               acc,
               rd1,
               bank,
+              bank_sno,
+              contact,
               amt,
               100.0,
               'EXACT_DUPLICATE',
@@ -219,7 +246,6 @@ def scan_mismatches():
       )
       flagged_count += 1
 
-    # 2. Fuzzy Matching for Similar Names
     records_list = df_thrift.to_dict(orient='records')
     n = len(records_list)
 
@@ -240,12 +266,14 @@ def scan_mismatches():
           acc = str(r1.get(acc_col, ''))
           rd1 = str(r1.get('RD 1', ''))
           bank = str(r1.get(bank_col, ''))
+          bank_sno = str(r1.get(bank_sno_col, ''))
+          contact = str(r1.get(contact_col, ''))
 
           cursor.execute(
               """
                     INSERT INTO flagged_records 
-                    (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, amount, match_score, flag_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, bank_sno, contact_no, amount, match_score, flag_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
               (
                   'SCAN_BATCH_1',
@@ -254,6 +282,8 @@ def scan_mismatches():
                   acc,
                   rd1,
                   bank,
+                  bank_sno,
+                  contact,
                   amt,
                   score,
                   'SIMILAR_MISMATCH',
@@ -278,7 +308,7 @@ def scan_mismatches():
     )
 
 
-# 4. Fetch Details of Specific Beneficiary Mismatches (Modal Drill-down API)
+# 4. Fetch Details of Specific Beneficiary Mismatches
 @mismatch_bp.route('/api/get-beneficiary-matches', methods=['POST'])
 def get_beneficiary_matches():
   data = request.get_json() or {}
