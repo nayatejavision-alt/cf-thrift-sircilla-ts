@@ -433,6 +433,10 @@ async function autoSaveRd(bankSno) {
 
         if (response.status === 'success') {
             msgDiv.innerText = "";
+            let selectedBank = document.getElementById('bank-select').value;
+            // లాగిన్ అవ్వగానే నేరుగా ఆడిట్ డాష్‌బోర్డ్‌కి ఆ బ్యాంక్ పేరుతో రీడైరెక్ట్ చేయడం
+            window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(selectedBank)}`;
+            
             // లాగిన్ విజయవంతం కాగానే స్టేటస్ చెక్ చేసి డేటా లోడ్ చేస్తుంది
             checkUserLoginStatus();
         } else {
