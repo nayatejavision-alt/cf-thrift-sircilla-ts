@@ -84,10 +84,11 @@
                     <thead class="table-dark">
                         <tr>
                             <th>S.No</th>
+                            <th>Bank SNO</th>
                             <th>ఒరిజినల్ పేరు (Original)</th>
                             <th>పోల్చబడిన పేరు (Matched)</th>
                             <th>ఖాతా నెంబరు</th>
-                            <th>RD 1 అకౌంట్</th>
+                            <th>ఫోన్ నెంబర్</th>
                             <th>బ్యాంక్</th>
                             <th>అమౌంట్ (₹)</th>
                             <th>రిస్క్ రకం</th>
@@ -99,6 +100,7 @@
                         {% for r in records %}
                         <tr>
                             <td>{{ loop.index }}</td>
+                            <td><span class="badge bg-info text-dark">{{ r.bank_sno or 'N/A' }}</span></td>
                             <td class="fw-bold">
                                 <span class="clickable-name" onclick="viewBeneficiaryDetails('{{ r.original_name }}', '{{ r.bank_name }}')">
                                     {{ r.original_name }}
@@ -106,7 +108,7 @@
                             </td>
                             <td class="fw-bold text-dark">{{ r.matched_name }}</td>
                             <td>{{ r.account_no }}</td>
-                            <td>{{ r.rd1_acc }}</td>
+                            <td><i class="bi bi-telephone-fill text-success"></i> {{ r.contact_no or 'N/A' }}</td>
                             <td>{{ r.bank_name }}</td>
                             <td class="fw-bold">₹{{ "%.2f"|format(r.amount) }}</td>
                             <td>
@@ -140,7 +142,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="10" class="text-center text-muted py-4">ఎలాంటి అనుమానాస్పద రికార్డులు లభించలేదు.</td>
+                            <td colspan="11" class="text-center text-muted py-4">ఎలాంటి అనుమానాస్పద రికార్డులు లభించలేదు.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -158,15 +160,16 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <p class="text-muted">ఈ లబ్ధిదారునికి సంబంధించి ఆ బ్యాంకులో మ్యాచ్ అయిన అన్ని రికార్డుల జాబితా:</p>
+                    <p class="text-muted">ఈ లబ్ధిదారునికి సంబంధించి మ్యాచ్ అయిన అన్ని రికార్డులు మరియు కాంటాక్ట్ వివరాలు:</p>
                     <div class="table-responsive">
                         <table class="table table-bordered table-striped align-middle">
                             <thead class="table-light">
                                 <tr>
                                     <th>#</th>
+                                    <th>Bank SNO</th>
                                     <th>పేరు</th>
                                     <th>ఖాతా నెంబరు</th>
-                                    <th>RD 1 అకౌంట్</th>
+                                    <th>ఫోన్ నెంబర్</th>
                                     <th>అమౌంట్</th>
                                     <th>రిస్క్ రకం</th>
                                 </tr>
@@ -255,9 +258,10 @@
                         tbody.innerHTML += `
                             <tr>
                                 <td>${idx + 1}</td>
+                                <td><span class="badge bg-info text-dark">${rec.bank_sno || 'N/A'}</span></td>
                                 <td class="fw-bold">${rec.original_name}</td>
                                 <td>${rec.account_no || 'N/A'}</td>
-                                <td>${rec.rd1_acc || 'N/A'}</td>
+                                <td><i class="bi bi-telephone-fill text-success"></i> ${rec.contact_no || 'N/A'}</td>
                                 <td class="fw-bold">₹${rec.amount}</td>
                                 <td><span class="badge ${rec.flag_type === 'EXACT_DUPLICATE' ? 'bg-danger' : 'bg-warning text-dark'}">${rec.flag_type}</span></td>
                             </tr>
