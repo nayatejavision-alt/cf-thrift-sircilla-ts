@@ -409,6 +409,11 @@ if (rec.contact_no && rec.contact_no !== 'N/A' && rec.contact_no !== 'None') {
             }
         }
 
+        function downloadExcelReport() {
+    const selectedBank = document.getElementById('bankSelect') ? document.getElementById('bankSelect').value : '';
+    window.location.href = `/api/download-audit-excel?bank_name=${encodeURIComponent(selectedBank)}`;
+}
+
 
         if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
