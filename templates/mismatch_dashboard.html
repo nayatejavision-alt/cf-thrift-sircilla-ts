@@ -128,74 +128,92 @@
         </div>
     </div>
 
-    <script>
-        async function runScanner() {
-            if(!confirm("గూగుల్ షీట్ నుండి కొత్త డేటాను స్కాన్ చేయాలా?")) return;
-            const res = await fetch('/api/scan-mismatches', {method: 'POST'});
-            const data = await res.json();
-            alert(data.message);
-            window.location.reload();
-        }
-
-        async function resolveRecord(id, action) {
-            const res = await fetch('/api/resolve-mismatch', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({id, action})
-            });
-            const data = await res.json();
-            window.location.reload();
-        }
-
-        async function syncToSheets() {
-            const res = await fetch('/api/sync-to-sheets', {method: 'POST'});
-            const data = await res.json();
-            alert(data.message);
-        }
-
-        <!-- లోడింగ్ మోడల్ (Loading Overlay) -->
-<div id="loadingModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-    <div class="card p-4 text-center shadow-lg rounded-4 bg-white" style="width: 300px;">
-        <div class="spinner-border text-primary mx-auto mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
-        <h5 class="fw-bold text-dark" id="loadingText">దయచేసి వేచి ఉండండి...</h5>
-        <p class="text-muted small mb-0">డేటా ప్రాసెస్ చేయబడుతోంది.</p>
+    <!-- లోడింగ్ మోడల్ (Loading Overlay) - ఇది script కి బయట ఉండాలి -->
+    <div id="loadingModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div class="card p-4 text-center shadow-lg rounded-4 bg-white" style="width: 300px;">
+            <div class="spinner-border text-primary mx-auto mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+            <h5 class="fw-bold text-dark" id="loadingText">దయచేసి వేచి ఉండండి...</h5>
+            <p class="text-muted small mb-0">డేటా ప్రాసెస్ చేయబడుతోంది.</p>
+        </div>
     </div>
-</div>
 
-<script>
-    // లోడింగ్ చూపించే మరియు మార్చే ఫంక్షన్
-    function showLoading(text) {
-        document.getElementById('loadingText').innerText = text;
-        document.getElementById('loadingModal').style.display = 'flex';
-    }
-
-    function hideLoading() {
-        document.getElementById('loadingModal').style.display = 'none';
-    }
-
-    async function runScannerWithProgress() {
-        if(!confirm("గూగుల్ షీట్ నుండి కొత్త డేటాను స్కాన్ చేయాలా?")) return;
-        
-        showLoading("గూగుల్ షీట్ నుండి డేటా సేకరించబడుతోంది...");
-        
-        try {
-            // కొద్దిసేపు టెక్స్ట్ మార్చడానికి చిన్న టైమర్ లేదా డైరెక్ట్ ఫెచ్
-            setTimeout(() => {
-                showLoading("ఫజ్జీ మ్యాచింగ్ మరియు డూప్లికేట్ విశ్లేషణ జరుగుతోంది...");
-            }, 1500);
-
-            const res = await fetch('/api/scan-mismatches', {method: 'POST'});
-            const data = await res.json();
-            
-            hideLoading();
-            alert(data.message);
-            window.location.reload();
-        } catch (error) {
-            hideLoading();
-            alert("లోపం సంభవించింది: " + error);
+    <!-- జావాస్క్రిప్ట్ కోడ్ అంతా ఒకే ట్యాగ్ లో ఉండేలా చూసుకోవాలి -->
+    <script>
+        // లోడింగ్ చూపించే మరియు దాచే ఫంక్షన్స్
+        function showLoading(text) {
+            document.getElementById('loadingText').innerText = text;
+            document.getElementById('loadingModal').style.display = 'flex';
         }
-    }
-</script>
+
+        function hideLoading() {
+            document.getElementById('loadingModal').style.display = 'none';
+        }
+
+        // 1. ప్రోగ్రెస్ తో కూడిన స్కానర్ రన్ చేసే ఫంక్షన్
+        async function runScannerWithProgress() {
+            if(!confirm("గూగుల్ షీట్ నుండి కొత్త డేటాను స్కాన్ చేయాలా?")) return;
+            
+            showLoading("గూగుల్ షీట్ నుండి డేటా సేకరించబడుతోంది...");
+            
+            try {
+                setTimeout(() => {
+                    showLoading("ఫజ్జీ మ్యాచింగ్ మరియు డూప్లికేట్ విశ్లేషణ జరుగుతోంది...");
+                }, 1500);
+
+                const res = await fetch('/api/scan-mismatches', {method: 'POST'});
+                
+                const contentType = res.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("సర్వర్ నుండి సరైన రెస్పాన్స్ రాలేదు.");
+                }
+
+                const data = await res.json();
+                hideLoading();
+                
+                if(data.status === 'success') {
+                    alert(data.message);
+                    window.location.reload();
+                } else {
+                    alert("ఎర్రర్: " + data.message);
+                }
+            } catch (error) {
+                hideLoading();
+                alert("లోపం సంభవించింది: " + error.message);
+            }
+        }
+
+        // 2. రికార్డ్ అప్రూవ్ / రిజెక్ట్ చేసే ఫంక్షన్
+        async function resolveRecord(id, action) {
+            try {
+                const res = await fetch('/api/resolve-mismatch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id, action})
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    window.location.reload();
+                } else {
+                    alert("ఎర్రర్: " + data.message);
+                }
+            } catch (error) {
+                alert("లోపం సంభవించింది.");
+            }
+        }
+
+        // 3. గూగుల్ షీట్‌కు సింక్ చేసే ఫంక్షన్
+        async function syncToSheets() {
+            showLoading("గూగుల్ షీట్‌కు డేటా సింక్ చేయబడుతోంది...");
+            try {
+                const res = await fetch('/api/sync-to-sheets', {method: 'POST'});
+                const data = await res.json();
+                hideLoading();
+                alert(data.message);
+            } catch (error) {
+                hideLoading();
+                alert("సింక్ చేయడంలో లోపం సంభవించింది.");
+            }
+        }
     </script>
 </body>
 </html>
