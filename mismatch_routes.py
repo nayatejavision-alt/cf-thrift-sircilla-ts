@@ -20,12 +20,11 @@ mismatch_bp = Blueprint('mismatch_bp', __name__, template_folder='templates')
 DB_PATH = 'thrift_audit.db'
 
 
-# 1. SQLite డేటాబేస్ సెటప్ (In-built)
+# 1. Database Setup
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
 
-  # ఆడిట్ టేబుల్
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS flagged_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,8 +36,8 @@ def init_db():
             bank_name TEXT,
             amount REAL,
             match_score REAL,
-            flag_type TEXT, -- 'EXACT_DUPLICATE' or 'SIMILAR_MISMATCH'
-            status TEXT DEFAULT 'PENDING', -- 'PENDING', 'APPROVED', 'REJECTED'
+            flag_type TEXT,
+            status TEXT DEFAULT 'PENDING',
             action_by TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -47,18 +46,34 @@ def init_db():
   conn.close()
 
 
-# యాప్ స్టార్ట్ అయినప్పుడు DB ఇనిషియలైజ్ అవ్వడం
 init_db()
 
 
-# 2. డాష్‌బోర్డ్ వ్యూ రౌట్
+# 2. Dashboard View with Bank List Filter
 @mismatch_bp.route('/audit/dashboard')
 def audit_dashboard():
   if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
     return redirect('/admin/login')
 
+  selected_bank = request.args.get('bank_name', '')
+
   conn = sqlite3.connect(DB_PATH)
-  df_flags = pd.read_sql_query('SELECT * FROM flagged_records', conn)
+
+  # Fetch unique bank list for dropdown
+  df_banks = pd.read_sql_query(
+      'SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT'
+      " NULL AND bank_name != ''",
+      conn,
+  )
+  bank_list = df_banks['bank_name'].tolist()
+
+  query = 'SELECT * FROM flagged_records'
+  params = []
+  if selected_bank:
+    query += ' WHERE bank_name = ?'
+    params.append(selected_bank)
+
+  df_flags = pd.read_sql_query(query, conn, params=params)
   conn.close()
 
   # Widgets Data
@@ -77,6 +92,8 @@ def audit_dashboard():
   return render_template(
       'mismatch_dashboard.html',
       records=records,
+      bank_list=bank_list,
+      selected_bank=selected_bank,
       total_scanned=total_scanned,
       exact_duplicates=exact_duplicates,
       similar_mismatches=similar_mismatches,
@@ -85,10 +102,13 @@ def audit_dashboard():
   )
 
 
-# 3. గూగుల్ షీట్ స్కాన్ చేసి ఫజ్జీ మ్యాచింగ్ రన్ చేసే API
+# 3. Bank-wise Audit Scanning API
 @mismatch_bp.route('/api/scan-mismatches', methods=['POST'])
 def scan_mismatches():
   try:
+    data = request.get_json() or {}
+    target_bank = data.get('bank_name', '')
+
     from app import SPREADSHEET_NAME, get_sheets_client
 
     client = get_sheets_client()
@@ -116,26 +136,56 @@ def scan_mismatches():
         if '8% Of Monthly Wages' in df_thrift.columns
         else 'AMOUNT'
     )
+    bank_col = (
+        'FILE NAME' if 'FILE NAME' in df_thrift.columns else 'Bank Name'
+    )
 
-    # డేటాను క్లీన్ చేయడం (నల్ వాల్యూస్ తొలగించడం)
-    df_thrift[name_col] = df_thrift[name_col].astype(str).str.strip().str.upper()
+    # Filter by specific bank if selected
+    if target_bank:
+      df_thrift = df_thrift[
+          df_thrift[bank_col].astype(str).str.strip() == target_bank.strip()
+      ]
+
+    if df_thrift.empty:
+      return jsonify({
+          'status': 'error',
+          'message': f'సెలెక్ట్ చేసిన బ్యాంక్ ({target_bank}) కి డేటా దొరకలేదు!',
+      })
+
+    # Data Cleaning
+    df_thrift[name_col] = (
+        df_thrift[name_col].astype(str).str.strip().str.upper()
+    )
     df_thrift = df_thrift[df_thrift[name_col] != '']
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM flagged_records WHERE status = 'PENDING'")
+
+    if target_bank:
+      cursor.execute(
+          "DELETE FROM flagged_records WHERE bank_name = ? AND status ="
+          " 'PENDING'",
+          (target_bank,),
+      )
+    else:
+      cursor.execute("DELETE FROM flagged_records WHERE status = 'PENDING'")
 
     flagged_count = 0
 
-    # 1. ఎక్సాక్ట్ డూప్లికేట్లు (Exact Duplicates) త్వరగా గుర్తించడం
-    duplicates = df_thrift[df_thrift.duplicated(subset=[name_col], keep=False)]
+    # 1. Exact Duplicate Search (Name + Account Number + RD 1 Account)
+    duplicates = df_thrift[
+        df_thrift.duplicated(subset=[name_col], keep=False)
+        | df_thrift.duplicated(
+            subset=[acc_col], keep=False
+        )  # Bank Account Duplicate Check
+    ]
 
     for _, row in duplicates.iterrows():
       name = row[name_col]
       amt = float(row.get(amt_col, 0) or 0)
       acc = str(row.get(acc_col, ''))
       rd1 = str(row.get('RD 1', ''))
-      bank = str(row.get('FILE NAME') or row.get('Bank Name') or '')
+      bank = str(row.get(bank_col, ''))
 
       cursor.execute(
           """
@@ -143,31 +193,41 @@ def scan_mismatches():
                 (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, amount, match_score, flag_type)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-          ('SCAN_BATCH_1', name, name, acc, rd1, bank, amt, 100.0, 'EXACT_DUPLICATE'),
+          (
+              'SCAN_BATCH_1',
+              name,
+              name,
+              acc,
+              rd1,
+              bank,
+              amt,
+              100.0,
+              'EXACT_DUPLICATE',
+          ),
       )
       flagged_count += 1
 
-    # 2. ఫజ్జీ మ్యాచింగ్ (Fuzzy Matching) - కేవలం ఒకే బ్యాంక్ లేదా మొదటి కొన్ని వందల రికార్డులకు పరిమితం చేయడం లేదా ఆప్టిమైజ్ చేయడం
-    names = df_thrift[name_col].tolist()
-    # సమయం ఆదా చేయడానికి లిమిటెడ్ కంపారిజన్ లేదా గ్రూపింగ్ వాడవచ్చు
-    max_checks = min(len(names), 1000)  # సర్వర్ లోడ్ తగ్గించడానికి
+    # 2. Fuzzy Matching for Similar Names
+    records_list = df_thrift.to_dict(orient='records')
+    n = len(records_list)
 
-    for i in range(max_checks):
-      for j in range(i + 1, min(i + 50, max_checks)):  
-        # పక్కపక్కనే ఉన్న పేర్లను లేదా ఆప్టిమైజ్డ్ ఇండెక్స్‌లను పోల్చడం
-        name1 = names[i]
-        name2 = names[j]
+    for i in range(n):
+      for j in range(i + 1, n):
+        r1 = records_list[i]
+        r2 = records_list[j]
+
+        name1 = str(r1[name_col])
+        name2 = str(r2[name_col])
 
         if name1 == name2:
           continue
 
         score = fuzz.ratio(name1, name2)
         if 80 <= score < 100:
-          row_data = df_thrift.iloc[i]
-          amt = float(row_data.get(amt_col, 0) or 0)
-          acc = str(row_data.get(acc_col, ''))
-          rd1 = str(row_data.get('RD 1', ''))
-          bank = str(row_data.get('FILE NAME') or row_data.get('Bank Name') or '')
+          amt = float(r1.get(amt_col, 0) or 0)
+          acc = str(r1.get(acc_col, ''))
+          rd1 = str(r1.get('RD 1', ''))
+          bank = str(r1.get(bank_col, ''))
 
           cursor.execute(
               """
@@ -194,60 +254,104 @@ def scan_mismatches():
 
     return jsonify({
         'status': 'success',
-        'message': f'స్కానింగ్ పూర్తయింది! {flagged_count} అనుమానాస్పద రికార్డులు గుర్తించబడ్డాయి.',
+        'message': f'స్కానింగ్ పూర్తయింది! {flagged_count} వివరాలు కనుగొనబడ్డాయి.',
     })
 
   except Exception as e:
     import traceback
+
     traceback.print_exc()
-    return jsonify({'status': 'error', 'message': f'స్కానింగ్ లో లోపం: {str(e)}'})
-# 4. ఆమోదం / రిజెక్షన్ API (Action Handle)
+    return jsonify(
+        {'status': 'error', 'message': f'స్కానింగ్ లో లోపం: {str(e)}'}
+    )
+
+
+# 4. Fetch Details of Specific Beneficiary Mismatches (Modal Drill-down API)
+@mismatch_bp.route('/api/get-beneficiary-matches', methods=['POST'])
+def get_beneficiary_matches():
+  data = request.get_json() or {}
+  name = data.get('name', '')
+  bank = data.get('bank_name', '')
+
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+
+  query = """
+        SELECT * FROM flagged_records 
+        WHERE (original_name = ? OR matched_name = ?)
+    """
+  params = [name, name]
+
+  if bank:
+    query += ' AND bank_name = ?'
+    params.append(bank)
+
+  df = pd.read_sql_query(query, conn, params=params)
+  conn.close()
+
+  return jsonify({'status': 'success', 'records': df.to_dict(orient='records')})
+
+
+# 5. Action Resolution API
 @mismatch_bp.route('/api/resolve-mismatch', methods=['POST'])
 def resolve_mismatch():
-    data = request.get_json()
-    record_id = data.get('id')
-    action = data.get('action') # 'APPROVED' or 'REJECTED'
-    action_by = session.get('admin_name', 'Admin')
+  data = request.get_json()
+  record_id = data.get('id')
+  action = data.get('action')
+  action_by = session.get('admin_name', 'Admin')
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute(
+      """
         UPDATE flagged_records 
         SET status = ?, action_by = ? 
         WHERE id = ?
-    """, (action, action_by, record_id))
-    conn.commit()
-    conn.close()
+    """,
+      (action, action_by, record_id),
+  )
+  conn.commit()
+  conn.close()
 
-    return jsonify({"status": "success", "message": f"స్టేటస్ {action} గా నవీకరించబడింది!"})
+  return jsonify(
+      {'status': 'success', 'message': f'స్టేటస్ {action} గా మార్చబడింది!'}
+  )
 
-# 5. ఫలితాలను గూగుల్ షీట్‌లోకి సింక్ చేసే API (Sync to Google Sheets)
+
+# 6. Sync to Google Sheets API
 @mismatch_bp.route('/api/sync-to-sheets', methods=['POST'])
 def sync_to_sheets():
+  try:
+    from app import SPREADSHEET_NAME, get_sheets_client
+
+    conn = sqlite3.connect(DB_PATH)
+    df_flags = pd.read_sql_query('SELECT * FROM flagged_records', conn)
+    conn.close()
+
+    if df_flags.empty:
+      return jsonify(
+          {'status': 'error', 'message': 'సింక్ చేయడానికి ఎలాంటి డేటా లేదు!'}
+      )
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+
     try:
-        from app import get_sheets_client, SPREADSHEET_NAME
-        
-        conn = sqlite3.connect(DB_PATH)
-        df_flags = pd.read_sql_query("SELECT * FROM flagged_records", conn)
-        conn.close()
+      ws = spreadsheet.worksheet('AUDIT_FLAGGED_MISMATCHES')
+    except:
+      ws = spreadsheet.add_worksheet(
+          title='AUDIT_FLAGGED_MISMATCHES', rows='1000', cols='15'
+      )
 
-        if df_flags.empty:
-            return jsonify({"status": "error", "message": "సింక్ చేయడానికి ఎలాంటి డేటా లేదు!"})
+    ws.clear()
+    data = [df_flags.columns.values.tolist()] + df_flags.values.tolist()
+    ws.update(range_name='A1', values=data)
 
-        client = get_sheets_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
+    return jsonify(
+        {'status': 'success', 'message': 'డేటా గూగుల్ షీట్‌కు సింక్ అయ్యింది!'}
+    )
 
-        # గూగుల్ షీట్ లో కొత్త 'AUDIT_FLAGGED_MISMATCHES' ట్యాబ్ సృష్టించడం లేదా ఓపెన్ చేయడం
-        try:
-            ws = spreadsheet.worksheet('AUDIT_FLAGGED_MISMATCHES')
-        except:
-            ws = spreadsheet.add_worksheet(title='AUDIT_FLAGGED_MISMATCHES', rows="1000", cols="15")
-
-        ws.clear()
-        data = [df_flags.columns.values.tolist()] + df_flags.values.tolist()
-        ws.update(range_name='A1', values=data)
-
-        return jsonify({"status": "success", "message": "డేటా గూగుల్ షీట్‌లోకి పర్ఫెక్ట్‌గా సింక్ అయ్యింది!"})
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"సింక్ చేయడంలో లోపం: {str(e)}"})
+  except Exception as e:
+    return jsonify(
+        {'status': 'error', 'message': f'సింక్ చేయడంలో లోపం: {str(e)}'}
+    )
