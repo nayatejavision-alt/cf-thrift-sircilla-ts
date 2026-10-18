@@ -18,7 +18,7 @@
     <nav class="navbar navbar-dark bg-dark px-4 shadow-sm">
         <span class="navbar-brand fw-bold">🔍 ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్ (Mismatch Audit)</span>
         <div>
-            <button class="btn btn-outline-warning me-2 fw-bold" onclick="runScanner()">
+            <button class="btn btn-outline-warning me-2 fw-bold" onclick="runScannerWithProgress()">
                 <i class="bi bi-arrow-repeat"></i> స్కాన్ రన్ చేయండి
             </button>
             <button class="btn btn-outline-success fw-bold" onclick="syncToSheets()">
@@ -152,6 +152,50 @@
             const data = await res.json();
             alert(data.message);
         }
+
+        <!-- లోడింగ్ మోడల్ (Loading Overlay) -->
+<div id="loadingModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+    <div class="card p-4 text-center shadow-lg rounded-4 bg-white" style="width: 300px;">
+        <div class="spinner-border text-primary mx-auto mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="fw-bold text-dark" id="loadingText">దయచేసి వేచి ఉండండి...</h5>
+        <p class="text-muted small mb-0">డేటా ప్రాసెస్ చేయబడుతోంది.</p>
+    </div>
+</div>
+
+<script>
+    // లోడింగ్ చూపించే మరియు మార్చే ఫంక్షన్
+    function showLoading(text) {
+        document.getElementById('loadingText').innerText = text;
+        document.getElementById('loadingModal').style.display = 'flex';
+    }
+
+    function hideLoading() {
+        document.getElementById('loadingModal').style.display = 'none';
+    }
+
+    async function runScannerWithProgress() {
+        if(!confirm("గూగుల్ షీట్ నుండి కొత్త డేటాను స్కాన్ చేయాలా?")) return;
+        
+        showLoading("గూగుల్ షీట్ నుండి డేటా సేకరించబడుతోంది...");
+        
+        try {
+            // కొద్దిసేపు టెక్స్ట్ మార్చడానికి చిన్న టైమర్ లేదా డైరెక్ట్ ఫెచ్
+            setTimeout(() => {
+                showLoading("ఫజ్జీ మ్యాచింగ్ మరియు డూప్లికేట్ విశ్లేషణ జరుగుతోంది...");
+            }, 1500);
+
+            const res = await fetch('/api/scan-mismatches', {method: 'POST'});
+            const data = await res.json();
+            
+            hideLoading();
+            alert(data.message);
+            window.location.reload();
+        } catch (error) {
+            hideLoading();
+            alert("లోపం సంభవించింది: " + error);
+        }
+    }
+</script>
     </script>
 </body>
 </html>
