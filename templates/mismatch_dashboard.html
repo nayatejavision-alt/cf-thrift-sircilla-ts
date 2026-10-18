@@ -11,6 +11,8 @@
         .badge-exact { background-color: #dc3545; color: white; }
         .badge-similar { background-color: #ffc107; color: black; }
         .badge-approved { background-color: #198754; color: white; }
+        .clickable-name { cursor: pointer; color: #0d6efd; text-decoration: underline; }
+        .clickable-name:hover { color: #0a58ca; }
     </style>
 </head>
 <body class="bg-light">
@@ -29,6 +31,21 @@
 
     <div class="container-fluid my-4 px-4">
         
+        <!-- Filter Controls Row -->
+        <div class="card p-3 mb-4 border-0 shadow-sm rounded-3">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <label for="bankSelect" class="form-label fw-bold text-secondary">🏛️ బ్యాంక్ (FILE NAME) ఆధారంగా ఫిల్టర్ చేయండి:</label>
+                    <select id="bankSelect" class="form-select border-primary" onchange="filterByBank()">
+                        <option value="">-- అన్ని బ్యాంకులు --</option>
+                        {% for bank in bank_list %}
+                            <option value="{{ bank }}" {% if bank == selected_bank %}selected{% endif %}>{{ bank }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+
         <!-- Widgets Row -->
         <div class="row g-3 mb-4">
             <div class="col-md-3">
@@ -60,7 +77,7 @@
         <!-- Review Table -->
         <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
             <div class="card-header bg-white py-3">
-                <h5 class="fw-bold mb-0 text-secondary">📋 ఫ్లాగ్ అయిన పేర్ల లావాదేవీల పట్టిక</h5>
+                <h5 class="fw-bold mb-0 text-secondary">📋 ఫ్లాగ్ అయిన పేర్ల లావాదేవీల పట్టిక (లబ్ధిదారుని పేరుపై క్లిక్ చేయండి)</h5>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
@@ -69,8 +86,8 @@
                             <th>S.No</th>
                             <th>ఒరిజినల్ పేరు (Original)</th>
                             <th>పోల్చబడిన పేరు (Matched)</th>
-                            <th>సరిపోలిక %</th>
                             <th>ఖాతా నెంబరు</th>
+                            <th>RD 1 అకౌంట్</th>
                             <th>బ్యాంక్</th>
                             <th>అమౌంట్ (₹)</th>
                             <th>రిస్క్ రకం</th>
@@ -82,17 +99,21 @@
                         {% for r in records %}
                         <tr>
                             <td>{{ loop.index }}</td>
-                            <td class="fw-bold text-primary">{{ r.original_name }}</td>
+                            <td class="fw-bold">
+                                <span class="clickable-name" onclick="viewBeneficiaryDetails('{{ r.original_name }}', '{{ r.bank_name }}')">
+                                    {{ r.original_name }}
+                                </span>
+                            </td>
                             <td class="fw-bold text-dark">{{ r.matched_name }}</td>
-                            <td><span class="badge bg-secondary">{{ r.match_score }}%</span></td>
                             <td>{{ r.account_no }}</td>
+                            <td>{{ r.rd1_acc }}</td>
                             <td>{{ r.bank_name }}</td>
                             <td class="fw-bold">₹{{ "%.2f"|format(r.amount) }}</td>
                             <td>
                                 {% if r.flag_type == 'EXACT_DUPLICATE' %}
                                     <span class="badge badge-exact">🔴 Exact Duplicate</span>
                                 {% else %}
-                                    <span class="badge badge-similar">🟡 Similar Mismatch</span>
+                                    <span class="badge badge-similar">🟡 Similar ({{ r.match_score }}%)</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -107,7 +128,7 @@
                             <td class="text-center">
                                 {% if r.status == 'PENDING' %}
                                     <button class="btn btn-sm btn-success fw-bold me-1" onclick="resolveRecord({{ r.id }}, 'APPROVED')">
-                                        Approve Merge
+                                        Approve
                                     </button>
                                     <button class="btn btn-sm btn-outline-danger fw-bold" onclick="resolveRecord({{ r.id }}, 'REJECTED')">
                                         Ignore
@@ -119,7 +140,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="10" class="text-center text-muted py-4">ప్రస్తుతానికి ఎలాంటి అనుమానాస్పద రికార్డులు లభించలేదు.</td>
+                            <td colspan="10" class="text-center text-muted py-4">ఎలాంటి అనుమానాస్పద రికార్డులు లభించలేదు.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -128,7 +149,39 @@
         </div>
     </div>
 
-    <!-- లోడింగ్ మోడల్ (Loading Overlay) - ఇది script కి బయట ఉండాలి -->
+    <!-- Beneficiary Details Modal Popup -->
+    <div class="modal fade" id="beneficiaryModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-header-title fw-bold mb-0" id="modalTitle">లబ్ధిదారుని పూర్తి వివరాలు</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted">ఈ లబ్ధిదారునికి సంబంధించి ఆ బ్యాంకులో మ్యాచ్ అయిన అన్ని రికార్డుల జాబితా:</p>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>పేరు</th>
+                                    <th>ఖాతా నెంబరు</th>
+                                    <th>RD 1 అకౌంట్</th>
+                                    <th>అమౌంట్</th>
+                                    <th>రిస్క్ రకం</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modalTableBody">
+                                <!-- Dynamic Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
     <div id="loadingModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div class="card p-4 text-center shadow-lg rounded-4 bg-white" style="width: 300px;">
             <div class="spinner-border text-primary mx-auto mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
@@ -137,9 +190,8 @@
         </div>
     </div>
 
-    <!-- జావాస్క్రిప్ట్ కోడ్ అంతా ఒకే ట్యాగ్ లో ఉండేలా చూసుకోవాలి -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // లోడింగ్ చూపించే మరియు దాచే ఫంక్షన్స్
         function showLoading(text) {
             document.getElementById('loadingText').innerText = text;
             document.getElementById('loadingModal').style.display = 'flex';
@@ -149,24 +201,25 @@
             document.getElementById('loadingModal').style.display = 'none';
         }
 
-        // 1. ప్రోగ్రెస్ తో కూడిన స్కానర్ రన్ చేసే ఫంక్షన్
+        function filterByBank() {
+            const bank = document.getElementById('bankSelect').value;
+            window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(bank)}`;
+        }
+
         async function runScannerWithProgress() {
-            if(!confirm("గూగుల్ షీట్ నుండి కొత్త డేటాను స్కాన్ చేయాలా?")) return;
+            const selectedBank = document.getElementById('bankSelect').value;
+            const msg = selectedBank ? `సెలెక్ట్ చేసిన బ్యాంక్ (${selectedBank}) ని మాత్రమే స్కాన్ చేయాలా?` : "అన్ని బ్యాంకుల డేటాను స్కాన్ చేయాలా?";
+            if(!confirm(msg)) return;
             
             showLoading("గూగుల్ షీట్ నుండి డేటా సేకరించబడుతోంది...");
             
             try {
-                setTimeout(() => {
-                    showLoading("ఫజ్జీ మ్యాచింగ్ మరియు డూప్లికేట్ విశ్లేషణ జరుగుతోంది...");
-                }, 1500);
-
-                const res = await fetch('/api/scan-mismatches', {method: 'POST'});
+                const res = await fetch('/api/scan-mismatches', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({bank_name: selectedBank})
+                });
                 
-                const contentType = res.headers.get("content-type");
-                if (!contentType || !contentType.includes("application/json")) {
-                    throw new Error("సర్వర్ నుండి సరైన రెస్పాన్స్ రాలేదు.");
-                }
-
                 const data = await res.json();
                 hideLoading();
                 
@@ -182,7 +235,44 @@
             }
         }
 
-        // 2. రికార్డ్ అప్రూవ్ / రిజెక్ట్ చేసే ఫంక్షన్
+        async function viewBeneficiaryDetails(name, bankName) {
+            showLoading("వివరాలు సేకరించబడుతున్నాయి...");
+            try {
+                const res = await fetch('/api/get-beneficiary-matches', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name, bank_name: bankName})
+                });
+                const data = await res.json();
+                hideLoading();
+
+                if(data.status === 'success') {
+                    document.getElementById('modalTitle').innerText = `లబ్ధిదారుడు: ${name} (${bankName})`;
+                    const tbody = document.getElementById('modalTableBody');
+                    tbody.innerHTML = '';
+
+                    data.records.forEach((rec, idx) => {
+                        tbody.innerHTML += `
+                            <tr>
+                                <td>${idx + 1}</td>
+                                <td class="fw-bold">${rec.original_name}</td>
+                                <td>${rec.account_no || 'N/A'}</td>
+                                <td>${rec.rd1_acc || 'N/A'}</td>
+                                <td class="fw-bold">₹${rec.amount}</td>
+                                <td><span class="badge ${rec.flag_type === 'EXACT_DUPLICATE' ? 'bg-danger' : 'bg-warning text-dark'}">${rec.flag_type}</span></td>
+                            </tr>
+                        `;
+                    });
+
+                    const modal = new bootstrap.Modal(document.getElementById('beneficiaryModal'));
+                    modal.show();
+                }
+            } catch (error) {
+                hideLoading();
+                alert("వివరాలు తెలపడంలో లోపం జరిగింది.");
+            }
+        }
+
         async function resolveRecord(id, action) {
             try {
                 const res = await fetch('/api/resolve-mismatch', {
@@ -201,7 +291,6 @@
             }
         }
 
-        // 3. గూగుల్ షీట్‌కు సింక్ చేసే ఫంక్షన్
         async function syncToSheets() {
             showLoading("గూగుల్ షీట్‌కు డేటా సింక్ చేయబడుతోంది...");
             try {
