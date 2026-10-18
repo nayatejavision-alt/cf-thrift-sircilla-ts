@@ -232,6 +232,32 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const bankName = urlParams.get('bank_name');
+    
+    // ఆటో స్కాన్ కోసం ఫ్లాగ్ చెక్ చేయడం (అనంతమైన లూప్ రాకుండా ఉండటానికి)
+    const autoScanned = sessionStorage.getItem(`scanned_${bankName}`);
+
+    if (bankName && !autoScanned) {
+        showLoading(`${bankName} కి సంబంధించి ఆటో-స్కానింగ్ జరుగుతోంది...`);
+        fetch('/api/scan-mismatches', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ bank_name: bankName })
+        })
+        .then(res => res.json())
+        .then(data => {
+            sessionStorage.setItem(`scanned_${bankName}`, 'true');
+            hideLoading();
+            window.location.reload(); // తాజా స్కాన్ ఫలితాలతో పేజీ రిఫ్రెష్ అవుతుంది
+        })
+        .catch(err => {
+            hideLoading();
+            console.error("Auto scan error:", err);
+        });
+    }
+});
         function showLoading(text) {
             document.getElementById('loadingText').innerText = text;
             document.getElementById('loadingModal').style.display = 'flex';
