@@ -279,3 +279,39 @@ def sync_to_sheets():
         
     except Exception as e:
         return jsonify({"status": "error", "message": f"సింక్ చేయడంలో లోపం: {str(e)}"})
+
+# 7. ఆడిట్ డేటాను ఎక్సెల్ (.xlsx) గా డౌన్‌లోడ్ చేసే API
+@mismatch_bp.route('/api/download-audit-excel')
+def download_audit_excel():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        selected_bank = request.args.get('bank_name', '')
+        
+        query = "SELECT * FROM flagged_records"
+        params = []
+        if selected_bank:
+            query += " WHERE bank_name = ?"
+            params.append(selected_bank)
+
+        df = pd.read_sql_query(query, conn, params=params)
+        conn.close()
+
+        if df.empty:
+            return jsonify({"status": "error", "message": "డౌన్‌లోడ్ చేయడానికి ఎలాంటి డేటా లేదు!"})
+
+        # BytesIO బఫర్ ఉపయోగించి ఎక్సెల్ ఫైల్ తయారు చేయడం
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Audit_Mismatches')
+        output.seek(0)
+
+        filename = f"Thrift_Audit_Mismatches_{selected_bank or 'All_Banks'}.xlsx"
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
