@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .card-widget { border-radius: 15px; border: none; }
+        .badge-exact { background-color: #dc3545; color: white; }
+        .badge-similar { background-color: #ffc107; color: black; }
+        .badge-approved { background-color: #198754; color: white; }
+    </style>
+</head>
+<body class="bg-light">
+
+    <nav class="navbar navbar-dark bg-dark px-4 shadow-sm">
+        <span class="navbar-brand fw-bold">🔍 ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్ (Mismatch Audit)</span>
+        <div>
+            <button class="btn btn-outline-warning me-2 fw-bold" onclick="runScanner()">
+                <i class="bi bi-arrow-repeat"></i> స్కాన్ రన్ చేయండి
+            </button>
+            <button class="btn btn-outline-success fw-bold" onclick="syncToSheets()">
+                <i class="bi bi-cloud-upload"></i> గూగుల్ షీట్‌కు సింక్ చేయండి
+            </button>
+        </div>
+    </nav>
+
+    <div class="container-fluid my-4 px-4">
+        
+        <!-- Widgets Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card card-widget bg-white shadow-sm p-3 border-start border-primary border-4">
+                    <div class="text-muted small fw-bold">మొత్తం చెక్ చేసిన రికార్డులు</div>
+                    <div class="fs-3 fw-bold text-primary">{{ total_scanned }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card card-widget bg-white shadow-sm p-3 border-start border-danger border-4">
+                    <div class="text-muted small fw-bold">ఖచ్చితమైన డూప్లికేట్లు (Exact)</div>
+                    <div class="fs-3 fw-bold text-danger">{{ exact_duplicates }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card card-widget bg-white shadow-sm p-3 border-start border-warning border-4">
+                    <div class="text-muted small fw-bold">స్పెల్లింగ్ వ్యత్యాసాలు (Fuzzy)</div>
+                    <div class="fs-3 fw-bold text-warning">{{ similar_mismatches }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card card-widget bg-white shadow-sm p-3 border-start border-success border-4">
+                    <div class="text-muted small fw-bold">పరిశీలనలో ఉన్న అమౌంట్ (At Risk)</div>
+                    <div class="fs-3 fw-bold text-success">₹{{ "%.2f"|format(total_amount_at_risk) }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Review Table -->
+        <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+            <div class="card-header bg-white py-3">
+                <h5 class="fw-bold mb-0 text-secondary">📋 ఫ్లాగ్ అయిన పేర్ల లావాదేవీల పట్టిక</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>S.No</th>
+                            <th>ఒరిజినల్ పేరు (Original)</th>
+                            <th>పోల్చబడిన పేరు (Matched)</th>
+                            <th>సరిపోలిక %</th>
+                            <th>ఖాతా నెంబరు</th>
+                            <th>బ్యాంక్</th>
+                            <th>అమౌంట్ (₹)</th>
+                            <th>రిస్క్ రకం</th>
+                            <th>స్టేటస్</th>
+                            <th class="text-center">చర్యలు (Actions)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in records %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td class="fw-bold text-primary">{{ r.original_name }}</td>
+                            <td class="fw-bold text-dark">{{ r.matched_name }}</td>
+                            <td><span class="badge bg-secondary">{{ r.match_score }}%</span></td>
+                            <td>{{ r.account_no }}</td>
+                            <td>{{ r.bank_name }}</td>
+                            <td class="fw-bold">₹{{ "%.2f"|format(r.amount) }}</td>
+                            <td>
+                                {% if r.flag_type == 'EXACT_DUPLICATE' %}
+                                    <span class="badge badge-exact">🔴 Exact Duplicate</span>
+                                {% else %}
+                                    <span class="badge badge-similar">🟡 Similar Mismatch</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.status == 'PENDING' %}
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                {% elif r.status == 'APPROVED' %}
+                                    <span class="badge badge-approved">Approved</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Rejected</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if r.status == 'PENDING' %}
+                                    <button class="btn btn-sm btn-success fw-bold me-1" onclick="resolveRecord({{ r.id }}, 'APPROVED')">
+                                        Approve Merge
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger fw-bold" onclick="resolveRecord({{ r.id }}, 'REJECTED')">
+                                        Ignore
+                                    </button>
+                                {% else %}
+                                    <span class="text-muted small">పూర్తయింది</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="10" class="text-center text-muted py-4">ప్రస్తుతానికి ఎలాంటి అనుమానాస్పద రికార్డులు లభించలేదు.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function runScanner() {
+            if(!confirm("గూగుల్ షీట్ నుండి కొత్త డేటాను స్కాన్ చేయాలా?")) return;
+            const res = await fetch('/api/scan-mismatches', {method: 'POST'});
+            const data = await res.json();
+            alert(data.message);
+            window.location.reload();
+        }
+
+        async function resolveRecord(id, action) {
+            const res = await fetch('/api/resolve-mismatch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id, action})
+            });
+            const data = await res.json();
+            window.location.reload();
+        }
+
+        async function syncToSheets() {
+            const res = await fetch('/api/sync-to-sheets', {method: 'POST'});
+            const data = await res.json();
+            alert(data.message);
+        }
+    </script>
+</body>
+</html>
