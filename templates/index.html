@@ -506,6 +506,18 @@ async function uploadBankFile() {
         msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌డేట్ కాలేదు.";
     }
 }
+
+        
+function goToAuditDashboard(event) {
+    event.preventDefault();
+    const selectedBank = document.getElementById('bank-select').value;
+    if (!selectedBank) {
+        alert("దయచేసి ముందుగా పైన డ్రాప్‌డౌన్‌లో ఒక బ్యాంకును ఎంచుకోండి!");
+        return;
+    }
+    window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(selectedBank)}`;
+}
+
     </script>
 <!-- పోర్టల్స్ యాక్సెస్ కోసం ప్రొఫెషనల్ ఫుటర్ లింక్స్ -->
 <footer class="text-center mt-5 mb-4">
@@ -519,9 +531,12 @@ async function uploadBankFile() {
         <a href="/admin/login" class="text-decoration-none text-secondary fw-semibold ms-2">
             🛡️ అడ్మిన్ లాగిన్ (Admin Portal)
         </a>
-        <a href="/audit/dashboard" class="btn btn-outline-warning fw-bold ms-2">
-            🔍 ఆడిట్ & మిస్‌మ్యాచ్ పోర్టల్
-        </a>
+       <!-- index.html లో బ్యాంక్ లాగిన్ అయిన తర్వాత లేదా సైడ్ ప్యానెల్‌లో ఈ బటన్ పెట్టుకోవచ్చు -->
+        <div class="mt-3">
+            <a href="#" id="audit-link" class="btn btn-outline-secondary w-100 fw-bold" onclick="goToAuditDashboard(event)">
+                🔍 ఈ బ్యాంకు ఆడిట్ & మిస్సమ్యాచ్ పోర్టల్ చూడండి
+            </a>
+        </div>
     </div>
 </footer>
 </body>
