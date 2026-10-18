@@ -1,0 +1,15 @@
+{
+  "name": "Thrift Audit & Mismatch Dashboard",
+  "short_name": "Thrift Audit",
+  "start_url": "/audit/dashboard",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#212529",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2910/2910768.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
