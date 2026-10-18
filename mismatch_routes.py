@@ -53,57 +53,67 @@ init_db()
 # బ్యాంక్ డ్రాప్‌డౌన్ కోసం కేవలం flagged_records కాకుండా గూగుల్ షీట్ నుండి నేరుగా బ్యాంక్ లిస్ట్ తెచ్చుకోవడం మంచిది:
 @mismatch_bp.route('/audit/dashboard')
 def audit_dashboard():
-  if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
-    return redirect('/admin/login')
+    if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
+        return redirect('/admin/login')
 
-  selected_bank = request.args.get('bank_name', '')
+    selected_bank = request.args.get('bank_name', '')
 
-  conn = sqlite3.connect(DB_PATH)
-
-  # సేఫ్టీ కోసం డేటాబేస్ లేదా డిఫాల్ట్ బ్యాంక్ లిస్ట్
-  try:
-    df_banks = pd.read_sql_query(
-        'SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT'
-        " NULL AND bank_name != ''",
-        conn,
-    )
-    bank_list = df_banks['bank_name'].tolist()
-  except:
+    conn = sqlite3.connect(DB_PATH)
+    
     bank_list = []
+    try:
+        # 1. మొదట డేటాబేస్ (flagged_records) నుండి బ్యాంక్ లిస్ట్ ట్రై చేయడం
+        df_banks = pd.read_sql_query("SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT NULL AND bank_name != ''", conn)
+        bank_list = df_banks['bank_name'].tolist()
+    except:
+        pass
 
-  query = 'SELECT * FROM flagged_records'
-  params = []
-  if selected_bank:
-    query += ' WHERE bank_name = ?'
-    params.append(selected_bank)
+    # 2. డేటాబేస్ ఖాళీగా ఉంటే, నేరుగా గూగుల్ షీట్ నుండి బ్యాంకుల పేర్లు తెచ్చుకోవడం
+    if not bank_list:
+        try:
+            from app import get_sheets_client, SPREADSHEET_NAME
+            client = get_sheets_client()
+            spreadsheet = client.open(SPREADSHEET_NAME)
+            df_thrift = pd.DataFrame(spreadsheet.worksheet('NEW THRIFT DATA').get_all_records())
+            
+            bank_col = 'FILE NAME' if 'FILE NAME' in df_thrift.columns else 'Bank Name'
+            if bank_col in df_thrift.columns:
+                bank_list = df_thrift[bank_col].astype(str).str.strip().unique().tolist()
+                bank_list = [b for b in bank_list if b and b != 'nan' and b != 'None']
+                bank_list.sort() # అక్షరాల క్రమంలో అమర్చడం
+        except Exception as e:
+            print("Bank list fetch error from sheet:", e)
 
-  df_flags = pd.read_sql_query(query, conn, params=params)
-  conn.close()
+    query = "SELECT * FROM flagged_records"
+    params = []
+    if selected_bank:
+        query += " WHERE bank_name = ?"
+        params.append(selected_bank)
 
-  total_scanned = len(df_flags)
-  exact_duplicates = len(df_flags[df_flags['flag_type'] == 'EXACT_DUPLICATE'])
-  similar_mismatches = len(
-      df_flags[df_flags['flag_type'] == 'SIMILAR_MISMATCH']
-  )
-  pending_records = len(df_flags[df_flags['status'] == 'PENDING'])
-  total_amount_at_risk = df_flags[df_flags['status'] == 'PENDING'][
-      'amount'
-  ].sum()
+    df_flags = pd.read_sql_query(query, conn, params=params)
+    conn.close()
 
-  records = df_flags.to_dict(orient='records')
+    # Widgets Data
+    total_scanned = len(df_flags)
+    exact_duplicates = len(df_flags[df_flags['flag_type'] == 'EXACT_DUPLICATE'])
+    similar_mismatches = len(df_flags[df_flags['flag_type'] == 'SIMILAR_MISMATCH'])
+    pending_records = len(df_flags[df_flags['status'] == 'PENDING'])
+    total_amount_at_risk = df_flags[df_flags['status'] == 'PENDING']['amount'].sum()
 
-  return render_template(
-      'mismatch_dashboard.html',
-      records=records,
-      bank_list=bank_list,
-      selected_bank=selected_bank,
-      total_scanned=total_scanned,
-      exact_duplicates=exact_duplicates,
-      similar_mismatches=similar_mismatches,
-      pending_records=pending_records,
-      total_amount_at_risk=total_amount_at_risk,
-  )
+    records = df_flags.to_dict(orient='records')
 
+    return render_template(
+        'mismatch_dashboard.html',
+        records=records,
+        bank_list=bank_list,
+        selected_bank=selected_bank,
+        total_scanned=total_scanned,
+        exact_duplicates=exact_duplicates,
+        similar_mismatches=similar_mismatches,
+        pending_records=pending_records,
+        total_amount_at_risk=total_amount_at_risk
+    )
+    
 # 3. Bank-wise Audit Scanning API
 @mismatch_bp.route('/api/scan-mismatches', methods=['POST'])
 def scan_mismatches():
