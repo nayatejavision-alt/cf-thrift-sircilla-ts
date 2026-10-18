@@ -258,6 +258,15 @@
                     tbody.innerHTML = '';
 
                     data.records.forEach((rec, idx) => {
+                        let contactHtml = '';
+                        if (rec.contact_no && rec.contact_no !== 'N/A' && rec.contact_no !== 'None') {
+                            let cleanNum = rec.contact_no.toString().trim();
+                            let msg = encodeURIComponent("నమస్కారం, మీ త్రిఫ్ట్ ఖాతా వివరాలలో సందేహాలు ఉన్నాయి. దయచేసి బ్యాంకును సందర్శించి, జౌళిశాఖ ఆఫీసులో సరిచేయించుకోగలరు.");
+                            contactHtml = `<a href="https://wa.me/91${cleanNum}?text=${msg}" target="_blank" class="btn btn-sm btn-outline-success fw-bold text-decoration-none" title="WhatsApp ద్వారా మెసేజ్ పంపండి"><i class="bi bi-whatsapp"></i> ${cleanNum}</a>`;
+                        } else {
+                            contactHtml = `<span class="text-muted">నెంబర్ లేదు</span>`;
+                        }
+
                         tbody.innerHTML += `
                             <tr>
                                 <td>${idx + 1}</td>
@@ -265,26 +274,12 @@
                                 <td class="fw-bold">${rec.original_name}</td>                               
                                 <td>${rec.account_no || 'N/A'}</td>                                
                                 <td>${rec.rd1_acc || 'N/A'}</td>
-                                
-                                <td>
-    {% if rec.contact_no and rec.contact_no != 'N/A' %}
-        <a href="https://wa.me/91{{ rec.contact_no }}?text=నమస్కారం,%20మీ%20త్రిఫ్ట్%20ఖాతా%20వివరాలలో%20సందేహాలు%20ఉన్నాయి.%20దయచేసి%20బ్యాంకును%20సందర్శించి,%20జౌళిశాఖ%20ఆఫీసులో%20సరిచేయించుకోగలరు." 
-           target="_blank" 
-           class="btn btn-sm btn-outline-success fw-bold text-decoration-none" 
-           title="WhatsApp ద్వారా మెసేజ్ పంపండి">
-            <i class="bi bi-whatsapp"></i> {{ rec.contact_no }}
-        </a>
-    {% else %}
-        <span class="text-muted">నెంబర్ లేదు</span>
-    {% endif %}
-</td>
-                                
+                                <td>${contactHtml}</td>
                                 <td class="fw-bold">₹${rec.amount}</td>
                                 <td><span class="badge ${rec.flag_type === 'EXACT_DUPLICATE' ? 'bg-danger' : 'bg-warning text-dark'}">${rec.flag_type}</span></td>
                             </tr>
                         `;
                     });
-
                     const modal = new bootstrap.Modal(document.getElementById('beneficiaryModal'));
                     modal.show();
                 }
