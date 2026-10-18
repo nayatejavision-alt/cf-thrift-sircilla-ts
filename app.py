@@ -16,6 +16,7 @@ from cf_routes import cf_bp
 import io
 import pandas as pd
 from flask import send_file
+from mismatch_routes import mismatch_bp
 
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
@@ -28,6 +29,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app.register_blueprint(admin_bp)
 app.register_blueprint(cf_bp)
+app.register_blueprint(mismatch_bp)
 # Google Sheets API Connection Setup Function
 
 def get_sheets_client():
