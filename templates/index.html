@@ -272,7 +272,10 @@ function renderBankTable(records) {
                         <input type="text" id="balance_${bankSno}" value="${balanceVal}" data-old="${balanceVal}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="బ్యాలెన్స్" onblur="autoSaveRd('${bankSno}')">
                     </td>
                     <td>
-                        <span id="status_${bankSno}" class="text-muted" style="font-size: 11px;">పెండింగ్</span>
+                        <button class="btn btn-sm btn-success px-2 py-0 fw-bold" onclick="manualSaveRd('${bankSno}')" title="సేవ్ చేయండి">
+                            💾 సేవ్
+                        </button>
+                        <span id="status_${bankSno}" class="d-block text-muted mt-1" style="font-size: 10px;">పెండింగ్</span>
                     </td>
                     <td>${row['FILE NAME'] || 'N/A'}</td>
                 </tr>`;
@@ -296,6 +299,61 @@ function renderBankTable(records) {
 
         if (tbodyPending) tbodyPending.innerHTML = pendingHtml !== "" ? pendingHtml : "<tr><td colspan='8' class='text-center text-success'>అన్ని ఎంట్రీలు పూర్తయ్యాయి! 🎉</td></tr>";
         if (tbodyCompleted) tbodyCompleted.innerHTML = completedHtml !== "" ? completedHtml : "<tr><td colspan='8' class='text-center text-muted'>ఇదివరకు పూర్తయిన ఎంట్రీలు ఏవీ లేవు.</td></tr>";
+    }
+}
+
+async function manualSaveRd(bankSno) {
+    const rd1Elem = document.getElementById(`rd1_${bankSno}`);
+    const rd2Elem = document.getElementById(`rd2_${bankSno}`);
+    const balanceElem = document.getElementById(`balance_${bankSno}`);
+    const statusSpan = document.getElementById(`status_${bankSno}`);
+
+    if (!rd1Elem || !rd2Elem || !balanceElem) return;
+
+    const rd1Input = rd1Elem.value.trim();
+    const rd2Input = rd2Elem.value.trim();
+    const balanceInput = balanceElem.value.trim();
+
+    if (statusSpan) {
+        statusSpan.className = "d-block text-info fw-bold mt-1";
+        statusSpan.innerText = "సేవ్ అవుతోంది...";
+    }
+
+    try {
+        const res = await fetch('/api/update-rd-accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                bank_sno: bankSno, 
+                rd1: rd1Input, 
+                rd2: rd2Input, 
+                bank_closing_balance: balanceInput 
+            })
+        });
+
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            if (statusSpan) {
+                statusSpan.className = "d-block text-success fw-bold mt-1";
+                statusSpan.innerText = "Saved ✅";
+            }
+            // 1 సెకను తర్వాత టేబుల్ రిఫ్రెష్ అయ్యి Completed విభాగంలోకి మారుతుంది
+            setTimeout(() => {
+                checkUserLoginStatus(); 
+            }, 800);
+        } else {
+            if (statusSpan) {
+                statusSpan.className = "d-block text-danger mt-1";
+                statusSpan.innerText = "ఫెయిల్ ❌";
+            }
+        }
+    } catch (error) {
+        console.error("Save Error:", error);
+        if (statusSpan) {
+            statusSpan.className = "d-block text-danger mt-1";
+            statusSpan.innerText = "లోపం ❌";
+        }
     }
 }
 //async function updateRdAccount(bankSno) {
