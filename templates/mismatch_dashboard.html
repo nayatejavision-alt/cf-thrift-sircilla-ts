@@ -37,26 +37,33 @@
 <body class="bg-light">
 
     <nav class="navbar navbar-dark bg-dark px-4 shadow-sm">
-        <div>
-            <span class="navbar-brand fw-bold">🔍 ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్ (Mismatch Audit)</span>
-            <!-- హోమ్ పేజీకి వెళ్లే లింక్ -->
-            <a href="/" class="btn btn-outline-light btn-sm ms-3">
-                <i class="bi bi-house-door-fill"></i> హోమ్ పేజీ (Home)
-            </a>
-            <!-- అడ్మిన్ పేజీకి వెళ్లే లింక్ -->
-            <a href="/admin/login" class="btn btn-outline-info btn-sm ms-2">
-                <i class="bi bi-shield-lock-fill"></i> అడ్మిన్ పోర్టల్
-            </a>
-        </div>
-        <div>
-            <button class="btn btn-outline-warning me-2 fw-bold" onclick="runScannerWithProgress()">
-                <i class="bi bi-arrow-repeat"></i> స్కాన్ రన్ చేయండి
-            </button>
-            <button class="btn btn-outline-success fw-bold" onclick="syncToSheets()">
-                <i class="bi bi-cloud-upload"></i> గూగుల్ షీట్‌కు సింక్ చేయండి
-            </button>
-        </div>
-    </nav>
+    <div>
+        <span class="navbar-brand fw-bold">🔍 ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్</span>
+        <a href="/" class="btn btn-outline-light btn-sm ms-3">
+            <i class="bi bi-house-door-fill"></i> హోమ్
+        </a>
+        <a href="/admin/login" class="btn btn-outline-info btn-sm ms-2">
+            <i class="bi bi-shield-lock-fill"></i> అడ్మిన్ పోర్టల్
+        </a>
+    </div>
+    <div class="d-flex gap-2">
+        <!-- 1. స్కాన్ రన్ బటన్ -->
+        <button class="btn btn-outline-warning btn-sm fw-bold" onclick="runScannerWithProgress()">
+            <i class="bi bi-arrow-repeat"></i> స్కాన్ రన్
+        </button>
+
+        <!-- 2. గూగుల్ షీట్స్ సింక్ బటన్ -->
+        <button class="btn btn-outline-success btn-sm fw-bold" onclick="syncToSheets()">
+            <i class="bi bi-cloud-upload"></i> గూగుల్ షీట్‌కు సింక్
+        </button>
+
+        <!-- 3. ఎక్సెల్ డౌన్‌లోడ్ బటన్ (కొత్తది) -->
+        <button class="btn btn-success btn-sm fw-bold" onclick="downloadExcelReport()">
+            <i class="bi bi-file-earmark-excel-fill"></i> ఎక్సెల్ డౌన్‌లోడ్ (.xlsx)
+        </button>
+    </div>
+</nav>
+    
     <div class="container-fluid my-4 px-4">
         
         <!-- Filter Controls Row -->
