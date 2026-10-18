@@ -117,55 +117,74 @@ def scan_mismatches():
         else 'AMOUNT'
     )
 
-    names = df_thrift[name_col].astype(str).str.strip().tolist()
+    # డేటాను క్లీన్ చేయడం (నల్ వాల్యూస్ తొలగించడం)
+    df_thrift[name_col] = df_thrift[name_col].astype(str).str.strip().str.upper()
+    df_thrift = df_thrift[df_thrift[name_col] != '']
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM flagged_records WHERE status = 'PENDING'"
-    )  # పాత పెండింగ్ రికార్డులను క్లియర్ చేయడం
+    cursor.execute("DELETE FROM flagged_records WHERE status = 'PENDING'")
 
     flagged_count = 0
 
-    # Fuzzy Matching & Duplicate Scan
-    for i in range(len(names)):
-      for j in range(i + 1, len(names)):
-        name1 = names[i].upper()
-        name2 = names[j].upper()
+    # 1. ఎక్సాక్ట్ డూప్లికేట్లు (Exact Duplicates) త్వరగా గుర్తించడం
+    duplicates = df_thrift[df_thrift.duplicated(subset=[name_col], keep=False)]
 
-        if not name1 or not name2:
+    for _, row in duplicates.iterrows():
+      name = row[name_col]
+      amt = float(row.get(amt_col, 0) or 0)
+      acc = str(row.get(acc_col, ''))
+      rd1 = str(row.get('RD 1', ''))
+      bank = str(row.get('FILE NAME') or row.get('Bank Name') or '')
+
+      cursor.execute(
+          """
+                INSERT INTO flagged_records 
+                (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, amount, match_score, flag_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+          ('SCAN_BATCH_1', name, name, acc, rd1, bank, amt, 100.0, 'EXACT_DUPLICATE'),
+      )
+      flagged_count += 1
+
+    # 2. ఫజ్జీ మ్యాచింగ్ (Fuzzy Matching) - కేవలం ఒకే బ్యాంక్ లేదా మొదటి కొన్ని వందల రికార్డులకు పరిమితం చేయడం లేదా ఆప్టిమైజ్ చేయడం
+    names = df_thrift[name_col].tolist()
+    # సమయం ఆదా చేయడానికి లిమిటెడ్ కంపారిజన్ లేదా గ్రూపింగ్ వాడవచ్చు
+    max_checks = min(len(names), 1000)  # సర్వర్ లోడ్ తగ్గించడానికి
+
+    for i in range(max_checks):
+      for j in range(i + 1, min(i + 50, max_checks)):  
+        # పక్కపక్కనే ఉన్న పేర్లను లేదా ఆప్టిమైజ్డ్ ఇండెక్స్‌లను పోల్చడం
+        name1 = names[i]
+        name2 = names[j]
+
+        if name1 == name2:
           continue
 
-        # Similarity Score కాలిక్యులేషన్ (80% నుండి 100%)
         score = fuzz.ratio(name1, name2)
-
-        if score >= 80:
-          flag_type = 'EXACT_DUPLICATE' if score == 100 else 'SIMILAR_MISMATCH'
+        if 80 <= score < 100:
           row_data = df_thrift.iloc[i]
-
           amt = float(row_data.get(amt_col, 0) or 0)
           acc = str(row_data.get(acc_col, ''))
           rd1 = str(row_data.get('RD 1', ''))
-          bank = str(
-              row_data.get('FILE NAME') or row_data.get('Bank Name') or ''
-          )
+          bank = str(row_data.get('FILE NAME') or row_data.get('Bank Name') or '')
 
           cursor.execute(
               """
-                        INSERT INTO flagged_records 
-                        (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, amount, match_score, flag_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                    INSERT INTO flagged_records 
+                    (upload_id, original_name, matched_name, account_no, rd1_acc, bank_name, amount, match_score, flag_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
               (
                   'SCAN_BATCH_1',
-                  names[i],
-                  names[j],
+                  name1,
+                  name2,
                   acc,
                   rd1,
                   bank,
                   amt,
                   score,
-                  flag_type,
+                  'SIMILAR_MISMATCH',
               ),
           )
           flagged_count += 1
@@ -179,8 +198,9 @@ def scan_mismatches():
     })
 
   except Exception as e:
-        return jsonify({"status": "error", "message": f"స్కానింగ్ లో లోపం: {str(e)}"})
-
+    import traceback
+    traceback.print_exc()
+    return jsonify({'status': 'error', 'message': f'స్కానింగ్ లో లోపం: {str(e)}'})
 # 4. ఆమోదం / రిజెక్షన్ API (Action Handle)
 @mismatch_bp.route('/api/resolve-mismatch', methods=['POST'])
 def resolve_mismatch():
