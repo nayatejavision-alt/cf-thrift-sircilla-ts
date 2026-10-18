@@ -432,11 +432,8 @@ async function autoSaveRd(bankSno) {
         const response = await res.json();
 
         if (response.status === 'success') {
-            msgDiv.innerText = "";
-            let selectedBank = document.getElementById('bank-select').value;
-            // లాగిన్ అవ్వగానే నేరుగా ఆడిట్ డాష్‌బోర్డ్‌కి ఆ బ్యాంక్ పేరుతో రీడైరెక్ట్ చేయడం
-            window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(selectedBank)}`;
-            
+            msgDiv.innerText = "లాగిన్ విజయవంతమైంది !";
+           
             // లాగిన్ విజయవంతం కాగానే స్టేటస్ చెక్ చేసి డేటా లోడ్ చేస్తుంది
             checkUserLoginStatus();
         } else {
@@ -510,11 +507,28 @@ async function uploadBankFile() {
         
 function goToAuditDashboard(event) {
     event.preventDefault();
-    const selectedBank = document.getElementById('bank-select').value;
+    
+    // 1. ముందుగా డాష్‌బోర్డ్‌లో లాగిన్ అయి ఉన్న బ్యాంక్ నేమ్ ఎక్కడైనా ఉందేమో చూద్దాం (ఉదాహరణకు logged-bank-name ఎలిమెంట్)
+    const loggedBankElem = document.getElementById('logged-bank-name');
+    let selectedBank = "";
+    
+    if (loggedBankElem && loggedBankElem.innerText.trim() !== "") {
+        // యూజర్ ఆల్రెడీ లాగిన్ అయి ఉంటే, ఆ బ్యాంక్ పేరును ఆటోమేటిక్‌గా తీసుకోవడం
+        selectedBank = loggedBankElem.innerText.trim();
+    } else {
+        // లాగిన్ అవ్వకపోతే డ్రాప్‌డౌన్ నుండి సెలెక్ట్ చేసిన విలువను తీసుకోవడం
+        const bankSelect = document.getElementById('bank-select');
+        if (bankSelect) {
+            selectedBank = bankSelect.value;
+        }
+    }
+
     if (!selectedBank) {
-        alert("దయచేసి ముందుగా పైన డ్రాప్‌డౌన్‌లో ఒక బ్యాంకును ఎంచుకోండి!");
+        alert("దయచేసి ముందుగా ఒక బ్యాంకును ఎంచుకోండి లేదా లాగిన్ అవ్వండి!");
         return;
     }
+
+    // సెలెక్ట్ అయిన లేదా లాగిన్ అయిన బ్యాంకు పేరుతో ఆడిట్ డాష్‌బోర్డ్‌కి వెళ్లడం
     window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(selectedBank)}`;
 }
 
