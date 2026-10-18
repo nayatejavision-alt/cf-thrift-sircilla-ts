@@ -50,6 +50,7 @@ init_db()
 
 
 # 2. Dashboard View with Bank List Filter
+# బ్యాంక్ డ్రాప్‌డౌన్ కోసం కేవలం flagged_records కాకుండా గూగుల్ షీట్ నుండి నేరుగా బ్యాంక్ లిస్ట్ తెచ్చుకోవడం మంచిది:
 @mismatch_bp.route('/audit/dashboard')
 def audit_dashboard():
   if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
@@ -59,13 +60,16 @@ def audit_dashboard():
 
   conn = sqlite3.connect(DB_PATH)
 
-  # Fetch unique bank list for dropdown
-  df_banks = pd.read_sql_query(
-      'SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT'
-      " NULL AND bank_name != ''",
-      conn,
-  )
-  bank_list = df_banks['bank_name'].tolist()
+  # సేఫ్టీ కోసం డేటాబేస్ లేదా డిఫాల్ట్ బ్యాంక్ లిస్ట్
+  try:
+    df_banks = pd.read_sql_query(
+        'SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT'
+        " NULL AND bank_name != ''",
+        conn,
+    )
+    bank_list = df_banks['bank_name'].tolist()
+  except:
+    bank_list = []
 
   query = 'SELECT * FROM flagged_records'
   params = []
@@ -76,7 +80,6 @@ def audit_dashboard():
   df_flags = pd.read_sql_query(query, conn, params=params)
   conn.close()
 
-  # Widgets Data
   total_scanned = len(df_flags)
   exact_duplicates = len(df_flags[df_flags['flag_type'] == 'EXACT_DUPLICATE'])
   similar_mismatches = len(
@@ -100,7 +103,6 @@ def audit_dashboard():
       pending_records=pending_records,
       total_amount_at_risk=total_amount_at_risk,
   )
-
 
 # 3. Bank-wise Audit Scanning API
 @mismatch_bp.route('/api/scan-mismatches', methods=['POST'])
