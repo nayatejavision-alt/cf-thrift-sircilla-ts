@@ -21,12 +21,18 @@
 <body class="bg-light">
 
     <nav class="navbar navbar-dark bg-dark px-4 shadow-sm">
-        <span class="navbar-brand fw-bold">🔍 ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్ (Mismatch Audit)</span>
         <div>
-            <!-- అడ్మిన్ పేజీకి వెళ్లే లింక్ బటన్ -->
-            <a href="/admin/dashboard" class="btn btn-outline-light me-2 fw-bold" title="అడ్మిన్ డాష్‌బోర్డ్‌కి వెళ్లండి">
-                <i class="bi bi-shield-lock-fill"></i> అడ్మిన్ డాష్‌బోర్డ్
+            <span class="navbar-brand fw-bold">🔍 ఆడిట్ & నేమ్ వెరిఫికేషన్ డాష్‌బోర్డ్ (Mismatch Audit)</span>
+            <!-- హోమ్ పేజీకి వెళ్లే లింక్ -->
+            <a href="/" class="btn btn-outline-light btn-sm ms-3">
+                <i class="bi bi-house-door-fill"></i> హోమ్ పేజీ (Home)
             </a>
+            <!-- అడ్మిన్ పేజీకి వెళ్లే లింక్ -->
+            <a href="/admin/login" class="btn btn-outline-info btn-sm ms-2">
+                <i class="bi bi-shield-lock-fill"></i> అడ్మిన్ పోర్టల్
+            </a>
+        </div>
+        <div>
             <button class="btn btn-outline-warning me-2 fw-bold" onclick="runScannerWithProgress()">
                 <i class="bi bi-arrow-repeat"></i> స్కాన్ రన్ చేయండి
             </button>
