@@ -302,7 +302,7 @@ function renderBankTable(records) {
     }
 }
 
-async function manualSaveRd(bankSno) {
+/*async function manualSaveRd(bankSno) {
     const rd1Elem = document.getElementById(`rd1_${bankSno}`);
     const rd2Elem = document.getElementById(`rd2_${bankSno}`);
     const balanceElem = document.getElementById(`balance_${bankSno}`);
@@ -355,7 +355,7 @@ async function manualSaveRd(bankSno) {
             statusSpan.innerText = "లోపం ❌";
         }
     }
-}
+}*/
 //async function updateRdAccount(bankSno) {
   //  const rd1Input = document.getElementById(`rd1_${bankSno}`).value.trim();
     //const rd2Input = document.getElementById(`rd2_${bankSno}`).value.trim();
@@ -380,7 +380,7 @@ async function manualSaveRd(bankSno) {
 //}
         
    // డేటా మారితేనే సేవ్ అవ్వడం మరియు సేవ్ అయిన తర్వాత టేబుల్ రిఫ్రెష్ అవ్వడం
-async function autoSaveRd(bankSno) {
+async function manualSaveRd(bankSno) {
     const rd1Elem = document.getElementById(`rd1_${bankSno}`);
     const rd2Elem = document.getElementById(`rd2_${bankSno}`);
     const balanceElem = document.getElementById(`balance_${bankSno}`);
