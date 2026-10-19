@@ -140,7 +140,7 @@ def scan_mismatches():
         df_thrift = df_thrift[df_thrift[name_col] != '']
 
         # 1. గూగుల్ షీట్ డేటాలోనే డూప్లికేట్ లైన్లను ముందే ఫిల్టర్ చేయడం
-        df_thrift = df_thrift.drop_duplicates(subset=[bank_col, 'BANK_SNO', name_col], keep='first')
+        #df_thrift = df_thrift.drop_duplicates(subset=[bank_col, 'BANK_SNO', name_col], keep='first')
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -211,7 +211,7 @@ def scan_mismatches():
             WHERE id NOT IN (
                 SELECT MIN(id) 
                 FROM flagged_records 
-                GROUP BY bank_name, bank_sno, original_name, matched_name, flag_type
+                GROUP BY bank_name, bank_sno, original_name, matched_name
             ) AND status = 'PENDING'
         """)
         
