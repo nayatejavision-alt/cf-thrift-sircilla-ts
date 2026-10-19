@@ -6,5 +6,4 @@ gunicorn
 pandas
 openpyxl
 rapidfuzz
-streamlit==1.31.0
-
+streamlit
