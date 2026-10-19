@@ -139,6 +139,7 @@ def scan_mismatches():
         df_thrift[name_col] = df_thrift[name_col].astype(str).str.strip().str.upper()
         df_thrift = df_thrift[df_thrift[name_col] != '']
 
+        # 1. గూగుల్ షీట్ డేటాలోనే డూప్లికేట్ లైన్లను ముందే ఫిల్టర్ చేయడం
         df_thrift = df_thrift.drop_duplicates(subset=[bank_col, 'BANK_SNO', name_col], keep='first')
         
         conn = sqlite3.connect(DB_PATH)
@@ -151,7 +152,7 @@ def scan_mismatches():
             
         flagged_count = 0
         
-        # 1. Exact Duplicate Search
+        # Exact Duplicate Search
         duplicates = df_thrift[
             df_thrift.duplicated(subset=[name_col], keep=False) | 
             df_thrift.duplicated(subset=[acc_col], keep=False)
@@ -173,7 +174,7 @@ def scan_mismatches():
             """, ('SCAN_BATCH_1', bank_sno, name, name, acc, rd1, bank, contact, amt, 100.0, 'EXACT_DUPLICATE'))
             flagged_count += 1
             
-        # 2. Fuzzy Matching
+        # Fuzzy Matching
         records_list = df_thrift.to_dict(orient='records')
         n = len(records_list)
         
@@ -204,15 +205,34 @@ def scan_mismatches():
                     """, ('SCAN_BATCH_1', bank_sno, name1, name2, acc, rd1, bank, contact, amt, score, 'SIMILAR_MISMATCH'))
                     flagged_count += 1
                     
+        # 3. BANK_SNO మరియు BANK_NAME ఆధారంగా రిపీట్ అయిన డూప్లికేట్ ఫ్లాగ్స్‌ను తొలగించడం
+        cursor.execute("""
+            DELETE FROM flagged_records 
+            WHERE id NOT IN (
+                SELECT MIN(id) 
+                FROM flagged_records 
+                GROUP BY bank_name, bank_sno, original_name, matched_name, flag_type
+            ) AND status = 'PENDING'
+        """)
+        
+        # కచ్చితమైన కౌంట్‌ను తీసుకురావడం
+        if target_bank:
+            cursor.execute("SELECT COUNT(*) FROM flagged_records WHERE bank_name = ? AND status = 'PENDING'", (target_bank,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM flagged_records WHERE status = 'PENDING'")
+        
+        final_count = cursor.fetchone()[0]
+        
         conn.commit()
         conn.close()
         
-        return jsonify({"status": "success", "message": f"స్కానింగ్ పూర్తయింది! {flagged_count} వివరాలు కనుగొనబడ్డాయి."})
+        return jsonify({"status": "success", "message": f"స్కానింగ్ పూర్తయింది! {final_count} రికార్డులు నివేదించబడ్డాయి."})
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": f"స్కానింగ్ లో లోపం: {str(e)}"})
+
 
 # 4. Fetch Details of Specific Beneficiary Mismatches
 @mismatch_bp.route('/api/get-beneficiary-matches', methods=['POST'])
