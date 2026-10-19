@@ -58,28 +58,7 @@ def audit_dashboard():
 
     conn = sqlite3.connect(DB_PATH)
     
-    bank_list = []
-    try:
-        df_banks = pd.read_sql_query("SELECT DISTINCT bank_name FROM flagged_records WHERE bank_name IS NOT NULL AND bank_name != ''", conn)
-        bank_list = df_banks['bank_name'].tolist()
-    except:
-        pass
-
-    if not bank_list:
-        try:
-            from app import get_sheets_client, SPREADSHEET_NAME
-            client = get_sheets_client()
-            spreadsheet = client.open(SPREADSHEET_NAME)
-            df_thrift = pd.DataFrame(spreadsheet.worksheet('NEW THRIFT DATA').get_all_records())
-            
-            bank_col = 'FILE NAME' if 'FILE NAME' in df_thrift.columns else 'Bank Name'
-            if bank_col in df_thrift.columns:
-                bank_list = df_thrift[bank_col].astype(str).str.strip().unique().tolist()
-                bank_list = [b for b in bank_list if b and b != 'nan' and b != 'None']
-                bank_list.sort()
-        except Exception as e:
-            print("Bank list fetch error from sheet:", e)
-
+   
     query = "SELECT * FROM flagged_records"
     params = []
     if selected_bank:
