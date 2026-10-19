@@ -213,6 +213,7 @@ def scan_mismatches():
         return jsonify({"status": "error", "message": f"స్కానింగ్ లో లోపం: {str(e)}"})
 
 # 4. Fetch Details of Specific Beneficiary Mismatches
+# 4. Fetch Details of Specific Beneficiary Mismatches (Without Duplicates)
 @mismatch_bp.route('/api/get-beneficiary-matches', methods=['POST'])
 def get_beneficiary_matches():
     data = request.get_json() or {}
@@ -220,7 +221,13 @@ def get_beneficiary_matches():
     bank = data.get('bank_name', '')
     
     conn = sqlite3.connect(DB_PATH)
-    query = "SELECT * FROM flagged_records WHERE (original_name = ? OR matched_name = ?)"
+    
+    # ఇక్కడ GROUP BY లేదా DISTINCT వాడటం ద్వారా ఒకేలాంటి రికార్డులు రిపీట్ కాకుండా ఉంటాయి
+    query = """
+        SELECT DISTINCT bank_sno, original_name, matched_name, account_no, rd1_acc, contact_no, amount, flag_type, match_score 
+        FROM flagged_records 
+        WHERE (original_name = ? OR matched_name = ?)
+    """
     params = [name, name]
     
     if bank:
@@ -228,9 +235,15 @@ def get_beneficiary_matches():
         params.append(bank)
         
     df = pd.read_sql_query(query, conn, params=params)
+    
+    # ఒకవేళ డేటాఫ్రేమ్‌లో ఏదైనా డూప్లికేట్స్ ఉంటే పాండాస్ ద్వారా కూడా క్లీన్ చేయడం
+    if not df.empty:
+        df = df.drop_duplicates(subset=['bank_sno', 'original_name', 'account_no', 'flag_type'])
+        
     conn.close()
     
     return jsonify({"status": "success", "records": df.to_dict(orient='records')})
+
 
 # 5. Action Resolution API
 @mismatch_bp.route('/api/resolve-mismatch', methods=['POST'])
