@@ -211,8 +211,18 @@ def scan_mismatches():
             WHERE id NOT IN (
                 SELECT MIN(id) 
                 FROM flagged_records 
-                GROUP BY bank_name, bank_sno, original_name
+                GROUP BY bank_name, bank_sno, original_name, matched_name
             ) AND status = 'PENDING'
+        """)
+
+         # 4. BANK_SNO మరియు BANK_NAME ఆధారంగా రిపీట్ అయిన డూప్లికేట్ ఫ్లాగ్స్‌ను తొలగించడం
+        cursor.execute("""
+            DELETE FROM flagged_records 
+            WHERE id NOT IN (
+                SELECT MIN(id) 
+                FROM flagged_records 
+                GROUP BY bank_name, bank_sno, original_name
+            ) AND status = 'PENDING' AND flag_type = 'SIMILAR_MISMATCH'
         """)
         
         # కచ్చితమైన కౌంట్‌ను తీసుకురావడం
