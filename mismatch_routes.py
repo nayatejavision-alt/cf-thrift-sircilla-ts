@@ -56,9 +56,7 @@ def audit_dashboard():
     selected_bank = session.get('bank_user')
 
     conn = sqlite3.connect(DB_PATH)
-    
-    # bank_list ఫెచ్ చేయడం
-   bank_list = [selected_bank] if selected_bank else []
+    bank_list = [selected_bank] if selected_bank else []
 
     # మొదటిసారి లోడ్ అయ్యేటప్పుడు AUDIT_FLAGGED_MISMATCHES షీట్ నుండి డేటా ఉంటే లోకల్ DB లోకి తెచ్చుకోవడం
     if selected_bank:
