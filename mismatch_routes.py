@@ -51,10 +51,10 @@ init_db()
 # 2. Dashboard View with Bank List Filter
 @mismatch_bp.route('/audit/dashboard')
 def audit_dashboard():
-    if not session.get('admin_logged_in') and not session.get('cf_logged_in'):
-        return redirect('/admin/login')
+    if not session.get('bank_user'):
+        return redirect('/')
 
-    selected_bank = request.args.get('bank_name', '')
+    selected_bank = session.get('bank_user')
 
     conn = sqlite3.connect(DB_PATH)
     
