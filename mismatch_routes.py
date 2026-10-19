@@ -138,6 +138,8 @@ def scan_mismatches():
             
         df_thrift[name_col] = df_thrift[name_col].astype(str).str.strip().str.upper()
         df_thrift = df_thrift[df_thrift[name_col] != '']
+
+        df_thrift = df_thrift.drop_duplicates(subset=[bank_col, 'BANK_SNO', name_col], keep='first')
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
