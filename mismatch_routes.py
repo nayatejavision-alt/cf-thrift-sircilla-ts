@@ -211,7 +211,7 @@ def scan_mismatches():
             WHERE id NOT IN (
                 SELECT MIN(id) 
                 FROM flagged_records 
-                GROUP BY bank_name, bank_sno, original_name, matched_name
+                GROUP BY bank_name, bank_sno, original_name
             ) AND status = 'PENDING'
         """)
         
