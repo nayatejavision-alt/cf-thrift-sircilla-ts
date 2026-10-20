@@ -16,8 +16,6 @@ from cf_routes import cf_bp
 import pandas as pd
 from flask import send_file
 from mismatch_routes import mismatch_bp
-import streamlit as st
-from parser import parse_term_deposit_file
 
 
 app = Flask(__name__)
