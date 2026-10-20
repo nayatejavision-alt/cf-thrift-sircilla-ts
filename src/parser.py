@@ -37,11 +37,11 @@ def parse_prn_file(file_path):
     .prn లేదా టెక్స్ట్ ఫైల్‌ను చదివి, డేటాను క్లీన్ చేసి డేటాఫ్రేమ్‌ను రిటర్న్ చేస్తుంది.
     """
     try:
-        # వైట్‌స్పేస్ (Spaces/Tabs) ఆధారంగా డేటాను చదవడం కోసం
-        df = pd.read_csv(file_path, sep=r'\s+', engine='python')
+        # 1. ఇక్కడ encoding='latin-1' ని జోడించండి
+        df = pd.read_csv(file_path, sep=r'\s+', engine='python', encoding='latin-1')
     except Exception as e:
-        # ఒకవేళ ఫిక్స్డ్ విడ్త్ ఫార్మాట్ అయితే read_fwf వాడవచ్చు
-        df = pd.read_fwf(file_path)
+        # 2. ఇక్కడ కూడా encoding='latin-1' ని జోడించండి
+        df = pd.read_fwf(file_path, encoding='latin-1')
     
     # కాలమ్ పేర్లలోని అవాంఛిత స్పేస్‌లను తొలగించడం
     df.columns = df.columns.str.strip()
