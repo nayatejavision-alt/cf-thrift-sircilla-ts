@@ -1,6 +1,7 @@
 import re
 import pandas as pd
 
+
 def parse_term_deposit_file(file_path):
     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
         lines = f.readlines()
@@ -30,3 +31,29 @@ def parse_term_deposit_file(file_path):
             })
             
     return pd.DataFrame(clean_rows)
+
+def parse_prn_file(file_path):
+    """
+    .prn లేదా టెక్స్ట్ ఫైల్‌ను చదివి, డేటాను క్లీన్ చేసి డేటాఫ్రేమ్‌ను రిటర్న్ చేస్తుంది.
+    """
+    try:
+        # వైట్‌స్పేస్ (Spaces/Tabs) ఆధారంగా డేటాను చదవడం కోసం
+        df = pd.read_csv(file_path, sep=r'\s+', engine='python')
+    except Exception as e:
+        # ఒకవేళ ఫిక్స్డ్ విడ్త్ ఫార్మాట్ అయితే read_fwf వాడవచ్చు
+        df = pd.read_fwf(file_path)
+    
+    # కాలమ్ పేర్లలోని అవాంఛిత స్పేస్‌లను తొలగించడం
+    df.columns = df.columns.str.strip()
+    
+    # RD1 Acc Num మరియు Bank Acc Number కాలమ్స్‌ని క్లీన్ చేయడం
+    if 'RD1 Acc Num' in df.columns:
+        df['RD1 Acc Num'] = df['RD1 Acc Num'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+        
+    if 'Bank Acc Number' in df.columns:
+        df['Bank Acc Number'] = df['Bank Acc Number'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+        
+    if 'Name Of Beneficiary' in df.columns:
+        df['Name Of Beneficiary'] = df['Name Of Beneficiary'].astype(str).str.strip()
+        
+    return df
