@@ -6,4 +6,4 @@ gunicorn
 pandas
 openpyxl
 rapidfuzz
-streamlit
+
