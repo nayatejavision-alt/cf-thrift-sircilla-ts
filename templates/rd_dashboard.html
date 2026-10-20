@@ -2,35 +2,52 @@
 <html lang="te">
 <head>
     <meta charset="UTF-8">
-    <title>డిపాజిట్ సారాంశం</title>
+    <title>RD Comparison Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; }
-        .container { max-width: 1200px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); }
-        h2, h3 { color: #333; }
-        .metric { background: #e3f2fd; padding: 20px; border-radius: 8px; font-size: 20px; font-weight: bold; margin-bottom: 20px; color: #0d47a1; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 30px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        th { background-color: #007bff; color: white; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        .btn { background-color: #6c757d; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; }
-        .btn:hover { background-color: #5a6268; }
+        body { font-family: Arial, sans-serif; margin: 30px; background-color: #f4f7f6; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card-container { display: flex; gap: 20px; margin-bottom: 25px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; text-align: center; }
+        .card h3 { margin: 0; color: #333; font-size: 18px; }
+        .card p { font-size: 24px; font-weight: bold; margin: 10px 0 0; color: #007bff; }
+        .table-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow-x: auto; }
+        
+        /* Pandas to_html() table kosam styling */
+        table.data { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        table.data th, table.data td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+        table.data th { background-color: #007bff; color: white; }
+        table.data tr:nth-child(even) { background-color: #f9f9f9; }
+        
+        .back-btn { background-color: #6c757d; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; }
+        .back-btn:hover { background-color: #5a6268; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>📊 టర్మ్ & రికరింగ్ డిపాజిట్స్ డాష్‌బోర్డ్</h2>
-        <div class="metric">మొత్తం డిపాజిట్ బ్యాలెన్స్: ₹ {{ total_balance }}</div>
 
-        <h3>సెక్షన్ల వారీగా వివరాలు</h3>
-        <div>{{ summary_table | safe }}</div>
-
-        <h3>అన్ని ఖాతాల వివరాలు</h3>
-        <div style="max-height: 400px; overflow-y: scroll;">
-            {{ data_table | safe }}
-        </div>
-
-        <br>
-        <a href="/" class="btn">మరొక ఫైల్ అప్‌లోడ్ చేయండి</a>
+    <div class="header">
+        <h2>Comparison Dashboard</h2>
+        <a href="{{ url_for('rd_bp.index') }}" class="back-btn">← Thirigi Velu (Back)</a>
     </div>
+
+    <!-- Summary Cards -->
+    <div class="card-container">
+        <div class="card">
+            <h3>Matched Records</h3>
+            <p style="color: #28a745;">{{ matched_count }}</p>
+        </div>
+        <div class="card">
+            <h3>Unmatched Records</h3>
+            <p style="color: #dc3545;">{{ unmatched_count }}</p>
+        </div>
+    </div>
+
+    <!-- Data Table Section -->
+    <div class="table-container">
+        <h3>Merged Data Details</h3>
+        {% for table in tables %}
+            {{ table | safe }}
+        {% endfor %}
+    </div>
+
 </body>
 </html>
