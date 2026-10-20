@@ -7,7 +7,7 @@ rd_bp = Blueprint('rd_bp', __name__, template_folder='templates')
 
 UPLOAD_FOLDER = 'temp_file.txt'
 
-@rd_bp.route('/api/rd-view')
+@rd_bp.route('/')
 def rd_view():
     return render_template('rd_view.html')
 
