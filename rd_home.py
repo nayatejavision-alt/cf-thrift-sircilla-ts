@@ -46,7 +46,7 @@ def upload_file():
         
     return "డెటా ప్రాసెస్ చేయడంలో లోపం ఏర్పడింది.", 400
 
-@rd_bp.route('/compare', methods=['POST'])
+@rd_bp.route('/compare', methods=['GET', 'POST'])
 def compare_files():
     # 1. User upload chesina files unnaayo ledo check cheyadam
     if 'file1' not in request.files or 'file2' not in request.files:
