@@ -1,5 +1,6 @@
 import re
 import pandas as pd
+import numpy as np
 
 
 def parse_term_deposit_file(file_path):
@@ -46,6 +47,9 @@ def parse_prn_file(file_path):
     # కాలమ్ పేర్లలోని అవాంఛిత స్పేస్‌లను తొలగించడం
     df.columns = df.columns.str.strip()
 
+    df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_numeric_field)
+
+
     # ఉదాహరణకు మీ డేటాఫ్రేమ్ 'df' అనుకుందా
     # 1. కేవలం నంబర్లు (డిజిట్స్) ఉన్నవి మాత్రమే వాలిడ్ డేటాగా తీసుకోవడం
     valid_df = df[df['RD1 Acc Num'].astype(str).str.match('^\d+$')]
@@ -66,4 +70,30 @@ def parse_prn_file(file_path):
     if 'Name Of Beneficiary' in valid_df.columns:
         valid_df['Name Of Beneficiary'] = valid_df['Name Of Beneficiary'].astype(str).str.strip()
         
-    return valid_df
+    return df
+
+
+def clean_numeric_field(val):
+    try:
+        # ఒకవేళ విలువ స్ట్రింగ్ అయితే, ముందుగా వైట్ స్పేస్‌లను తొలగించాలి
+        if isinstance(val, str):
+            val = val.strip()
+            # "ACCOUNT CLOSED" లేదా ఇతర టెక్స్ట్ ఉంటే దాբై నన్ (NaN) గా మార్చండి
+            if not val.replace('.', '', 1).isdigit():
+                return np.nan
+        
+        # ఫ్లోట్ లేదా ఇంటర్‌గా మార్చడానికి ప్రయత్నించండి
+        num = float(val)
+        
+        # 0 లేదా నెగెటివ్ విలువలు ఉంటే వాటిని హ్యాండిల్ చేయడం
+        if num <= 0:
+            return np.nan
+            
+        return int(num) # లేదా అవసరాన్ని బట్టి float
+        
+    except (ValueError, TypeError):
+        # ఏవైనా ఎర్రర్స్ వస్తే ప్రోగ్రామ్ ఆగిపోకుండా నన్ (NaN) రిటర్న్ చేస్తుంది
+        return np.nan
+
+# నమూనా డేటాఫ్రేమ్ పై అప్లై చేయడం
+# df['Account_No'] = df['Account_No'].apply(clean_numeric_field)
