@@ -97,7 +97,7 @@ def compare_files():
 
 
 @rd_bp.route('/download/<type>')
-def download_excel(type):
+def download_excel1(type):
     # సెషన్ నుండి లేదా లాస్ట్ ప్రాసెస్ చేసిన ఫైల్స్ ద్వారా డేటా పొందడం
     # ఉదాహరణకు compare_files నుండి ప్రాసెస్ చేసిన ఫైల్ మార్గాలను ఉపయోగిద్దాం
     path1 = os.path.join('/tmp', session.get('file1_name', ''))
