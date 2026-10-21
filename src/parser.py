@@ -132,7 +132,7 @@ def parse_prn_file(prn_file_path):
     if 'Name Of Beneficiary' in valid_df.columns:
         valid_df['Name Of Beneficiary'] = valid_df['Name Of Beneficiary'].astype(str).str.strip()
         
-    return valid_df
+    return df
 
 
 
