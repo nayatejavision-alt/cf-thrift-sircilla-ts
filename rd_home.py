@@ -1,3 +1,4 @@
+import io  # ఫైల్‌ను రామ్‌లో (RAM) ఆబ్జెక్ట్‌గా సేవ్ చేయడానికి
 import os
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask import Blueprint, render_template, request, jsonify, session, redirect, send_file
@@ -90,3 +91,43 @@ def compare_files():
     except Exception as e:
         flash(f'Files process chesthunappudu error vachindi: {str(e)}')
         return redirect(request.url)
+
+
+@rd_bp.route('/download/<type>')
+def download_excel(type):
+    # సెషన్ నుండి లేదా లాస్ట్ ప్రాసెస్ చేసిన ఫైల్స్ ద్వారా డేటా పొందడం
+    # ఉదాహరణకు compare_files నుండి ప్రాసెస్ చేసిన ఫైల్ మార్గాలను ఉపయోగిద్దాం
+    path1 = os.path.join('/tmp', session.get('file1_name', ''))
+    path2 = os.path.join('/tmp', session.get('file2_name', ''))
+    
+    if not os.path.exists(path1) or not os.path.exists(path2):
+        flash("ఫైల్స్ లభించలేదు, దయచేసి మళ్ళీ అప్‌లోడ్ చేయండి.")
+        return redirect(url_for('rd_bp.index'))
+
+    df1 = parse_term_deposit_file(path1)
+    df2 = parse_prn_file(path2)
+    merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+
+    # యూజర్ క్లిక్ చేసిన టైప్ ఆధారంగా ఫిల్టర్ చేయడం
+    if type == 'matched':
+        export_df = merged_df[merged_df['_merge'] == 'both'].drop(columns=['_merge'])
+        filename = "Matched_Records.xlsx"
+    elif type == 'unmatched':
+        export_df = merged_df[merged_df['_merge'] != 'both'].drop(columns=['_merge'])
+        filename = "Unmatched_Records.xlsx"
+    else:
+        export_df = merged_df.drop(columns=['_merge'])
+        filename = "Full_Merged_Data.xlsx"
+
+    # Excel ఫైల్‌ను Memory Buffer లోకి రాయడం
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        export_df.to_excel(writer, index=False, sheet_name='Data')
+    output.seek(0)
+
+    return send_file(
+        output,
+        download_name=filename,
+        as_attachment=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
