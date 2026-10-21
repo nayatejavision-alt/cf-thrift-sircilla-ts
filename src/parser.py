@@ -57,11 +57,8 @@ def clean_numeric_field(val):
         return np.nan
 
 
-
-
 def parse_prn_file(prn_file_path):
-  parsed_data = []
-
+  
   with open(prn_file_path, 'r', encoding='cp1252') as f:
     lines = f.readlines()
 
@@ -69,34 +66,54 @@ def parse_prn_file(prn_file_path):
     line_str = line.rstrip('\n')
 
     # హెడర్ లేదా ఖాళీ లైన్లను ఇగ్నోర్ చేయడానికి
-    if 'SNO' in line_str or 'Contact Number' in line_str or not line_str.strip():
+    if (
+        'SNO' in line_str
+        or 'Contact Number' in line_str
+        or not line_str.strip()
+    ):
       continue
 
-    # 1. SNO ఎక్స్‌ట్రాక్షన్
-    sno_match = re.match(r'^\s*(\d+)\s+', line_str)
+    # 1. SNO ఎక్స్‌ట్రాక్షన్ (స్పేస్ లేకపోయినా మొదటి అంకెలను SNO గా తీసుకోవడానికి)
+    sno_match = re.match(r'^(\d+)(.*)$', line_str.strip())
     if not sno_match:
       continue
 
     sno = sno_match.group(1)
-    rem_str = line_str[sno_match.end() :]
+    rem_str = sno_match.group(2).strip()
 
-    # 2. Regex ప్యాటర్న్
-    pattern = (
-        r'^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s+(\d{9,11}))?\s+(.*?)\s+(\d{10}|[A-Z\s]+)$'
-    )
+    # 2. చివరన ఉన్న RD1 అకౌంట్ నంబర్ లేదా స్టేటస్ ను వేరు చేయడం (చివరి భాగం)
+    # ఉదాహరణకు చివరిలో 10 అంకెల నంబర్ లేదా 'ACCOUNT CLOSED' లాంటివి ఉంటాయి
+    parts = rem_str.split()
+    rd1_val = '0'
+    if parts:
+      # చివరి పదం అంకెల్లో ఉంటే అది RD1 నంబర్
+      if parts[-1].isdigit() and len(parts[-1]) >= 8:
+        rd1_val = parts[-1]
+        rem_str = ' '.join(
+            parts[:-1]
+        )  # మిగతా స్ట్రింగ్‌ను పైభాగం ప్రాసెసింగ్‌కి ఉంచడం
+      elif (
+          len(parts) >= 2
+          and parts[-1] in ['CLOSED', 'ADDRESS', 'NUMBER', 'BALANCE']
+          or 'ACCOUNT' in rem_str
+          or 'TEMP' in rem_str
+      ):
+        # స్టేటస్ లాంటివి ఉంటే వాటిని హ్యాండిల్ చేయడం
+        rd1_val = '0'
+
+    # 3. మిగతా మధ్యలో ఉన్న నంబర్లు (Contact, Bank Acc, CIF) వెతకడానికి Regex
+    # ఇది అతుక్కుపోయిన CIF నంబర్లను కూడా విడదీస్తుంది
+    pattern = r'^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s*(\d{9,11}))?(.*)$'
     match = re.match(pattern, rem_str)
 
     if match:
-      ben_name, contact, bank_acc, cif, bank_name, rd1_acc = match.groups()
+      ben_name, contact, bank_acc, cif, rest_bank = match.groups()
 
       cif_val = cif if cif else ''
-      bank_name_val = bank_name.strip() if bank_name else ''
-      rd1_val = rd1_acc.strip() if rd1_acc else ''
+      bank_name_val = rest_bank.strip() if rest_bank else ''
 
-      # CIF మిస్ అయ్యి, బ్యాంక్ నేమ్ ప్లేస్ లో స్టేటస్ పడితే అడ్జస్ట్ చేసే లాజిక్
-      if not cif_val and bank_name_val in ['ACCOUNT', 'WRONG']:
-        rd1_val = bank_name_val + ' ' + rd1_val
-        bank_name_val = ''
+      # ఒకవేళ bank_name_val లో నంబర్లు ఉంటే వాటిని శుభ్రం చేయడం
+      # (కొన్నిసార్లు CIF నంబర్ rest_bank లోకి వెళ్తే దాన్ని సరిచేయవచ్చు)
 
       parsed_data.append({
           'SNO': int(sno),
@@ -107,43 +124,18 @@ def parse_prn_file(prn_file_path):
           'NAME AS PER BANK RECORDS': bank_name_val,
           'RD1 Acc Num': rd1_val,
       })
-
-  # డేటాఫ్రేమ్ తయారు చేయడం
-  df = pd.DataFrame(parsed_data)
-
-  # కాలమ్ పేర్లలోని అవాంఛిత స్పేస్‌లను తొలగించడం
-  df.columns = df.columns.str.strip()
-
-  # ----------------------------------------------------
-  # కొత్త లాజిక్: RD1 Acc Num లో పేర్లు+నంబర్ ఉంటే నంబర్ ఉంచి పేరు తీసేయడం, కేవలం పేరు/టెక్స్ట్ ఉంటే 0 పెట్టడం
-  # ----------------------------------------------------
-
-
-  def clean_rd1_account(val):
-    val_str = str(val).strip()
-    # నంబర్లను వెతకడం
-    numbers = re.findall(r'\d+', val_str)
-    if numbers:
-      # నంబర్ దొరికితే దానిని రిటర్న్ చేయడం (ఎక్కువ డిజిట్లు ఉన్న అకౌంట్ నంబర్‌ను ఎంచుకుంటుంది)
-      return max(numbers, key=len) if len(numbers) > 1 else numbers[0]
     else:
-      # కేవలం పేరు లేదా టెక్స్ట్ ఉంటే '0' ఉంచడం
-      return '0'
+      # ఒకవేళ రెగ్యులర్ ప్యాటర్న్ మ్యాచ్ కాకపోతే ఫాల్‌బ్యాక్ లాజిక్
+      parsed_data.append({
+          'SNO': int(sno),
+          'Name Of Beneficiary': rem_str,
+          'Contact Number': '',
+          'Bank Acc Number': '',
+          'CIF NO': '',
+          'NAME AS PER BANK RECORDS': '',
+          'RD1 Acc Num': rd1_val,
+      })
 
+  df = pd.DataFrame(parsed_data)
+return df
 
-  #if 'RD1 Acc Num' in df.columns:
-    #df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_rd1_account)
-
-  if 'Bank Acc Number' in df.columns:
-    df['Bank Acc Number'] = (
-        df['Bank Acc Number']
-        .astype(str)
-        .str.strip()
-        .str.replace(r'\.0$', '', regex=True)
-    )
-
-  if 'Name Of Beneficiary' in df.columns:
-    df['Name Of Beneficiary'] = df['Name Of Beneficiary'].astype(str).str.strip()
-
-
-  return df
