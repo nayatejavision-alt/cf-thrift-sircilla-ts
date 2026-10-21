@@ -80,16 +80,16 @@ def compare_files():
     try:
         df1 = parse_term_deposit_file(path1)
         df2 = parse_prn_file(path2)
-        
-        merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
-        
-        matched_data = merged_df[merged_df['_merge'] == 'both']
-        unmatched_data = merged_df[merged_df['_merge'] != 'both']
+              
+        #merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+        merged_df =    df2
+        #matched_data = merged_df[merged_df['_merge'] == 'both']
+        #unmatched_data = merged_df[merged_df['_merge'] != 'both']
         
         return render_template('rd_dashboard.html',  # ఫైల్ పేరు rd_dashboard_2 అయితే ఇక్కడ మార్చండి
-                               matched_count=len(matched_data), 
-                               unmatched_count=len(unmatched_data),
-                               tables=[matched_data.to_html(classes='data', header="true")])
+                               matched_count=len(df2), 
+                               unmatched_count=len(df2),
+                               tables=[df2.to_html(classes='data', header="true")])
                            
     except Exception as e:
         flash(f'Files process chesthunappudu error vachindi: {str(e)}')
