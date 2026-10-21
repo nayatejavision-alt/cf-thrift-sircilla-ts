@@ -48,29 +48,11 @@ def parse_prn_file(file_path):
     df.columns = df.columns.str.strip()
 
     df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_numeric_field)
+    # NaN ఉన్న రోస్ అన్నింటినీ తొలగించి కొత్త డేటాఫ్రేమ్‌కు అసైన్ చేయడ
+    df_cleaned = df.dropna(subset=['RD1 Acc Num']).copy()
 
 
-    # ఉదాహరణకు మీ డేటాఫ్రేమ్ 'df' అనుకుందా
-    # 1. కేవలం నంబర్లు (డిజిట్స్) ఉన్నవి మాత్రమే వాలిడ్ డేటాగా తీసుకోవడం
-    valid_df = df[df['RD1 Acc Num'].astype(str).str.match('^\d+$')]
-
-    # 2. నంబర్లు కాకుండా టెక్స్ట్/ఎర్రర్లు ఉన్న రోస్‌ని వేరు చేయడం
-    error_df = df[~df['RD1 Acc Num'].astype(str).str.match('^\d+$')]
-
-    # 3. ఆ ఎర్రర్ డేటాని ప్రత్యేకంగా ఎక్సెల్ ఫైల్‌గా సేవ్/డౌన్‌లోడ్ చేసుకోవడం
-    error_df.to_excel('Invalid_Account_Numbers.xlsx', index=False)
-    
-    # RD1 Acc Num మరియు Bank Acc Number కాలమ్స్‌ని క్లీన్ చేయడం
-    if 'RD1 Acc Num' in valid_df.columns:
-        valid_df['RD1 Acc Num'] = valid_df['RD1 Acc Num'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-        
-    if 'Bank Acc Number' in valid_df.columns:
-        valid_df['Bank Acc Number'] = valid_df['Bank Acc Number'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-        
-    if 'Name Of Beneficiary' in valid_df.columns:
-        valid_df['Name Of Beneficiary'] = valid_df['Name Of Beneficiary'].astype(str).str.strip()
-        
-    return df
+       return df_cleaned
 
 
 def clean_numeric_field(val):
