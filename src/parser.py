@@ -82,7 +82,7 @@ def parse_prn_file(prn_file_path):
 
     # 2. Regex ప్యాటర్న్
     pattern = (
-        r'^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s+(\d{9,11}))?\s*(.*?)\s+([A-Z0-9\s-]+)$'
+        r'^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s+(\d{9,11}))?\s+(.*?)\s+(\d{10}|[A-Z\s]+)$'
     )
     match = re.match(pattern, rem_str)
 
@@ -131,8 +131,8 @@ def parse_prn_file(prn_file_path):
       return '0'
 
 
-  if 'RD1 Acc Num' in df.columns:
-    df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_rd1_account)
+  #if 'RD1 Acc Num' in df.columns:
+    #df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_rd1_account)
 
   if 'Bank Acc Number' in df.columns:
     df['Bank Acc Number'] = (
