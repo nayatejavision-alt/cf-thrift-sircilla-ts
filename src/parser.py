@@ -4,7 +4,7 @@ import numpy as np
 
 
 def parse_term_deposit_file(file_path):
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+    with open(file_path, 'r', encoding='cp1252', errors='ignore') as f:
         lines = f.readlines()
         
     current_sec = "Unknown"
@@ -62,7 +62,7 @@ def clean_numeric_field(val):
 def parse_prn_file(prn_file_path):
   parsed_data = []
 
-  with open(prn_file_path, 'r', encoding='utf-8') as f:
+  with open(prn_file_path, 'r', encoding='cp1252') as f:
     lines = f.readlines()
 
   for line in lines:
