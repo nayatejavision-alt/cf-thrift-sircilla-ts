@@ -19,7 +19,22 @@
         table.data tr:nth-child(even) { background-color: #f9f9f9; }
         
         .back-btn { background-color: #6c757d; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; }
-        .back-btn:hover { background-color: #5a6268; }
+        .back-btn:hover { background-color: #5a6268; }   
+
+        .btn-download {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 8px 12px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .btn-download:hover {
+            background-color: #218838;
+        }
     </style>
 </head>
 <body>
@@ -29,17 +44,35 @@
         <a href="{{ url_for('rd_bp.index') }}" class="back-btn">← Thirigi Velu (Back)</a>
     </div>
 
-    <!-- Summary Cards -->
+    <!-- Summary Cards & Download Buttons -->
     <div class="card-container">
         <div class="card">
             <h3>Matched Records</h3>
             <p style="color: #28a745;">{{ matched_count }}</p>
+            <br>
+            <a href="{{ url_for('rd_bp.download_excel', type='matched') }}" class="btn-download">
+                📥 Download Matched Excel
+            </a>
         </div>
-        <div class="card">
-            <h3>Unmatched Records</h3>
-            <p style="color: #dc3545;">{{ unmatched_count }}</p>
-        </div>
+
+    <div class="card">
+        <h3>Unmatched Records</h3>
+        <p style="color: #dc3545;">{{ unmatched_count }}</p>
+        <br>
+        <a href="{{ url_for('rd_bp.download_excel', type='unmatched') }}" class="btn-download">
+            📥 Download Unmatched Excel
+        </a>
     </div>
+
+    <div class="card">
+        <h3>All Merged Records</h3>
+        <p style="color: #007bff;">{{ matched_count + unmatched_count }}</p>
+        <br>
+        <a href="{{ url_for('rd_bp.download_excel', type='all') }}" class="btn-download">
+            📥 Download Full Excel
+        </a>
+    </div>
+</div>
 
     <!-- Data Table Section -->
     <div class="table-container">
