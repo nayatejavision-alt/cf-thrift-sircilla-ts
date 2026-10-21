@@ -73,6 +73,9 @@ def compare_files():
     
     file1.save(path1)
     file2.save(path2)
+
+    session['file1_name'] = file1.filename
+    session['file2_name'] = file2.filename
     
     try:
         df1 = parse_term_deposit_file(path1)
