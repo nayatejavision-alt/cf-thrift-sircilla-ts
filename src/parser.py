@@ -135,7 +135,6 @@ def parse_prn_file(prn_file_path):
           'NAME AS PER BANK RECORDS': '',
           'RD1 Acc Num': rd1_val,
       })
-
   df = pd.DataFrame(parsed_data)
-return df
+    return df
 
