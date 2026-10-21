@@ -48,12 +48,11 @@ def parse_prn_file(file_path):
     df.columns = df.columns.str.strip()
 
     df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_numeric_field)
-    # NaN ఉన్న రోస్ అన్నింటినీ తొలగించి కొత్త డేటాఫ్రేమ్‌కు అసైన్ చేయడ
+    
+    # NaN ఉన్న రోస్ అన్నింటినీ తొలగించి కొత్త డేటాఫ్రేమ్‌కు అసైన్ చేయడం
     df_cleaned = df.dropna(subset=['RD1 Acc Num']).copy()
 
-
-       return df_cleaned
-
+    return df_cleaned
 
 def clean_numeric_field(val):
     try:
