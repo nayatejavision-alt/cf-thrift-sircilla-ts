@@ -58,7 +58,7 @@ def clean_numeric_field(val):
 
 
 def parse_prn_file(prn_file_path):
-  
+  parsed_data = []
   with open(prn_file_path, 'r', encoding='cp1252') as f:
     lines = f.readlines()
 
