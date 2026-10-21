@@ -58,83 +58,92 @@ def clean_numeric_field(val):
 
 
 
+
 def parse_prn_file(prn_file_path):
-    parsed_data = []
-    # Tappu / Error ichedi: 
-    # with open(prn_file_path, "r", encoding="utf-8") as f:
-    # Corrected version (Latin-1 vadali):
-    with open(prn_file_path, "r", encoding="latin-1") as f:
-        lines = f.readlines()
+  parsed_data = []
 
-    for line in lines:
-        line_str = line.rstrip("\n")
+  with open(prn_file_path, 'r', encoding='utf-8') as f:
+    lines = f.readlines()
 
-        # హెడర్ లేదా ఖాళీ లైన్లను ఇగ్నోర్ చేయడానికి
-        if "SNO" in line_str or "Contact Number" in line_str or not line_str.strip():
-            continue
+  for line in lines:
+    line_str = line.rstrip('\n')
 
-        # 1. SNO ఎక్స్‌ట్రాక్షన్
-        sno_match = re.match(r"^\s*(\d+)\s+", line_str)
-        if not sno_match:
-            continue
+    # హెడర్ లేదా ఖాళీ లైన్లను ఇగ్నోర్ చేయడానికి
+    if 'SNO' in line_str or 'Contact Number' in line_str or not line_str.strip():
+      continue
 
-        sno = sno_match.group(1)
-        rem_str = line_str[sno_match.end() :]
+    # 1. SNO ఎక్స్‌ట్రాక్షన్
+    sno_match = re.match(r'^\s*(\d+)\s+', line_str)
+    if not sno_match:
+      continue
 
-        # 2. Regex ప్యాటర్న్
-        pattern = r"^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s+(\d{9,11}))?\s*(.*?)\s+([A-Z0-9\s-]+)$"
-        match = re.match(pattern, rem_str)
+    sno = sno_match.group(1)
+    rem_str = line_str[sno_match.end() :]
 
-        if match:
-            ben_name, contact, bank_acc, cif, bank_name, rd1_acc = match.groups()
+    # 2. Regex ప్యాటర్న్
+    pattern = (
+        r'^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s+(\d{9,11}))?\s*(.*?)\s+([A-Z0-9\s-]+)$'
+    )
+    match = re.match(pattern, rem_str)
 
-            cif_val = cif if cif else ""
-            bank_name_val = bank_name.strip() if bank_name else ""
-            rd1_val = rd1_acc.strip() if rd1_acc else ""
+    if match:
+      ben_name, contact, bank_acc, cif, bank_name, rd1_acc = match.groups()
 
-            # CIF మిస్ అయ్యి, బ్యాంక్ నేమ్ ప్లేస్ లో స్టేటస్ పడితే అడ్జస్ట్ చేసే లాజిక్
-            if not cif_val and bank_name_val in ["ACCOUNT", "WRONG"]:
-                rd1_val = bank_name_val + " " + rd1_val
-                bank_name_val = ""
+      cif_val = cif if cif else ''
+      bank_name_val = bank_name.strip() if bank_name else ''
+      rd1_val = rd1_acc.strip() if rd1_acc else ''
 
-            parsed_data.append({
-                "SNO": int(sno),
-                "Name Of Beneficiary": ben_name.strip(),
-                "Contact Number": contact,
-                "Bank Acc Number": bank_acc,
-                "CIF NO": cif_val,
-                "NAME AS PER BANK RECORDS": bank_name_val,
-                "RD1 Acc Num": rd1_val,
-            })
+      # CIF మిస్ అయ్యి, బ్యాంక్ నేమ్ ప్లేస్ లో స్టేటస్ పడితే అడ్జస్ట్ చేసే లాజిక్
+      if not cif_val and bank_name_val in ['ACCOUNT', 'WRONG']:
+        rd1_val = bank_name_val + ' ' + rd1_val
+        bank_name_val = ''
 
-    # డేటాఫ్రేమ్ తయారు చేయడం
-    df = pd.DataFrame(parsed_data)
+      parsed_data.append({
+          'SNO': int(sno),
+          'Name Of Beneficiary': ben_name.strip(),
+          'Contact Number': contact,
+          'Bank Acc Number': bank_acc,
+          'CIF NO': cif_val,
+          'NAME AS PER BANK RECORDS': bank_name_val,
+          'RD1 Acc Num': rd1_val,
+      })
 
-    # కాలమ్ పేర్లలోని అవాంఛిత స్పేస్‌లను తొలగించడం
-    df.columns = df.columns.str.strip()
+  # డేటాఫ్రేమ్ తయారు చేయడం
+  df = pd.DataFrame(parsed_data)
 
-    # 1. కేవలం నంబర్లు (డిజిట్స్) ఉన్నవి మాత్రమే వాలిడ్ డేటాగా తీసుకోవడం
-    valid_df = df[df['RD1 Acc Num'].astype(str).str.match(r'^\d+$')]
+  # కాలమ్ పేర్లలోని అవాంఛిత స్పేస్‌లను తొలగించడం
+  df.columns = df.columns.str.strip()
 
-    # 2. నంబర్లు కాకుండా టెక్స్ట్/ఎర్రర్లు ఉన్న రోస్‌ని వేరు చేయడం
-    error_df = df[~df['RD1 Acc Num'].astype(str).str.match(r'^\d+$')]
-
-    # 3. ఆ ఎర్రర్ డేటాని ప్రత్యేకంగా ఎక్సెల్ ఫైల్‌గా సేవ్ చేయడం
-    # error_df.to_excel('Invalid_Account_Numbers.xlsx', index=False)
-    
-    # RD1 Acc Num మరియు Bank Acc Number కాలమ్స్‌ని క్లీన్ చేయడం
-    if 'RD1 Acc Num' in valid_df.columns:
-        valid_df['RD1 Acc Num'] = valid_df['RD1 Acc Num'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-        
-    if 'Bank Acc Number' in valid_df.columns:
-        valid_df['Bank Acc Number'] = valid_df['Bank Acc Number'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-        
-    if 'Name Of Beneficiary' in valid_df.columns:
-        valid_df['Name Of Beneficiary'] = valid_df['Name Of Beneficiary'].astype(str).str.strip()
-        
-    return df
+  # ----------------------------------------------------
+  # కొత్త లాజిక్: RD1 Acc Num లో పేర్లు+నంబర్ ఉంటే నంబర్ ఉంచి పేరు తీసేయడం, కేవలం పేరు/టెక్స్ట్ ఉంటే 0 పెట్టడం
+  # ----------------------------------------------------
 
 
+  def clean_rd1_account(val):
+    val_str = str(val).strip()
+    # నంబర్లను వెతకడం
+    numbers = re.findall(r'\d+', val_str)
+    if numbers:
+      # నంబర్ దొరికితే దానిని రిటర్న్ చేయడం (ఎక్కువ డిజిట్లు ఉన్న అకౌంట్ నంబర్‌ను ఎంచుకుంటుంది)
+      return max(numbers, key=len) if len(numbers) > 1 else numbers[0]
+    else:
+      # కేవలం పేరు లేదా టెక్స్ట్ ఉంటే '0' ఉంచడం
+      return '0'
 
 
+  if 'RD1 Acc Num' in df.columns:
+    df['RD1 Acc Num'] = df['RD1 Acc Num'].apply(clean_rd1_account)
 
+  if 'Bank Acc Number' in df.columns:
+    df['Bank Acc Number'] = (
+        df['Bank Acc Number']
+        .astype(str)
+        .str.strip()
+        .str.replace(r'\.0$', '', regex=True)
+    )
+
+  if 'Name Of Beneficiary' in df.columns:
+    df['Name Of Beneficiary'] = df['Name Of Beneficiary'].astype(str).str.strip()
+
+
+  return df
