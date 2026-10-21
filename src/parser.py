@@ -60,8 +60,10 @@ def clean_numeric_field(val):
 
 def parse_prn_file(prn_file_path):
     parsed_data = []
-
-    with open(prn_file_path, "r", encoding="utf-8") as f:
+    # Tappu / Error ichedi: 
+    # with open(prn_file_path, "r", encoding="utf-8") as f:
+    # Corrected version (Latin-1 vadali):
+    with open(prn_file_path, "r", encoding="latin-1") as f:
         lines = f.readlines()
 
     for line in lines:
