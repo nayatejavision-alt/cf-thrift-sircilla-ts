@@ -152,28 +152,30 @@
     </div>
 
     <!-- ఇప్పటికే ఎంట్రీ అయిన వారు (Completed Section) -->
-    <div class="mt-5">
-        <h5 class="text-success">✅ ఇప్పటికే ఎంట్రీ పూర్తయినవి (Completed Entries)</h5>
-        <div class="table-responsive">
-            <table class="table table-hover table-bordered">
-                <thead class="table-success text-dark" style="font-size: 13px;">
-                    <tr>
-                        <th>క్రమ సంఖ్య</th>
-                        <th>లబ్ధిదారుడి పేరు</th>
-                        <th>ఖాతా సంఖ్య</th>
-                        <th>RD ఖాతా సంఖ్య-1</th>
-                        <th>RD ఖాతా సంఖ్య-2</th>
-                        <th>స్టేటస్ (Status)</th>
-                        <th>FILE NAME</th>
-                    </tr>
-                </thead>
-                <tbody id="bank-table-body-completed" style="font-size: 13px;">
-                    <!-- పూర్తయిన డేటా ఇక్కడ లోడ్ అవుతుంది -->
-                </tbody>
-            </table>
-        </div>
+<div class="mt-5">
+    <h5 class="text-success">✅ ఇప్పటికే ఎంట్రీ పూర్తయినవి (Completed Entries)</h5>
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered">
+            <thead class="table-success text-dark" style="font-size: 13px;">
+                <tr>
+                    <th>క్రమ సంఖ్య</th>
+                    <th>లబ్ధిదారుడి పేరు</th>
+                    <th>ఖాతా సంఖ్య</th>
+                    <th>RD ఖాతా సంఖ్య-1</th>
+                    <th>RD ఖాతా సంఖ్య-2</th>
+                    <th>RD ఖాతా సంఖ్య-1 Current Balance</th> <!-- ఈ కాలమ్ యాడ్ చేయండి -->
+                    <th>స్టేటస్ (Status)</th>
+                    <th>FILE NAME</th>
+                </tr>
+            </thead>
+            <tbody id="bank-table-body-completed" style="font-size: 13px;">
+                <!-- పూర్తయిన డేటా ఇక్కడ లోడ్ అవుతుంది -->
+            </tbody>
+        </table>
     </div>
+</div>
 
+                
 </div>
             </div>
 
@@ -280,16 +282,27 @@ function renderBankTable(records) {
                     <td>${row['FILE NAME'] || 'N/A'}</td>
                 </tr>`;
             } else {
-                completedHtml += `<tr class="table-success">
-                    <td>${cCount++}</td>
-                    <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
-                    <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
-                    <td>${rd1Val || 'N/A'}</td>
-                    <td>${rd2Val || 'N/A'}</td>
-                    <td>${balanceVal || 'N/A'}</td>
-                    <td><span class="badge bg-success">పూర్తయింది ✅</span></td>
-                    <td>${row['FILE NAME'] || 'N/A'}</td>
-                </tr>`;
+                    completedHtml += `<tr class="table-success">
+                        <td>${cCount++}</td>
+                        <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
+                        <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
+                        <td>
+                            <input type="text" id="rd1_${bankSno}" value="${rd1Val}" data-old="${rd1Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-1">
+                        </td>
+                        <td>
+                            <input type="text" id="rd2_${bankSno}" value="${rd2Val}" data-old="${rd2Val}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="RD-2">
+                        </td>
+                        <td>
+                            <input type="text" id="balance_${bankSno}" value="${balanceVal}" data-old="${balanceVal}" class="form-control form-control-sm" style="width: 140px;" maxlength="20" placeholder="బ్యాలెన్స్">
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-warning px-2 py-0 fw-bold text-dark" onclick="manualSaveRd('${bankSno}')" title="అప్‌డేట్ చేయండి">
+                                💾 సవరించు
+                            </button>
+                            <span id="status_${bankSno}" class="d-block text-success fw-bold mt-1" style="font-size: 10px;">పూర్తయింది ✅</span>
+                        </td>
+                        <td>${row['FILE NAME'] || 'N/A'}</td>
+                    </tr>`;
             }
         });
 
