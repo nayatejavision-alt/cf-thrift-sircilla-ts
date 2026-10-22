@@ -353,11 +353,11 @@ def update_rd_accounts():
 
         # 💡 కండిషన్ చెక్: Bank Closing Balance అనేది monthly_wages (Due) కంటే తక్కువగా ఉంటే 
         # Transactions_Year1 లో అప్‌డేట్ జరగకూడదు (ఇక్కడ ఫ్లోట్ వేరియబుల్ వాడాలి)
-        if bank_closing_balance < monthly_wages:
-            return jsonify({
-                "status": "success", 
-                "message": "మాస్టర్ షీట్ అప్‌డేట్ అయింది. అయితే బ్యాలెన్స్ డ్యూ కన్నా తక్కువగా ఉన్నందున ట్రాన్సాక్షన్ అప్‌డేట్ కాలేదు."
-            })
+        #if bank_closing_balance < monthly_wages:
+            #return jsonify({
+               # "status": "success", 
+                #"message": "మాస్టర్ షీట్ అప్‌డేట్ అయింది. అయితే బ్యాలెన్స్ డ్యూ కన్నా తక్కువగా ఉన్నందున ట్రాన్సాక్షన్ అప్‌డేట్ కాలేదు."
+           # })
 
         # 2. 'Transactions_Year1' షీట్‌లో డిపెండెన్సీ ఫార్ములాలతో అప్‌డేట్ చేయడం
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
@@ -665,9 +665,9 @@ def bulk_upload():
                 master_cell_updates.append(gspread.Cell(master_row_idx, rd2_col, rd2))
 
             # 💡 కండిషన్ చెక్: Closing Balance అనేది వేజెస్/డ్యూ కంటే తక్కువగా ఉంటే ట్రాన్సాక్షన్స్ అప్‌డేట్ చేయకూడదు
-            if bank_closing_balance < monthly_wages:
-                updated_count += 1
-                continue  # ట్రాన్సాక్షన్ షీట్ ప్రాసెస్‌ను స్కిప్ చేసి తర్వాతి రో కి వెళ్తుంది
+            #if bank_closing_balance < monthly_wages:
+               # updated_count += 1
+               # continue  # ట్రాన్సాక్షన్ షీట్ ప్రాసెస్‌ను స్కిప్ చేసి తర్వాతి రో కి వెళ్తుంది
 
             # 2. Transactions Sheet లెక్కలు (బ్యాలెన్స్ డ్యూ కంటే ఎక్కువ లేదా సమానంగా ఉంటేనే ఇక్కడికి వస్తుంది)
             due_amount = monthly_wages
