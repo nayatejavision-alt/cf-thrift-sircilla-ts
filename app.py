@@ -369,8 +369,22 @@ def update_rd_accounts():
                     pass
                 break
 
+        # --- ఇక్కడ నుంచి ట్రాన్సాక్షన్ షీట్ హెడర్ మ్యాపింగ్ మరియు బ్యాలెన్స్ అప్‌డేట్ సరిగ్గా అమర్చబడింది ---
         trans_headers = trans_sheet.row_values(1)
-        col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
+        col_map = {}
+        for c_idx, h in enumerate(trans_headers):
+            h_clean = h.strip().lower()
+            col_map[h_clean] = c_idx + 1
+
+        # బ్యాలెన్స్ కాలమ్ పేరును ఫ్లెక్సిబుల్‌గా వెతకడం
+        balance_col_idx = None
+        for h_clean, c_idx in col_map.items():
+            if "bank closing balance" in h_clean or "బ్యాలెన్స్" in h_clean:
+                balance_col_idx = c_idx
+                break
+
+        # సాధారణ కాలమ్ నేమ్స్ మ్యాపింగ్ కోసం డిక్షనరీ
+        standard_col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
         previous_arrears = 0.0  
         actual_paid = bank_closing_balance  
@@ -378,10 +392,9 @@ def update_rd_accounts():
         govt_share = min(due_amount, actual_paid)
         remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
         govt_rd_closing_bal = govt_share
-        govt_rd_status = "MATCHED" if remaining_arrears <= 0 else "PENDING"
+        govt_status_val = "MATCHED" if remaining_arrears <= 0 else "PENDING"
 
         rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
-        balance_col_name = "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
         arrears_b_name = "(B) పాత బాకీ(Previous Arrears)"
         due_c_name = "(C) ఈ నెల డ్యూ(Due)"
         actual_paid_d_name = "(D) Actual Paid"
@@ -389,27 +402,28 @@ def update_rd_accounts():
         remaining_f_name = "(F) మిగిలిన బాకీ(Remaining Arrears)"
         govt_closing_h_name = "Govt RD Closing Bal (H)"
         govt_status_i_name = "Govt RD Status (I)"
-        month_num_name = "MONTH_NUMBER"
-        batch_num_name = "BATCH_NUMBER"
 
         if trans_row_index:
-            # డూప్లికేషన్ నివారణకు కొత్త రో సృష్టించకుండా ఉన్న రో ని కచ్చితంగా అప్‌డేట్ చేయడం
+            # 1. మొదట బ్యాలెన్స్‌ని నేరుగా దాని ఇండెక్స్ ద్వారా అప్‌డేట్ చేయడం
+            if balance_col_idx:
+                trans_sheet.update_cell(trans_row_index, balance_col_idx, bank_closing_balance_str)
+
+            # 2. మిగిలిన కాలమ్స్ అప్‌డేట్ చేయడం
             updates = [
                 (rd1_col_name, rd1),
-                (balance_col_name, bank_closing_balance_str),
                 (arrears_b_name, previous_arrears),
                 (due_c_name, due_amount),
                 (actual_paid_d_name, actual_paid),
                 (govt_share_name, govt_share),
                 (remaining_f_name, remaining_arrears),
                 (govt_closing_h_name, govt_rd_closing_bal),
-                (govt_status_i_name, govt_rd_status)
+                (govt_status_i_name, govt_status_val)
             ]
             for col_name, val in updates:
-                if col_name in col_map:
-                    trans_sheet.update_cell(trans_row_index, col_map[col_name], val)
+                if col_name in standard_col_map:
+                    trans_sheet.update_cell(trans_row_index, standard_col_map[col_name], val)
         else:
-            # ఒకవేళ ఎంట్రీ లేకపోతే మాత్రమే కొత్త రో అపెండ్ అవుతుంది
+            # ఒకవేళ ఎంట్రీ లేకపోతే కొత్త రో అపెండ్ అవుతుంది
             row_data_dict = {h.strip(): "" for h in trans_headers}
             
             for h in trans_headers:
@@ -428,7 +442,7 @@ def update_rd_accounts():
                     row_data_dict[h_clean] = beneficiary_acc
                 elif h_clean == rd1_col_name:
                     row_data_dict[h_clean] = rd1
-                elif h_clean == balance_col_name:
+                elif "bank closing balance" in h_clean.lower() or "బ్యాలెన్స్" in h_clean:
                     row_data_dict[h_clean] = bank_closing_balance_str
                 elif h_clean == arrears_b_name:
                     row_data_dict[h_clean] = previous_arrears
@@ -443,7 +457,7 @@ def update_rd_accounts():
                 elif h_clean == govt_closing_h_name:
                     row_data_dict[h_clean] = govt_rd_closing_bal
                 elif h_clean == govt_status_i_name:
-                    row_data_dict[h_clean] = govt_rd_status
+                    row_data_dict[h_clean] = govt_status_val
                 elif h_clean == "FILE NAME":
                     row_data_dict[h_clean] = bank_user
 
@@ -454,6 +468,7 @@ def update_rd_accounts():
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
+
 
 @app.route("/api/download-excel", methods=["GET"])
 def download_excel():
