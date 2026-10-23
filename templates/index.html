@@ -310,63 +310,63 @@
     }
 
     async function manualSaveRd(bankSno) {
-        const rd1Elem = document.getElementById(`rd1_${bankSno}`);
-        const rd2Elem = document.getElementById(`rd2_${bankSno}`);
-        const balanceElem = document.getElementById(`balance_${bankSno}`);
-        
-        if (!rd1Elem) return;
+    const rd1Elem = document.getElementById(`rd1_${bankSno}`);
+    const rd2Elem = document.getElementById(`rd2_${bankSno}`);
+    const balanceElem = document.getElementById(`balance_${bankSno}`);
+    
+    if (!rd1Elem) return;
 
-        const rd1Input = rd1Elem.value.trim();
-        const rd2Input = rd2Elem.value.trim();
-        const balanceInput = balanceElem.value.trim();
-        const currentMonth = document.getElementById('filter-month').value;
-        const currentBatch = document.getElementById('filter-batch').value;
+    const rd1Input = rd1Elem.value.trim();
+    const rd2Input = rd2Elem.value.trim();
+    const balanceInput = balanceElem ? balanceElem.value.trim() : ""; // బ్యాలెన్స్ ఎలిమెంట్ నుండి విలువ తీసుకోవడం
+    
+    const currentMonth = document.getElementById('filter-month').value;
+    const currentBatch = document.getElementById('filter-batch').value;
 
-        const statusSpan = document.getElementById(`status_${bankSno}`);
-        if (statusSpan) {
-            statusSpan.className = "text-info fw-bold";
-            statusSpan.innerText = "సేవ్ అవుతోంది...";
-        }
-
-        try {
-            const res = await fetch('/api/update-rd-accounts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    bank_sno: bankSno, 
-                    rd1: rd1Input, 
-                    rd2: rd2Input, 
-                    bank_closing_balance: balanceInput,
-                    month: currentMonth,
-                    batch: currentBatch
-                })
-            });
-
-            const result = await res.json();
-            
-            if (result.status === 'success') {
-                if (statusSpan) {
-                    statusSpan.className = "text-success fw-bold";
-                    statusSpan.innerText = "Saved ✅";
-                }
-                setTimeout(() => {
-                    checkUserLoginStatus(); 
-                }, 1000);
-            } else {
-                if (statusSpan) {
-                    statusSpan.className = "text-danger";
-                    statusSpan.innerText = "ఫెయిల్ ❌";
-                }
-            }
-        } catch (error) {
-            console.error("Save Error:", error);
-            if (statusSpan) {
-                statusSpan.className = "text-danger";
-                statusSpan.innerText = "లోపం ❌";
-            }
-        }
+    const statusSpan = document.getElementById(`status_${bankSno}`);
+    if (statusSpan) {
+        statusSpan.className = "text-info fw-bold";
+        statusSpan.innerText = "సేవ్ అవుతోంది...";
     }
 
+    try {
+        const res = await fetch('/api/update-rd-accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                bank_sno: bankSno, 
+                rd1: rd1Input, 
+                rd2: rd2Input, 
+                bank_closing_balance: balanceInput, // <--- ఈ లైన్ ఉండటం చాలా ముఖ్యం!
+                month: currentMonth,
+                batch: currentBatch
+            })
+        });
+
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            if (statusSpan) {
+                statusSpan.className = "text-success fw-bold";
+                statusSpan.innerText = "Saved ✅";
+            }
+            setTimeout(() => {
+                checkUserLoginStatus(); 
+            }, 1000);
+        } else {
+            if (statusSpan) {
+                statusSpan.className = "text-danger";
+                statusSpan.innerText = "ఫెయిల్ ❌";
+            }
+        }
+    } catch (error) {
+        console.error("Save Error:", error);
+        if (statusSpan) {
+            statusSpan.className = "text-danger";
+            statusSpan.innerText = "లోపం ❌";
+        }
+    }
+}
     async function searchBeneficiary() {
         const aadhaar = document.getElementById('search-aadhaar').value;
         const resultsDiv = document.getElementById('search-results');
