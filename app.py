@@ -192,7 +192,8 @@ def get_bank_data():
         except Exception:
             trans_records = []
 
-        current_month = 1  
+        current_month = 1
+        BATCH_NUMBER = 1
         bank_user_clean = bank_user.strip().lower()
 
         # 💡 బ్యాలెన్స్‌లను మ్యాప్ చేయడానికి డిక్షనరీ
@@ -202,10 +203,11 @@ def get_bank_data():
         for t in trans_records:
             t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
             t_month = str(t.get("month_number") or t.get("MONTH") or t.get("MONTH_NUMBER") or "").strip()
+            t_batch = str(t.get("BATCH_NUMBER") or t.get("BATCH") OR t.get("batch_number") or "").strip()
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
             
             # ఒకవేళ నెల 1 మరియు బ్యాంక్ పేరు మ్యాచ్ అయితే బ్యాలెన్స్ తీసుకోవడం
-            if t_month == str(current_month) and (bank_user_clean in t_filename or t_filename in bank_user_clean):
+            if t_month == str(current_month) and t_batch == str(BATCH_NUMBER) and (bank_user_clean in t_filename or t_filename in bank_user_clean):
                 bal_val = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
                 if t_sno:
                     balance_map[t_sno] = bal_val
@@ -215,7 +217,7 @@ def get_bank_data():
             except ValueError:
                 govt_share = 0
 
-            if t_month == str(current_month) and govt_share > 0 and (bank_user_clean in t_filename or t_filename in bank_user_clean):
+            if t_month == str(current_month) and t_batch == str(BATCH_NUMBER) and govt_share > 0 and (bank_user_clean in t_filename or t_filename in bank_user_clean):
                 completed_transactions.add(t_sno)
 
         # 3. మాస్టర్ డేటాను ఫిల్టర్ చేయడం మరియు బ్యాలెన్స్ అటాచ్ చేయడం
@@ -525,9 +527,10 @@ def download_excel():
             for _, t in df_trans.iterrows():
                 t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
                 t_month = str(t.get("MONTH_NUMBER") or t.get("month_number") or "").strip()
+                t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "").strip()
                 t_balance = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
                 
-                if t_month == "1" and t_sno:
+                if t_month == "1" and t_batch == "1" and t_sno:
                     balance_map[t_sno] = t_balance
 
         filtered_data = []
