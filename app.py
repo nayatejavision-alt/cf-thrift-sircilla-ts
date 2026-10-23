@@ -10,7 +10,6 @@ import gspread
 from datetime import timedelta
 import csv
 from flask import make_response
-import os
 from werkzeug.utils import secure_filename
 from admin_routes import admin_bp
 from cf_routes import cf_bp
@@ -93,11 +92,14 @@ def home():
 
     return render_template("index.html", banks=bank_list)
 
-# 2. ఆధార్ శోధన API రౌట్
+# 2. ఆధార్ శోధన API రౌట్ (సవరించబడింది - data వేరియబుల్ జోడించబడింది)
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
     try:
-        
+        data = request.get_json()  # <--- ఇక్కడ డేటా రీడ్ చేయడం జోడించబడింది
+        if not data:
+            return jsonify({'success': False, 'message': 'సరైన డేటా అందలేదు.'}), 400
+            
         input_id = str(data.get('aadhar', '')).strip().replace('-', '').replace(' ', '')
 
         if not input_id or len(input_id) != 12 or not input_id.isdigit():
@@ -181,11 +183,9 @@ def get_bank_data():
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # 1. మాస్టర్ డేటా తీసుకోవడం
         target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
         master_records = target_sheet.get_all_records()
 
-        # 2. ట్రాన్సాక్షన్ డేటా (Transactions_Year1) తీసుకోవడం
         try:
             trans_sheet = spreadsheet.worksheet('Transactions_Year1')
             trans_records = trans_sheet.get_all_records()
@@ -196,17 +196,15 @@ def get_bank_data():
         BATCH_NUMBER = 1
         bank_user_clean = bank_user.strip().lower()
 
-        # 💡 బ్యాలెన్స్‌లను మ్యాప్ చేయడానికి డిక్షనరీ
         balance_map = {}
         completed_transactions = set()
         
         for t in trans_records:
             t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
             t_month = str(t.get("month_number") or t.get("MONTH") or t.get("MONTH_NUMBER") or "").strip()
-            t_batch = str(t.get("BATCH_NUMBER") or t.get("BATCH") OR t.get("batch_number") or "").strip()
+            t_batch = str(t.get("BATCH_NUMBER") or t.get("BATCH") or t.get("batch_number") or "").strip()
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
             
-            # ఒకవేళ నెల 1 మరియు బ్యాంక్ పేరు మ్యాచ్ అయితే బ్యాలెన్స్ తీసుకోవడం
             if t_month == str(current_month) and t_batch == str(BATCH_NUMBER) and (bank_user_clean in t_filename or t_filename in bank_user_clean):
                 bal_val = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
                 if t_sno:
@@ -220,7 +218,6 @@ def get_bank_data():
             if t_month == str(current_month) and t_batch == str(BATCH_NUMBER) and govt_share > 0 and (bank_user_clean in t_filename or t_filename in bank_user_clean):
                 completed_transactions.add(t_sno)
 
-        # 3. మాస్టర్ డేటాను ఫిల్టర్ చేయడం మరియు బ్యాలెన్స్ అటాచ్ చేయడం
         filtered_data = []
         for row in master_records:
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
@@ -228,7 +225,6 @@ def get_bank_data():
             if bank_user_clean in file_name.lower():
                 bank_sno = str(row.get("BANK_SNO") or "").strip()
                 
-                # ట్రాన్సాక్షన్ షీట్‌లో సేవ్ అయిన బ్యాలెన్స్ ఉంటే దానిని రో లోకి సెట్ చేయడం
                 if bank_sno in balance_map:
                     row['Bank Closing Balance'] = balance_map[bank_sno]
                 
@@ -241,8 +237,6 @@ def get_bank_data():
     except Exception as e:
         print(f"Get Bank Data Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
-
-
         
 @app.route("/api/download-csv", methods=["GET"])
 def download_csv():
@@ -255,7 +249,6 @@ def download_csv():
     target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
     records = target_sheet.get_all_records()
 
-    # ఆ బ్యాంక్ డేటాను ఫిల్టర్ చేయడం
     filtered_data = [
         row
         for row in records
@@ -263,7 +256,6 @@ def download_csv():
         in str(row.get("FILE NAME") or row.get("File Name") or "").lower()
     ]
 
-    # CSV రెస్పాన్స్ తయారు చేయడం
     output = []
     output.append(["SNO", "Name", "Account No", "File Name"])
 
@@ -287,7 +279,6 @@ def download_csv():
     )
     response.headers["Content-Type"] = "text/csv"
     return response
-    
 
 @app.route("/api/update-rd-accounts", methods=["POST"])
 def update_rd_accounts():
@@ -302,7 +293,6 @@ def update_rd_accounts():
         rd2 = str(data.get("rd2", "")).strip()
         bank_closing_balance_str = str(data.get("bank_closing_balance", "")).strip()
         
-        # బ్యాలెన్స్‌ను నంబర్‌గా మార్చడం (లెక్కల కోసం)
         try:
             bank_closing_balance = float(bank_closing_balance_str) if bank_closing_balance_str else 0.0
         except ValueError:
@@ -311,7 +301,6 @@ def update_rd_accounts():
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # 1. 'NEW THRIFT DATA' (Master) లో RD 1 మరియు RD 2 అప్‌డేట్ చేయడం
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
         master_records = target_sheet.get_all_records()
         
@@ -325,7 +314,7 @@ def update_rd_accounts():
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             
             if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
-                master_row_index = idx + 2  # gspread row index + header row
+                master_row_index = idx + 2
                 beneficiary_name = str(row.get("Name Of Benificiary") or row.get("NAME") or "").strip()
                 beneficiary_acc = str(row.get("Bank Account Number") or row.get("ACCOUNT") or "").strip()
                 
@@ -353,15 +342,6 @@ def update_rd_accounts():
 
         due_amount = monthly_wages  
 
-        # 💡 కండిషన్ చెక్: Bank Closing Balance అనేది monthly_wages (Due) కంటే తక్కువగా ఉంటే 
-        # Transactions_Year1 లో అప్‌డేట్ జరగకూడదు (ఇక్కడ ఫ్లోట్ వేరియబుల్ వాడాలి)
-        #if bank_closing_balance < monthly_wages:
-            #return jsonify({
-               # "status": "success", 
-                #"message": "మాస్టర్ షీట్ అప్‌డేట్ అయింది. అయితే బ్యాలెన్స్ డ్యూ కన్నా తక్కువగా ఉన్నందున ట్రాన్సాక్షన్ అప్‌డేట్ కాలేదు."
-           # })
-
-        # 2. 'Transactions_Year1' షీట్‌లో డిపెండెన్సీ ఫార్ములాలతో అప్‌డేట్ చేయడం
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
         trans_records = trans_sheet.get_all_records()
 
@@ -386,7 +366,6 @@ def update_rd_accounts():
         trans_headers = trans_sheet.row_values(1)
         col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
-        # లెక్కలు కట్టడం:
         previous_arrears = 0.0  
         actual_paid = bank_closing_balance  
         
@@ -480,7 +459,6 @@ def upload_file():
 
     if file:
         filename = secure_filename(file.filename)
-        # బ్యాంక్ పేరుతో ఫైల్ సేవ్ అవ్వడానికి
         safe_bank_name = bank_user.replace(" ", "_")
         final_filename = f"{safe_bank_name}_{filename}"
         file.save(os.path.join(UPLOAD_FOLDER, final_filename))
@@ -492,8 +470,6 @@ def upload_file():
             }
         )
 
-
-
 @app.route("/api/download-excel", methods=["GET"])
 def download_excel():
     bank_user = session.get("bank_user")
@@ -504,15 +480,12 @@ def download_excel():
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # మాస్టర్ డేటా తీసుకోవడం మరియు FILE NAME తో ఫిల్టర్ చేయడం
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
         master_records = target_sheet.get_all_records()
         df_master = pd.DataFrame(master_records)
         
-        # కేవలం లాగిన్ అయిన బ్యాంకుకు సంబంధించిన రికార్డ్స్ మాత్రమే ఫిల్టర్ చేయడం (case-insensitive సురక్షితంగా ఉండటానికి)
         df_master = df_master[df_master['FILE NAME'].astype(str).str.strip().str.lower() == bank_user.strip().lower()].copy()
 
-        # ట్రాన్సాక్షన్ డేటా తీసుకోవడం
         try:
             trans_sheet = spreadsheet.worksheet("Transactions_Year1")
             trans_records = trans_sheet.get_all_records()
@@ -521,7 +494,6 @@ def download_excel():
         except Exception:
             df_trans = pd.DataFrame()
 
-        # ట్రాన్సాక్షన్స్ నుండి బ్యాలెన్స్‌లను మ్యాప్ చేయడానికి ఒక డిక్షనరీ తయారు చేయడం (iterrows వాడాలి)
         balance_map = {}
         if not df_trans.empty:
             for _, t in df_trans.iterrows():
@@ -534,12 +506,10 @@ def download_excel():
                     balance_map[t_sno] = t_balance
 
         filtered_data = []
-        # ఇక్కడ iterrows() వాడటం వల్ల ప్రతి రో (row) సరిగ్గా వస్తుంది
         for idx, (_, row) in enumerate(df_master.iterrows()):
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             
-            # ట్రాన్సాక్షన్ షీట్ నుండి లేదా మాస్టర్ నుండి బ్యాలెన్స్ తీసుకోవడం
             closing_balance = balance_map.get(bank_sno, row.get("Bank Closing Balance", ""))
 
             filtered_data.append({
@@ -585,19 +555,16 @@ def bulk_upload():
         if file.filename == "":
             return jsonify({"status": "error", "message": "ఫైల్ పేరు ఖాళీగా ఉంది."})
 
-        # పాండాస్ ద్వారా అప్‌లోడ్ అయిన ఎక్సెల్ ఫైల్‌ను చదవడం
         df = pd.read_excel(file)
         
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # 1. Master Sheet (NEW THRIFT DATA) డేటా తీసుకోవడం
         target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
         master_records = target_sheet.get_all_records()
         master_headers = target_sheet.row_values(1)
         master_col_map = {h.strip().upper(): c_idx + 1 for c_idx, h in enumerate(master_headers)}
 
-        # 2. Transactions Sheet డేటా తీసుకోవడం
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
         trans_records = trans_sheet.get_all_records()
         trans_headers = trans_sheet.row_values(1)
@@ -606,12 +573,10 @@ def bulk_upload():
         current_month = 1
         updated_count = 0
 
-        # బ్యాచ్ అప్‌డేట్స్ కోసం లిస్ట్‌లు
         master_cell_updates = []
         trans_cell_updates = []
         new_trans_rows = []
 
-        # మాస్టర్ మరియు ట్రాన్సాక్షన్ డేటాను సులభంగా వెతకడానికి డిక్షనరీలుగా మార్చుకోవడం
         master_row_dict = {}
         for idx, m_row in enumerate(master_records):
             m_sno = str(m_row.get("BANK_SNO") or "").strip()
@@ -640,7 +605,6 @@ def bulk_upload():
         rd1_col = master_col_map.get("RD 1") or master_col_map.get("RD_1")
         rd2_col = master_col_map.get("RD 2") or master_col_map.get("RD_2")
 
-        # ఎక్సెల్ ఫైల్‌లోని ప్రతీ రో (Row) ని లూప్ తిప్పడం
         for _, row in df.iterrows():
             bank_sno = str(row.get("BANK_SNO") or "").strip()
             rd1 = str(row.get("RD ACCOUNT_1") or "").strip()
@@ -661,18 +625,11 @@ def bulk_upload():
             beneficiary_name = m_info["name"]
             beneficiary_acc = m_info["acc"]
 
-            # 1. Master Sheet అప్‌డేట్‌లు (ఎల్లప్పుడూ యాడ్ అవుతాయి)
             if rd1_col:
                 master_cell_updates.append(gspread.Cell(master_row_idx, rd1_col, rd1))
             if rd2_col:
                 master_cell_updates.append(gspread.Cell(master_row_idx, rd2_col, rd2))
 
-            # 💡 కండిషన్ చెక్: Closing Balance అనేది వేజెస్/డ్యూ కంటే తక్కువగా ఉంటే ట్రాన్సాక్షన్స్ అప్‌డేట్ చేయకూడదు
-            #if bank_closing_balance < monthly_wages:
-               # updated_count += 1
-               # continue  # ట్రాన్సాక్షన్ షీట్ ప్రాసెస్‌ను స్కిప్ చేసి తర్వాతి రో కి వెళ్తుంది
-
-            # 2. Transactions Sheet లెక్కలు (బ్యాలెన్స్ డ్యూ కంటే ఎక్కువ లేదా సమానంగా ఉంటేనే ఇక్కడికి వస్తుంది)
             due_amount = monthly_wages
             previous_arrears = 0.0
             actual_paid = bank_closing_balance
@@ -741,7 +698,6 @@ def bulk_upload():
 
             updated_count += 1
 
-        # బ్యాచ్ అప్‌డేట్స్ అమలు చేయడం
         if master_cell_updates:
             target_sheet.update_cells(master_cell_updates)
         
@@ -757,20 +713,18 @@ def bulk_upload():
         print(f"Bulk Upload Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"})
         
-# చిన్న హెల్పర్ ఫంక్షన్ (ఫ్లోట్ మ్యాపింగ్ కోసం)
 def rescue_float(val):
     try:
         return float(val)
     except (ValueError, TypeError):
         return 0.0
 
-# 5. లాగౌట్ API
+# 5. లాగౌట్ API (ఫంక్షన్ పేరు సరిచేయబడింది: bank_logout బదులుగా api_logout)
 @app.route("/api/logout", methods=["POST"])
-def bank_logout():
+def api_logout():
     session.pop("bank_user", None)
     return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
-
