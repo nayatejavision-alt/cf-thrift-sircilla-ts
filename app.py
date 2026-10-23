@@ -20,7 +20,7 @@ from rd_home import rd_bp
 
 app = Flask(__name__)
 app.secret_key = "thrift_scheme_secret_key"
-app.permanent_session_lifetime = timedelta(days=7) # ఉదాహరణకు 7 రోజుల పాటు లాగిన్ పోదు! 
+app.permanent_session_lifetime = timedelta(days=7) 
 CORS(app)
 
 SPREADSHEET_NAME = "NOT_BANK_SENT_FORM"
@@ -31,8 +31,6 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(cf_bp)
 app.register_blueprint(mismatch_bp)
 app.register_blueprint(rd_bp)
-
-# Google Sheets API Connection Setup Function
 
 def get_sheets_client():
     scopes = [
@@ -52,7 +50,6 @@ def get_sheets_client():
         else:
             credentials, _ = google.auth.default(scopes=scopes)
             
-    # టోకెన్ చెల్లుబాటు పర్యవేక్షణ
     request_session = google.auth.transport.requests.Request()
     if not credentials.valid:
         credentials.refresh(request_session)
@@ -60,7 +57,6 @@ def get_sheets_client():
     client = gspread.authorize(credentials)
     return client
 
-# 1. హోమ్ పేజీ రౌట్ (బ్యాంక్ లిస్ట్‌ను డ్రాప్‌డౌన్ కోసం పంపుతుంది)
 @app.route("/")
 def home():
     bank_list = []
@@ -68,7 +64,6 @@ def home():
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # BANK_LOGINS ట్యాబ్ నుండి బ్యాంకుల వివరాలు తీసుకోవడం
         login_sheet = spreadsheet.worksheet("BANK_LOGINS")
         logins = login_sheet.get_all_records()
         
@@ -83,20 +78,16 @@ def home():
                 if cleaned_name and cleaned_name not in bank_list:
                     bank_list.append(cleaned_name)
 
-        print("--- డ్రాప్‌డౌన్ కోసం విజయవంతంగా లోడ్ అయిన బ్యాంకులు ---")
-        print(bank_list)
-
     except Exception as e:
         print("Error fetching bank list:", e)
         bank_list = []
 
     return render_template("index.html", banks=bank_list)
 
-# 2. ఆధార్ శోధన API రౌట్ (సవరించబడింది - data వేరియబుల్ జోడించబడింది)
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
     try:
-        data = request.get_json()  # <--- ఇక్కడ డేటా రీడ్ చేయడం జోడించబడింది
+        data = request.get_json()  
         if not data:
             return jsonify({'success': False, 'message': 'సరైన డేటా అందలేదు.'}), 400
             
@@ -137,10 +128,8 @@ def search_beneficiary():
             return jsonify({'success': False, 'message': 'సదరు సంఖ్యతో ఎలాంటి వివరాలు లభించలేదు.'})
 
     except Exception as e:
-        print(f"Error details: {repr(e)}")
         return jsonify({'success': False, 'message': f'సర్వర్ లోపం సంభవించింది: {str(e)}'}), 500
 
-# 3. బ్యాంక్ లాగిన్ API
 @app.route("/api/login", methods=["POST"])
 def bank_login():
     try:
@@ -158,6 +147,7 @@ def bank_login():
             sheet_bank = str(row.get("Bank Name") or row.get("BANK NAME") or "").strip()
             sheet_pin = str(row.get("PIN") or row.get("Pin") or "").strip()
 
+            # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
             if sheet_bank.lower() == bank_name.lower() and sheet_pin == pin:
                 authenticated = True
                 break
@@ -172,13 +162,17 @@ def bank_login():
     except Exception as e:
         return jsonify({"status": "error", "message": f"లాగిన్ లోపం: {str(e)}"})
 
-# 4. లాగిన్ అయిన బ్యాంకు డేటాను తీసుకునే API
+# 4. లాగిన్ అయిన బ్యాంకు డేటాను తీసుకునే API (డైనమిక్ మంత్ & బ్యాచ్ సపోర్ట్)
 @app.route("/api/bank-data", methods=["GET"])
 def get_bank_data():
     try:
         bank_user = session.get("bank_user")
         if not bank_user:
             return jsonify({"status": "error", "message": "దయచేసి ముందుగా లాగిన్ అవ్వండి!"})
+
+        # డైనమిక్ మంత్ మరియు బ్యాచ్ నంబర్లను రిక్వెస్ట్ లేదా సెషన్ నుండి తీసుకోవడం (డిఫాల్ట్ 1)
+        current_month = str(request.args.get("month", session.get("current_month", "1"))).strip()
+        batch_number = str(request.args.get("batch", session.get("batch_number", "1"))).strip()
 
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
@@ -192,8 +186,6 @@ def get_bank_data():
         except Exception:
             trans_records = []
 
-        current_month = 1
-        BATCH_NUMBER = 1
         bank_user_clean = bank_user.strip().lower()
 
         balance_map = {}
@@ -201,11 +193,12 @@ def get_bank_data():
         
         for t in trans_records:
             t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
-            t_month = str(t.get("month_number") or t.get("MONTH") or t.get("MONTH_NUMBER") or "").strip()
+            t_month = str(t.get("MONTH_NUMBER") or t.get("month_number") or t.get("MONTH") or "").strip()
             t_batch = str(t.get("BATCH_NUMBER") or t.get("BATCH") or t.get("batch_number") or "").strip()
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
             
-            if t_month == str(current_month) and t_batch == str(BATCH_NUMBER) and (bank_user_clean in t_filename or t_filename in bank_user_clean):
+            # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
+            if t_month == current_month and t_batch == batch_number and t_filename == bank_user_clean:
                 bal_val = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
                 if t_sno:
                     balance_map[t_sno] = bal_val
@@ -215,14 +208,15 @@ def get_bank_data():
             except ValueError:
                 govt_share = 0
 
-            if t_month == str(current_month) and t_batch == str(BATCH_NUMBER) and govt_share > 0 and (bank_user_clean in t_filename or t_filename in bank_user_clean):
+            if t_month == current_month and t_batch == batch_number and govt_share > 0 and t_filename == bank_user_clean:
                 completed_transactions.add(t_sno)
 
         filtered_data = []
         for row in master_records:
-            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
+            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip().lower()
             
-            if bank_user_clean in file_name.lower():
+            # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
+            if file_name == bank_user_clean:
                 bank_sno = str(row.get("BANK_SNO") or "").strip()
                 
                 if bank_sno in balance_map:
@@ -232,10 +226,15 @@ def get_bank_data():
                 row['is_completed'] = is_completed
                 filtered_data.append(row)
 
-        return jsonify({"status": "success", "bank": bank_user, "data": filtered_data})
+        return jsonify({
+            "status": "success", 
+            "bank": bank_user, 
+            "month": current_month, 
+            "batch": batch_number, 
+            "data": filtered_data
+        })
 
     except Exception as e:
-        print(f"Get Bank Data Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
         
 @app.route("/api/download-csv", methods=["GET"])
@@ -249,11 +248,10 @@ def download_csv():
     target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
     records = target_sheet.get_all_records()
 
+    bank_user_clean = bank_user.strip().lower()
     filtered_data = [
-        row
-        for row in records
-        if bank_user.lower()
-        in str(row.get("FILE NAME") or row.get("File Name") or "").lower()
+        row for row in records
+        if str(row.get("FILE NAME") or row.get("File Name") or "").strip().lower() == bank_user_clean
     ]
 
     output = []
@@ -280,6 +278,7 @@ def download_csv():
     response.headers["Content-Type"] = "text/csv"
     return response
 
+# 5. అప్‌డేట్ / సేవ్ API - గట్టి వాలిడేషన్ మరియు డూప్లికేషన్ నివారణతో
 @app.route("/api/update-rd-accounts", methods=["POST"])
 def update_rd_accounts():
     try:
@@ -292,6 +291,10 @@ def update_rd_accounts():
         rd1 = str(data.get("rd1", "")).strip()
         rd2 = str(data.get("rd2", "")).strip()
         bank_closing_balance_str = str(data.get("bank_closing_balance", "")).strip()
+        
+        # డైనమిక్ మంత్ మరియు బ్యాచ్ స్వీకరించడం
+        current_month = str(data.get("month", session.get("current_month", "1"))).strip()
+        batch_number = str(data.get("batch", session.get("batch_number", "1"))).strip()
         
         try:
             bank_closing_balance = float(bank_closing_balance_str) if bank_closing_balance_str else 0.0
@@ -308,18 +311,20 @@ def update_rd_accounts():
         beneficiary_name = ""
         beneficiary_acc = ""
         monthly_wages = 0.0
+        bank_user_clean = bank_user.strip().lower()
         
         for idx, row in enumerate(master_records):
             row_bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
-            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
+            file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip().lower()
             
-            if row_bank_sno == bank_sno and bank_user.lower() in file_name.lower():
+            # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
+            if row_bank_sno == bank_sno and file_name == bank_user_clean:
                 master_row_index = idx + 2
                 beneficiary_name = str(row.get("Name Of Benificiary") or row.get("NAME") or "").strip()
                 beneficiary_acc = str(row.get("Bank Account Number") or row.get("ACCOUNT") or "").strip()
                 
                 try:
-                    wages_val = row.get("8% Of Monthly Wages") or row.get("MONTHLY WAGES") or 0
+                    wages_val = row.get("8% Of Monthly Wages") or row.get("MONTHLYWAGES") or 0
                     monthly_wages = float(wages_val)
                 except ValueError:
                     monthly_wages = 0.0
@@ -345,15 +350,16 @@ def update_rd_accounts():
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
         trans_records = trans_sheet.get_all_records()
 
-        current_month = 1
         trans_row_index = None
         
+        # గట్టి వాలిడేషన్ చెక్: ఒకే BANK_SNO, MONTH_NUMBER మరియు BATCH_NUMBER కింద ఉన్న ఎంట్రీని వెతకడం
         for idx, row in enumerate(trans_records):
             t_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             t_month = str(row.get("MONTH_NUMBER") or row.get("month_number") or "").strip()
+            t_batch = str(row.get("BATCH_NUMBER") or row.get("batch_number") or "").strip()
             t_filename = str(row.get("FILE NAME") or row.get("File Name") or "").strip().lower()
             
-            if t_sno == bank_sno and t_month == str(current_month) and bank_user.lower() in t_filename:
+            if t_sno == bank_sno and t_month == current_month and t_batch == batch_number and t_filename == bank_user_clean:
                 trans_row_index = idx + 2
                 try:
                     existing_due = float(row.get("(C) ఈ నెల డ్యూ(Due)") or 0)
@@ -383,8 +389,11 @@ def update_rd_accounts():
         remaining_f_name = "(F) మిగిలిన బాకీ(Remaining Arrears)"
         govt_closing_h_name = "Govt RD Closing Bal (H)"
         govt_status_i_name = "Govt RD Status (I)"
+        month_num_name = "MONTH_NUMBER"
+        batch_num_name = "BATCH_NUMBER"
 
         if trans_row_index:
+            # డూప్లికేషన్ నివారణకు కొత్త రో సృష్టించకుండా ఉన్న రో ని కచ్చితంగా అప్‌డేట్ చేయడం
             updates = [
                 (rd1_col_name, rd1),
                 (balance_col_name, bank_closing_balance_str),
@@ -400,6 +409,7 @@ def update_rd_accounts():
                 if col_name in col_map:
                     trans_sheet.update_cell(trans_row_index, col_map[col_name], val)
         else:
+            # ఒకవేళ ఎంట్రీ లేకపోతే మాత్రమే కొత్త రో అపెండ్ అవుతుంది
             row_data_dict = {h.strip(): "" for h in trans_headers}
             
             for h in trans_headers:
@@ -408,6 +418,8 @@ def update_rd_accounts():
                 
                 if h_clean in ["MONTH_NUMBER", "month_number"]:
                     row_data_dict[h_clean] = current_month
+                elif h_clean in ["BATCH_NUMBER", "batch_number"]:
+                    row_data_dict[h_clean] = batch_number
                 elif h_clean in ["BANK_SNO", "Bank SNO"]:
                     row_data_dict[h_clean] = bank_sno
                 elif "NAME OF BENIFICIARY" in h_upper or h_clean == "Name Of Benificiary":
@@ -438,37 +450,10 @@ def update_rd_accounts():
             new_row_data = [row_data_dict.get(h.strip(), "") for h in trans_headers]
             trans_sheet.append_row(new_row_data)
 
-        return jsonify({"status": "success", "message": "డేటా మరియు ఫార్ములా లెక్కలు విజయవంతంగా అప్‌డేట్ చేయబడ్డాయి!"})
+        return jsonify({"status": "success", "message": "డేటా మరియు లెక్కలు విజయవంతంగా అప్‌డేట్ చేయబడ్డాయి!"})
 
     except Exception as e:
-        print(f"Update Error Exception: {repr(e)}")
         return jsonify({"status": "error", "message": f"లోపం సంభవించింది: {str(e)}"})
-
-@app.route("/api/upload-file", methods=["POST"])
-def upload_file():
-    bank_user = session.get("bank_user")
-    if not bank_user:
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
-
-    if "file" not in request.files:
-        return jsonify({"status": "error", "message": "ఫైల్ ఏదీ ఎంచుకోలేదు."})
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"status": "error", "message": "ఫైల్ పేరు ఖాళీగా ఉంది."})
-
-    if file:
-        filename = secure_filename(file.filename)
-        safe_bank_name = bank_user.replace(" ", "_")
-        final_filename = f"{safe_bank_name}_{filename}"
-        file.save(os.path.join(UPLOAD_FOLDER, final_filename))
-
-        return jsonify(
-            {
-                "status": "success",
-                "message": "ఫైల్ విజయవంతంగా అప్‌లోడ్ చేయబడింది!",
-            }
-        )
 
 @app.route("/api/download-excel", methods=["GET"])
 def download_excel():
@@ -477,6 +462,9 @@ def download_excel():
         return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
 
     try:
+        current_month = str(request.args.get("month", session.get("current_month", "1"))).strip()
+        batch_number = str(request.args.get("batch", session.get("batch_number", "1"))).strip()
+
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
@@ -484,13 +472,14 @@ def download_excel():
         master_records = target_sheet.get_all_records()
         df_master = pd.DataFrame(master_records)
         
-        df_master = df_master[df_master['FILE NAME'].astype(str).str.strip().str.lower() == bank_user.strip().lower()].copy()
+        bank_user_clean = bank_user.strip().lower()
+        df_master = df_master[df_master['FILE NAME'].astype(str).str.strip().str.lower() == bank_user_clean].copy()
 
         try:
             trans_sheet = spreadsheet.worksheet("Transactions_Year1")
             trans_records = trans_sheet.get_all_records()
             df_trans = pd.DataFrame(trans_records)
-            df_trans = df_trans[df_trans['FILE NAME'].astype(str).str.strip().str.lower() == bank_user.strip().lower()].copy()
+            df_trans = df_trans[df_trans['FILE NAME'].astype(str).str.strip().str.lower() == bank_user_clean].copy()
         except Exception:
             df_trans = pd.DataFrame()
 
@@ -502,7 +491,7 @@ def download_excel():
                 t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "").strip()
                 t_balance = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
                 
-                if t_month == "1" and t_batch == "1" and t_sno:
+                if t_month == current_month and t_batch == batch_number and t_sno:
                     balance_map[t_sno] = t_balance
 
         filtered_data = []
@@ -523,7 +512,7 @@ def download_excel():
             })
 
         if not filtered_data:
-            return jsonify({"status": "error", "message": "డెటా ఏదీ అందుబాటులో లేదు."})
+            return jsonify({"status": "error", "message": "డేటా ఏదీ అందుబాటులో లేదు."})
 
         df = pd.DataFrame(filtered_data)
         output = io.BytesIO()
@@ -535,12 +524,12 @@ def download_excel():
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=f"{bank_user.replace(' ', '_')}_Thrift_Data.xlsx"
+            download_name=f"{bank_user.replace(' ', '_')}_Month_{current_month}_Batch_{batch_number}_Data.xlsx"
         )
     except Exception as e:
-        print(f"Excel Download Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
-        
+
+# 6. బల్క్ అప్‌లోడ్ API - డూప్లికేషన్ నివారణ మరియు కచ్చితమైన మ్యాచింగ్‌తో
 @app.route("/api/bulk-upload", methods=["POST"])
 def bulk_upload():
     try:
@@ -557,6 +546,9 @@ def bulk_upload():
 
         df = pd.read_excel(file)
         
+        current_month = str(request.form.get("month", session.get("current_month", "1"))).strip()
+        batch_number = str(request.form.get("batch", session.get("batch_number", "1"))).strip()
+
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
@@ -570,8 +562,8 @@ def bulk_upload():
         trans_headers = trans_sheet.row_values(1)
         trans_col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
-        current_month = 1
         updated_count = 0
+        bank_user_clean = bank_user.strip().lower()
 
         master_cell_updates = []
         trans_cell_updates = []
@@ -580,8 +572,10 @@ def bulk_upload():
         master_row_dict = {}
         for idx, m_row in enumerate(master_records):
             m_sno = str(m_row.get("BANK_SNO") or "").strip()
-            m_file = str(m_row.get("FILE NAME") or m_row.get("File Name") or "").strip()
-            if m_sno and bank_user.lower() in m_file.lower():
+            m_file = str(m_row.get("FILE NAME") or m_row.get("File Name") or "").strip().lower()
+            
+            # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
+            if m_sno and m_file == bank_user_clean:
                 try:
                     wages_val = float(m_row.get("8% Of Monthly Wages") or m_row.get("MONTHLY WAGES") or 0)
                 except (ValueError, TypeError):
@@ -598,8 +592,11 @@ def bulk_upload():
         for idx, t_row in enumerate(trans_records):
             t_sno = str(t_row.get("BANK_SNO") or t_row.get("Bank SNO") or "").strip()
             t_month = str(t_row.get("MONTH_NUMBER") or t_row.get("month_number") or "").strip()
+            t_batch = str(t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or "").strip()
             t_filename = str(t_row.get("FILE NAME") or t_row.get("File Name") or "").strip().lower()
-            if t_sno and t_month == str(current_month) and bank_user.lower() in t_filename:
+            
+            # డూప్లికేషన్ నివారణకు సరిగ్గా ఒకే మంత్, బ్యాచ్, బ్యాంక్ మరియు SNO ఉంటే ట్రాక్ చేయడం
+            if t_sno and t_month == current_month and t_batch == batch_number and t_filename == bank_user_clean:
                 trans_row_dict[t_sno] = idx + 2
 
         rd1_col = master_col_map.get("RD 1") or master_col_map.get("RD_1")
@@ -669,6 +666,8 @@ def bulk_upload():
                     h_clean = h.strip()
                     if h_clean in ["MONTH_NUMBER", "month_number"]:
                         row_data_dict[h_clean] = current_month
+                    elif h_clean in ["BATCH_NUMBER", "batch_number"]:
+                        row_data_dict[h_clean] = batch_number
                     elif h_clean in ["BANK_SNO", "Bank SNO"]:
                         row_data_dict[h_clean] = bank_sno
                     elif h_clean == "Name Of Benificiary":
@@ -710,19 +709,13 @@ def bulk_upload():
         return jsonify({"status": "success", "message": f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు ప్రాసెస్ చేయబడ్డాయి! 🎉"})
 
     except Exception as e:
-        print(f"Bulk Upload Error: {repr(e)}")
         return jsonify({"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"})
         
-def rescue_float(val):
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
-
-# 5. లాగౌట్ API (ఫంక్షన్ పేరు సరిచేయబడింది: bank_logout బదులుగా api_logout)
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
     session.pop("bank_user", None)
+    session.pop("current_month", None)
+    session.pop("batch_number", None)
     return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
 
 if __name__ == '__main__':
