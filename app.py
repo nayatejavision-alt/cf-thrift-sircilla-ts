@@ -520,7 +520,6 @@ def download_excel():
             for _, t in df_trans.iterrows():
                 t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
                 t_month = str(t.get("MONTH_NUMBER") or t.get("month_number") or "").strip()
-                # ఇక్కడ డిఫాల్ట్ "1" తీసివేసి నిజమైన విలువ ఉందో లేదో సరిచూస్తున్నాం
                 t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "").strip()
                 
                 if t_month == current_month:
@@ -534,24 +533,37 @@ def download_excel():
                 sno_to_batch[t_sno] = t_batch
                 sno_to_balance[t_sno] = t_balance
 
+        # 16 డిజిట్ల నంబర్లు Text ఫార్మాట్‌గా Excel లో కనిపించడానికి Single Quote జత చేసే ఫంక్షన్
+        def format_as_excel_text(val):
+            if val is None:
+                return ""
+            val_str = str(val).strip().strip("'") # పాత Quotes ని తొలగించడం
+            if val_str:
+                return f"'{val_str}" # ముందర మాత్రమే Single Quote జతచేయడం
+            return ""
+
         for idx, (_, row) in enumerate(df_master.iterrows()):
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             
-            # బ్యాచ్ విలువ ఉంటే అది వస్తుంది, ఖాళీగా ఉంటే "Unassigned" అని వస్తుంది
             raw_batch = sno_to_batch.get(bank_sno, "")
             assigned_batch = raw_batch if raw_batch != "" else "Unassigned"
             
             closing_balance = sno_to_balance.get(bank_sno, row.get("Bank Closing Balance", ""))
+
+            # బ్యాంక్ ఖాతా సంఖ్యలు & RD ఖాతా సంఖ్యలకు Single Quote జత చేయబడింది
+            acc_num = format_as_excel_text(row.get("Bank Account Number") or row.get("ACCOUNT"))
+            rd_1 = format_as_excel_text(row.get("RD 1") or row.get("RD_1"))
+            rd_2 = format_as_excel_text(row.get("RD 2") or row.get("RD_2"))
 
             record_item = {
                 "BANK_SNO": bank_sno or idx + 1,
                 "MONTH_NUMBER": current_month,
                 "BATCH_NUMBER": assigned_batch,
                 "Name Of Benificiary": row.get("Name Of Benificiary") or row.get("NAME") or "",
-                "Bank Account Number": row.get("Bank Account Number") or row.get("ACCOUNT") or "",
-                "RD ACCOUNT_1": row.get("RD 1") or row.get("RD_1") or "",
-                "RD ACCOUNT_2": row.get("RD 2") or row.get("RD_2") or "",
+                "Bank Account Number": acc_num,
+                "RD ACCOUNT_1": rd_1,
+                "RD ACCOUNT_2": rd_2,
                 "Bank Closing Balance": closing_balance,
                 "FILE NAME": file_name
             }
@@ -590,7 +602,8 @@ def download_excel():
             download_name=filename
         )
     except Exception as e:
-        return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})        
+        return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
+
 
 # 6. బల్క్ అప్‌లోడ్ API - డూప్లికేషన్ నివారణ మరియు కచ్చితమైన మ్యాచింగ్‌తో
 @app.route("/api/bulk-upload", methods=["POST"])
