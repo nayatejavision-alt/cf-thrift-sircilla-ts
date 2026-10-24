@@ -508,7 +508,8 @@ def download_excel():
             trans_sheet = spreadsheet.worksheet("Transactions_Year1")
             trans_records = trans_sheet.get_all_records()
             df_trans = pd.DataFrame(trans_records)
-            df_trans = df_trans[df_trans['FILE NAME'].astype(str).str.strip().str.lower() == bank_user_clean].copy()
+            if not df_trans.empty:
+                df_trans = df_trans[df_trans['FILE NAME'].astype(str).str.strip().str.lower() == bank_user_clean].copy()
         except Exception:
             df_trans = pd.DataFrame()
 
@@ -530,8 +531,11 @@ def download_excel():
             
             closing_balance = balance_map.get(bank_sno, row.get("Bank Closing Balance", ""))
 
+            # Month & Batch వివరాలు హెడర్స్ లో సేకరించడం
             filtered_data.append({
                 "BANK_SNO": bank_sno or idx + 1,
+                "MONTH_NUMBER": current_month,
+                "BATCH_NUMBER": batch_number,
                 "Name Of Benificiary": row.get("Name Of Benificiary") or row.get("NAME") or "",
                 "Bank Account Number": row.get("Bank Account Number") or row.get("ACCOUNT") or "",
                 "RD ACCOUNT_1": row.get("RD 1") or row.get("RD_1") or "",
@@ -546,17 +550,20 @@ def download_excel():
         df = pd.DataFrame(filtered_data)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Pending_Entries')
+            df.to_excel(writer, index=False, sheet_name=f'Month_{current_month}_Batch_{batch_number}')
         output.seek(0)
+
+        filename = f"{bank_user.replace(' ', '_')}_Month_{current_month}_Batch_{batch_number}_Data.xlsx"
 
         return send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=f"{bank_user.replace(' ', '_')}_Month_{current_month}_Batch_{batch_number}_Data.xlsx"
+            download_name=filename
         )
     except Exception as e:
         return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
+
 
 # 6. బల్క్ అప్‌లోడ్ API - డూప్లికేషన్ నివారణ మరియు కచ్చితమైన మ్యాచింగ్‌తో
 @app.route("/api/bulk-upload", methods=["POST"])
