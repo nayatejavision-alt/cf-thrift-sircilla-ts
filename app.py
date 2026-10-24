@@ -512,7 +512,6 @@ def download_excel():
         except Exception:
             df_trans = pd.DataFrame()
 
-        # ఆ నెలకి సంబంధించిన అన్ని ట్రాన్సాక్షన్స్ నుండి బ్యాచ్ డేటా మరియు బ్యాలెన్స్ మ్యాప్ తయారు చేయడం
         month_trans_records = []
         batch_wise_data = {}  # బ్యాచ్‌ల వారీగా డేటా నిల్వ చేయడానికి
         all_month_data = []   # చివరి షీట్ కోసం మొత్తం డేటా
@@ -521,13 +520,12 @@ def download_excel():
             for _, t in df_trans.iterrows():
                 t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
                 t_month = str(t.get("MONTH_NUMBER") or t.get("month_number") or "").strip()
-                t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "1").strip()
+                # ఇక్కడ డిఫాల్ట్ "1" తీసివేసి నిజమైన విలువ ఉందో లేదో సరిచూస్తున్నాం
+                t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "").strip()
                 
                 if t_month == current_month:
                     month_trans_records.append((t_sno, t_batch, t))
 
-        # మాస్టర్ డేటాలోని ప్రతీ లబ్ధిదారునికి తగిన బ్యాలెన్స్ మరియు బ్యాచ్ వివరాలను మ్యాప్ చేయడం
-        # ముందుగా ట్రాన్సాక్షన్స్ ఆధారంగా లబ్ధిదారుడు ఏ బ్యాచ్‌లో ఉన్నారో గుర్తిస్తాం
         sno_to_batch = {}
         sno_to_balance = {}
         for t_sno, t_batch, t in month_trans_records:
@@ -536,14 +534,14 @@ def download_excel():
                 sno_to_batch[t_sno] = t_batch
                 sno_to_balance[t_sno] = t_balance
 
-        # మాస్టర్ రికార్డులను ప్రాసెస్ చేయడం
-        processed_records = []
         for idx, (_, row) in enumerate(df_master.iterrows()):
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             
-            # ఒకవేళ ట్రాన్సాక్షన్ షీట్‌లో బ్యాచ్ ఉంటే అది తీసుకుంటాం, లేదంటే డిఫాల్ట్ గా '1'
-            assigned_batch = sno_to_batch.get(bank_sno, "1")
+            # బ్యాచ్ విలువ ఉంటే అది వస్తుంది, ఖాళీగా ఉంటే "Unassigned" అని వస్తుంది
+            raw_batch = sno_to_batch.get(bank_sno, "")
+            assigned_batch = raw_batch if raw_batch != "" else "Unassigned"
+            
             closing_balance = sno_to_balance.get(bank_sno, row.get("Bank Closing Balance", ""))
 
             record_item = {
@@ -560,7 +558,6 @@ def download_excel():
 
             all_month_data.append(record_item)
 
-            # బ్యాచ్‌ల వారీగా విభజించడం
             if assigned_batch not in batch_wise_data:
                 batch_wise_data[assigned_batch] = []
             batch_wise_data[assigned_batch].append(record_item)
@@ -568,17 +565,18 @@ def download_excel():
         if not all_month_data:
             return jsonify({"status": "error", "message": "డేటా ఏదీ అందుబాటులో లేదు."})
 
-        # ఎక్సెల్ ఫైల్‌ను మెమరీలో క్రియేట్ చేసి బహుళ షీట్లు జోడించడం
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             
-            # 1. ప్రతీ బ్యాచ్‌కు ఒక ప్రత్యేకమైన షీట్ సృష్టించడం
-            for batch_num in sorted(batch_wise_data.keys()):
-                df_batch = pd.DataFrame(batch_wise_data[batch_num])
-                sheet_name = f"Batch_{batch_num}"
+            # బ్యాచ్ సంఖ్యలు కలిగిన వర్గాలను మరియు Unassigned వర్గాన్ని వరుసగా షీట్లుగా రాయడం
+            sorted_batches = sorted(batch_wise_data.keys(), key=lambda x: (x == "Unassigned", x))
+            
+            for batch_key in sorted_batches:
+                df_batch = pd.DataFrame(batch_wise_data[batch_key])
+                sheet_name = f"Batch_{batch_key}" if batch_key != "Unassigned" else "Unassigned_Batch"
                 df_batch.to_excel(writer, index=False, sheet_name=sheet_name)
 
-            # 2. ఆఖరి షీట్‌లో ఆ నెలకి సంబంధించిన మొత్తం (All Data) లబ్ధిదారుల జాబితాను ఉంచడం
+            # ఆఖరి షీట్‌లో ఆ నెలకి సంబంధించిన మొత్తం (All Data) లబ్ధిదారుల జాబితా
             df_all = pd.DataFrame(all_month_data)
             df_all.to_excel(writer, index=False, sheet_name="All_Data")
 
@@ -592,8 +590,7 @@ def download_excel():
             download_name=filename
         )
     except Exception as e:
-        return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
-        
+        return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})        
 
 # 6. బల్క్ అప్‌లోడ్ API - డూప్లికేషన్ నివారణ మరియు కచ్చితమైన మ్యాచింగ్‌తో
 @app.route("/api/bulk-upload", methods=["POST"])
