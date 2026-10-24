@@ -492,7 +492,6 @@ def download_excel():
 
     try:
         current_month = str(request.args.get("month", session.get("current_month", "1"))).strip()
-        batch_number = str(request.args.get("batch", session.get("batch_number", "1"))).strip()
 
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
@@ -513,47 +512,78 @@ def download_excel():
         except Exception:
             df_trans = pd.DataFrame()
 
-        balance_map = {}
+        # ఆ నెలకి సంబంధించిన అన్ని ట్రాన్సాక్షన్స్ నుండి బ్యాచ్ డేటా మరియు బ్యాలెన్స్ మ్యాప్ తయారు చేయడం
+        month_trans_records = []
+        batch_wise_data = {}  # బ్యాచ్‌ల వారీగా డేటా నిల్వ చేయడానికి
+        all_month_data = []   # చివరి షీట్ కోసం మొత్తం డేటా
+
         if not df_trans.empty:
             for _, t in df_trans.iterrows():
                 t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
                 t_month = str(t.get("MONTH_NUMBER") or t.get("month_number") or "").strip()
-                t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "").strip()
-                t_balance = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
+                t_batch = str(t.get("BATCH_NUMBER") or t.get("batch_number") or "1").strip()
                 
-                if t_month == current_month and t_batch == batch_number and t_sno:
-                    balance_map[t_sno] = t_balance
+                if t_month == current_month:
+                    month_trans_records.append((t_sno, t_batch, t))
 
-        filtered_data = []
+        # మాస్టర్ డేటాలోని ప్రతీ లబ్ధిదారునికి తగిన బ్యాలెన్స్ మరియు బ్యాచ్ వివరాలను మ్యాప్ చేయడం
+        # ముందుగా ట్రాన్సాక్షన్స్ ఆధారంగా లబ్ధిదారుడు ఏ బ్యాచ్‌లో ఉన్నారో గుర్తిస్తాం
+        sno_to_batch = {}
+        sno_to_balance = {}
+        for t_sno, t_batch, t in month_trans_records:
+            t_balance = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
+            if t_sno:
+                sno_to_batch[t_sno] = t_batch
+                sno_to_balance[t_sno] = t_balance
+
+        # మాస్టర్ రికార్డులను ప్రాసెస్ చేయడం
+        processed_records = []
         for idx, (_, row) in enumerate(df_master.iterrows()):
             file_name = str(row.get("FILE NAME") or row.get("File Name") or "").strip()
             bank_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
             
-            closing_balance = balance_map.get(bank_sno, row.get("Bank Closing Balance", ""))
+            # ఒకవేళ ట్రాన్సాక్షన్ షీట్‌లో బ్యాచ్ ఉంటే అది తీసుకుంటాం, లేదంటే డిఫాల్ట్ గా '1'
+            assigned_batch = sno_to_batch.get(bank_sno, "1")
+            closing_balance = sno_to_balance.get(bank_sno, row.get("Bank Closing Balance", ""))
 
-            # Month & Batch వివరాలు హెడర్స్ లో సేకరించడం
-            filtered_data.append({
+            record_item = {
                 "BANK_SNO": bank_sno or idx + 1,
                 "MONTH_NUMBER": current_month,
-                "BATCH_NUMBER": batch_number,
+                "BATCH_NUMBER": assigned_batch,
                 "Name Of Benificiary": row.get("Name Of Benificiary") or row.get("NAME") or "",
                 "Bank Account Number": row.get("Bank Account Number") or row.get("ACCOUNT") or "",
                 "RD ACCOUNT_1": row.get("RD 1") or row.get("RD_1") or "",
                 "RD ACCOUNT_2": row.get("RD 2") or row.get("RD_2") or "",
                 "Bank Closing Balance": closing_balance,
                 "FILE NAME": file_name
-            })
+            }
 
-        if not filtered_data:
+            all_month_data.append(record_item)
+
+            # బ్యాచ్‌ల వారీగా విభజించడం
+            if assigned_batch not in batch_wise_data:
+                batch_wise_data[assigned_batch] = []
+            batch_wise_data[assigned_batch].append(record_item)
+
+        if not all_month_data:
             return jsonify({"status": "error", "message": "డేటా ఏదీ అందుబాటులో లేదు."})
 
-        df = pd.DataFrame(filtered_data)
+        # ఎక్సెల్ ఫైల్‌ను మెమరీలో క్రియేట్ చేసి బహుళ షీట్లు జోడించడం
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name=f'Month_{current_month}_Batch_{batch_number}')
-        output.seek(0)
+            
+            # 1. ప్రతీ బ్యాచ్‌కు ఒక ప్రత్యేకమైన షీట్ సృష్టించడం
+            for batch_num in sorted(batch_wise_data.keys()):
+                df_batch = pd.DataFrame(batch_wise_data[batch_num])
+                sheet_name = f"Batch_{batch_num}"
+                df_batch.to_excel(writer, index=False, sheet_name=sheet_name)
 
-        filename = f"{bank_user.replace(' ', '_')}_Month_{current_month}_Batch_{batch_number}_Data.xlsx"
+            # 2. ఆఖరి షీట్‌లో ఆ నెలకి సంబంధించిన మొత్తం (All Data) లబ్ధిదారుల జాబితాను ఉంచడం
+            df_all = pd.DataFrame(all_month_data)
+            df_all.to_excel(writer, index=False, sheet_name="All_Data")
+
+        output.seek(0)
+        filename = f"{bank_user.replace(' ', '_')}_Month_{current_month}_All_Batches.xlsx"
 
         return send_file(
             output,
@@ -563,7 +593,7 @@ def download_excel():
         )
     except Exception as e:
         return jsonify({"status": "error", "message": f"డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}"})
-
+        
 
 # 6. బల్క్ అప్‌లోడ్ API - డూప్లికేషన్ నివారణ మరియు కచ్చితమైన మ్యాచింగ్‌తో
 @app.route("/api/bulk-upload", methods=["POST"])
