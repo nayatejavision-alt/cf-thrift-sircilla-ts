@@ -190,6 +190,8 @@ def get_bank_data():
 
         balance_map = {}
         completed_transactions = set()
+        # అదే నెలలో వేరే బ్యాచ్‌లలో ఇప్పటికే కవర్ అయిన లబ్ధిదారులను గుర్తించడానికి
+        already_covered_in_this_month = set()
         
         for t in trans_records:
             t_sno = str(t.get("BANK_SNO") or t.get("Bank SNO") or "").strip()
@@ -198,18 +200,25 @@ def get_bank_data():
             t_filename = str(t.get("FILE NAME") or t.get("File Name") or "").strip().lower()
             
             # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
-            if t_month == current_month and t_batch == batch_number and t_filename == bank_user_clean:
+            if t_month == current_month and t_filename == bank_user_clean:
                 bal_val = t.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)") or t.get("Bank Closing Balance") or ""
                 if t_sno:
                     balance_map[t_sno] = bal_val
 
-            try:
-                govt_share = float(t.get("Govt_Share") or t.get("GOVT_SHARE") or 0)
-            except ValueError:
-                govt_share = 0
+                try:
+                    govt_share_val = float(t.get("Govt_Share") or t.get("GOVT_SHARE") or 0)
+                except ValueError:
+                    govt_share_val = 0
 
-            if t_month == current_month and t_batch == batch_number and govt_share > 0 and t_filename == bank_user_clean:
-                completed_transactions.add(t_sno)
+                # ఒకవేళ వేరే బ్యాచ్‌లో కవర్ అయిపోయి ఉంటే
+                if t_batch != batch_number and govt_share_val > 0:
+                    if t_sno:
+                        already_covered_in_this_month.add(t_sno)
+                
+                # ప్రస్తుత బ్యాచ్‌లో పూర్తయినవి
+                if t_batch == batch_number and govt_share_val > 0:
+                    if t_sno:
+                        completed_transactions.add(t_sno)
 
         filtered_data = []
         for row in master_records:
@@ -218,6 +227,10 @@ def get_bank_data():
             # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
             if file_name == bank_user_clean:
                 bank_sno = str(row.get("BANK_SNO") or "").strip()
+
+                # ఒకవేళ ఈ లబ్ధిదారుడు అదే నెలలో వేరే బ్యాచ్‌లో ఇప్పటికే కవర్ అయి ఉంటే ఈ బ్యాచ్‌కు చూపించవద్దు
+                if bank_sno in already_covered_in_this_month:
+                    continue
                 
                 if bank_sno in balance_map:
                     row['Bank Closing Balance'] = balance_map[bank_sno]
@@ -236,7 +249,8 @@ def get_bank_data():
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}"})
-        
+
+
 @app.route("/api/download-csv", methods=["GET"])
 def download_csv():
     bank_user = session.get("bank_user")
@@ -577,8 +591,25 @@ def bulk_upload():
         trans_headers = trans_sheet.row_values(1)
         trans_col_map = {h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)}
 
-        updated_count = 0
         bank_user_clean = bank_user.strip().lower()
+
+        # 1. ఈ నెలలో వేరే బ్యాచ్‌లలో ఇప్పటికే కవర్ అయిన SNO లన్నింటినీ ముందుగానే గుర్తించడం
+        already_covered_snos = set()
+        for t_row in trans_records:
+            t_sno = str(t_row.get("BANK_SNO") or t_row.get("Bank SNO") or "").strip()
+            t_month = str(t_row.get("MONTH_NUMBER") or t_row.get("month_number") or "").strip()
+            t_batch = str(t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or "").strip()
+            t_filename = str(t_row.get("FILE NAME") or t_row.get("File Name") or "").strip().lower()
+            
+            if t_month == current_month and t_batch != batch_number and t_filename == bank_user_clean and t_sno:
+                try:
+                    if float(t_row.get("Govt_Share") or t_row.get("GOVT_SHARE") or 0) > 0:
+                        already_covered_snos.add(t_sno)
+                except ValueError:
+                    pass
+
+        updated_count = 0
+        skipped_beneficiaries = []  # స్కిప్ అయిన వారి వివరాలు ట్రాక్ చేయడానికి
 
         master_cell_updates = []
         trans_cell_updates = []
@@ -589,7 +620,6 @@ def bulk_upload():
             m_sno = str(m_row.get("BANK_SNO") or "").strip()
             m_file = str(m_row.get("FILE NAME") or m_row.get("File Name") or "").strip().lower()
             
-            # ఖచ్చితమైన మ్యాచింగ్ (Exact Matching)
             if m_sno and m_file == bank_user_clean:
                 try:
                     wages_val = float(m_row.get("8% Of Monthly Wages") or m_row.get("MONTHLY WAGES") or 0)
@@ -610,13 +640,13 @@ def bulk_upload():
             t_batch = str(t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or "").strip()
             t_filename = str(t_row.get("FILE NAME") or t_row.get("File Name") or "").strip().lower()
             
-            # డూప్లికేషన్ నివారణకు సరిగ్గా ఒకే మంత్, బ్యాచ్, బ్యాంక్ మరియు SNO ఉంటే ట్రాక్ చేయడం
             if t_sno and t_month == current_month and t_batch == batch_number and t_filename == bank_user_clean:
                 trans_row_dict[t_sno] = idx + 2
 
         rd1_col = master_col_map.get("RD 1") or master_col_map.get("RD_1")
         rd2_col = master_col_map.get("RD 2") or master_col_map.get("RD_2")
 
+        # 2. ఎక్సెల్ ఫైల్ రోస్ ని లూప్ చేయడం
         for _, row in df.iterrows():
             bank_sno = str(row.get("BANK_SNO") or "").strip()
             rd1 = str(row.get("RD ACCOUNT_1") or "").strip()
@@ -625,6 +655,11 @@ def bulk_upload():
 
             if not bank_sno or bank_sno not in master_row_dict:
                 continue
+
+            # ఒకవేళ ఈ లబ్ధిదారుడు ఈ నెలలో వేరే బ్యాచ్‌లో కవర్ అయితే - స్కిప్ చేయండి!
+            if bank_sno in already_covered_snos:
+                skipped_beneficiaries.append(bank_sno)
+                continue  
 
             try:
                 bank_closing_balance = float(balance_str) if balance_str else 0.0
@@ -712,20 +747,25 @@ def bulk_upload():
 
             updated_count += 1
 
+        # గూగుల్ షీట్స్‌లో అప్‌డేట్స్ సేవ్ చేయడం
         if master_cell_updates:
             target_sheet.update_cells(master_cell_updates)
-        
         if trans_cell_updates:
             trans_sheet.update_cells(trans_cell_updates)
-            
         if new_trans_rows:
             trans_sheet.append_rows(new_trans_rows)
 
-        return jsonify({"status": "success", "message": f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు ప్రాసెస్ చేయబడ్డాయి! 🎉"})
+        # 3. రెస్పాన్స్ పంపేటప్పుడు స్కిప్ అయిన వివరాలతో సహా మెసేజ్ ఇవ్వడం
+        message = f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు విజయవంతంగా అప్‌డేట్ చేయబడ్డాయి! 🎉"
+        if skipped_beneficiaries:
+            message += f" (గమనిక: SNOs {', '.join(skipped_beneficiaries)} ఈ నెలలో ఇప్పటికే వేరే బ్యాచ్‌లో ఉన్నందున స్కిప్ చేయబడ్డాయి)."
+
+        return jsonify({"status": "success", "message": message})
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"})
-        
+
+
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
     session.pop("bank_user", None)
