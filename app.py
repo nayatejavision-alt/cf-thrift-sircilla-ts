@@ -359,12 +359,22 @@ def generate_draft_api():
         </html>
         """
 
-    
+
+    # మెయిన్ బ్యాంక్ ఈమెయిల్ కాకుండా అదనంగా కలపవలసిన ఈమెయిల్స్
+    cc_emails = [
+        'ldmsircilla@unionbankofindia.bank.in',
+        'ubin0827444@unionbankofindia.bank.in',
+        'rajannahandtex@gmail.com',
+    ]
+
     message = MIMEMultipart()
-    message['To'] = bank_email
+    message['To'] = bank_email  # ప్రధాన బ్యాంకు ఈమెయిల్
+    
+    # ఒకవేళ అందరికీ CC లో వెళ్లాలంటే:
+    message['Cc'] = ', '.join(cc_emails)
+
     message['From'] = SENDER_EMAIL
     message['Subject'] = subject
-
     message.attach(MIMEText(body_html, 'html'))
 
     # అటాచ్‌మెంట్ 'noname' రాకుండా సరిచేసిన కోడ్
