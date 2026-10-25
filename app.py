@@ -284,12 +284,60 @@ def generate_draft_api():
         )
 
     subject = f'Official Letter & Beneficiary Excel List for TSPWTFS & SS RD2 Credit - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}'
+    
+      
+    # అధికారిక సిగ్నేచర్ (Signature) HTML
+    OFFICIAL_SIGNATURE_HTML = """
+        <br><br>
+        <hr style="border: 0; border-top: 1px solid #ccc;">
+        <p style="font-family: Arial, sans-serif; font-size: 13px; color: #333;">
+            <b>ఇట్లు / Regards,</b><br>
+            <b>Office of the Assistant Director</b><br>
+            Handlooms & Textiles, Rajanna Sircilla District.<br>
+            Government of Telangana.<br>
+            📧 Email: cf.thrift.sircillats@gmail.com | 📞 Phone: +91-9700389438
+        </p>
+        """
+
+    pending_notice_html = ""
+    if pending_count > 0:
+        pending_notice_html = f"""
+            <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
+                <p style="margin:0; font-weight: bold;">⚠️ Pending RD-1 / Zero Govt Share Notice:</p>
+                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> belonging to your branch whose RD-1 accounts have not been opened/updated, or have zero Govt Share transactions for this month.
+                Please review the separate <b>Pending Sheet</b> attached or verify and update their RD-1 account opening status at the earliest.</p>
+            </div>
+            """
+
+    # పూర్తి మెయిల్ బాడీ (సిగ్నేచర్‌తో సహా)
     body_html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; line-height: 1.5;">
             <p>Dear <b>{selected_bank} Branch Manager</b>,</p>
-            <p>Please find attached the official letter along with the Beneficiary Excel List for crediting Government share into RD2 Accounts for <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
-            <p><b>Summary:</b> Active: {record_count} | Amount: ₹{total_govt_share:,.2f}</p>
+
+            <p>Please find attached the official letter (<b>Rc.No. 176/2025-RSCL</b>) along with the Beneficiary Excel List for crediting the Government 8% matching share into RD2 Accounts for the month of <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
+
+            <p><b>Summary Details:</b></p>
+            <ul>
+                <li><b>Total Active Beneficiaries (Eligible for Credit):</b> {record_count}</li>
+                <li><b>Total Amount to Credit:</b> ₹{total_govt_share:,.2f}</li>
+                <li><b>Pending / Unopened RD-1 Accounts Count:</b> {pending_count}</li>
+            </ul>
+
+            {pending_notice_html}
+
+            <br>
+            <p>The physical copy of the official letter along with Cheque for <b>₹{total_govt_share:,.2f}</b> is being submitted to your branch separately.</p>
+
+            <p>Kindly process the credits into the respective beneficiary RD2 accounts as per the attached Excel file at the earliest and share the confirmation statement along with reasons for pending accounts.</p>
+
+            <hr style="border: 0; border-top: 1px dashed #bbb; margin: 15px 0;">
+
+            <p>తెలంగాణ నేతన్నకు చేయూత (త్రిఫ్ట్ ఫండ్ పథకం) కు సంబంధించిన లబ్ధిదారుల ప్రభుత్వ చందా (Govt Share) వివరాలు <b>({selected_month_name} {selected_year} Batch {target_batch})</b> ఈ ఇమెయిల్‌కు జతచేసిన ఎక్సెల్ ఫైల్ నందు పొందుపరచబడ్డాయి.</p>
+
+            <p>ఇంకా RD-1 ఖాతాలు ఓపెన్ కాక లేదా లావాదేవీలు లేక నిలిచిపోయిన <b>{pending_count}</b> మంది లబ్ధిదారుల వివరాలను కూడా త్వరితగతిన సరిచేసి RD-1 ఖాతాలు తెరవాల్సిందిగా కోరడమైనది.</p>
+
+            {OFFICIAL_SIGNATURE_HTML}
         </body>
         </html>
         """
@@ -298,17 +346,20 @@ def generate_draft_api():
     message['To'] = bank_email
     message['From'] = SENDER_EMAIL
     message['Subject'] = subject
+
     message.attach(MIMEText(body_html, 'html'))
 
-    with open(local_excel_path, 'rb') as attachment:
-      part = MIMEBase('application', 'octet-stream')
-      part.set_payload(attachment.read())
-    encoders.encode_base64(part)
-    part.add_header(
-        'Content-Disposition',
-        f'filename= {os.path.basename(local_excel_path)}',
-    )
-    message.attach(part)
+    # అటాచ్‌మెంట్ 'noname' రాకుండా సరిచేసిన కోడ్
+    if os.path.exists(local_excel_path):
+        filename = os.path.basename(local_excel_path)
+        with open(local_excel_path, "rb") as attachment:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(attachment.read())
+
+        encoders.encode_base64(part)
+        # ఇక్కడ డబుల్ కోట్స్ కచ్చితంగా ఉండాలి, అప్పుడే 'noname' సమస్య రాదు
+        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+        message.attach(part)
 
     mail = imaplib.IMAP4_SSL('imap.gmail.com')
     mail.login(SENDER_EMAIL, APP_PASSWORD)
@@ -319,7 +370,7 @@ def generate_draft_api():
         message.as_bytes(),
     )
     mail.logout()
-
+      
     return jsonify({
         'status': 'success',
         'message': (
