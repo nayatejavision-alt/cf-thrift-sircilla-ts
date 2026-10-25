@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <title>Thrift Scheme Gmail Draft Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f7f6; padding: 50px; }
+        .container { max-width: 500px; background: white; padding: 30px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); margin: auto; }
+        h2 { color: #333; text-align: center; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+        select, button { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
+        button { background-color: #28a745; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        button:hover { background-color: #218838; }
+        .message { margin-top: 20px; text-align: center; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Thrift Scheme Draft Generator</h2>
+    <form id="draftForm">
+        
+        <!-- Month Dropdown -->
+        <div class="form-group">
+            <label for="month">నెల ఎంచుకోండి (Month):</label>
+            <select name="month" id="month" required>
+                <option value="1">June 2026</option>
+                <option value="2">July 2026</option>
+                <option value="3">August 2026</option>
+                <option value="4">September 2026</option>
+                <option value="5">October 2026</option>
+                <option value="6">November 2026</option>
+                <option value="7">December 2026</option>
+                <option value="8">January 2027</option>
+                <option value="9">February 2027</option>
+                <option value="10">March 2027</option>
+                <option value="11">April 2027</option>
+                <option value="12">May 2027</option>
+            </select>
+        </div>
+
+        <!-- Batch Dropdown -->
+        <div class="form-group">
+            <label for="batch">విడత/బ్యాచ్ ఎంచుకోండి (Batch):</label>
+            <select name="batch" id="batch" required>
+                <option value="1">Batch 1</option>
+                <option value="2">Batch 2</option>
+                <option value="3">Batch 3</option>
+                <option value="4">Batch 4</option>
+            </select>
+        </div>
+
+        <!-- Bank Name Dropdown -->
+        <div class="form-group">
+            <label for="bank_name">బ్యాంకు పేరు ఎంచుకోండి (Bank Name):</label>
+            <select name="bank_name" id="bank_name" required>
+                {% for bank in banks %}
+                    <option value="{{ bank }}">{{ bank }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" id="submitBtn">Create Draft</button>
+    </form>
+
+    <div id="resultMessage" class="message"></div>
+</div>
+
+<script>
+    document.getElementById('draftForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const btn = document.getElementById('submitBtn');
+        const msgDiv = document.getElementById('resultMessage');
+        
+        btn.disabled = true;
+        btn.innerText = "ప్రాసెస్ జరుగుతోంది...";
+        msgDiv.style.color = "blue";
+        msgDiv.innerText = "దయచేసి వేచి ఉండండి, మెయిల్ డ్రాఫ్ట్ తయారవుతోంది...";
+
+        const formData = {
+            month: document.getElementById('month').value,
+            batch: document.getElementById('batch').value,
+            bank_name: document.getElementById('bank_name').value
+        };
+
+        try {
+            const response = await fetch('/api/generate-draft', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.status === 'success') {
+                msgDiv.style.color = "green";
+                msgDiv.innerText = result.message;
+            } else {
+                msgDiv.style.color = "red";
+                msgDiv.innerText = result.message || "ఏదో లోపం సంభవించింది.";
+            }
+        } catch (error) {
+            msgDiv.style.color = "red";
+            msgDiv.innerText = "సర్వర్ కనెక్షన్ లోపం: " + error;
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Create Draft";
+        }
+    });
+</script>
+
+</body>
+</html>
