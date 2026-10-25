@@ -1302,6 +1302,14 @@ def bulk_upload():
         {'status': 'error', 'message': f'బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}'}
     )
 
+def format_as_excel_text(val):
+      if val is None:
+        return ''
+      val_str = str(val).strip().strip("'")
+      if val_str:
+        return f"'{val_str}"
+      return ''
+
 
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
