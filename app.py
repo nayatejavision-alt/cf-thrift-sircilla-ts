@@ -1,3 +1,4 @@
+import io
 import csv
 from datetime import timedelta
 from email import encoders
@@ -5,7 +6,6 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import imaplib
-import io
 import json
 import os
 import time
@@ -20,6 +20,7 @@ from flask import (
     send_file,
     session,
 )
+from google.oauth2 import service_account
 from flask_cors import CORS
 from google.auth import default
 from google.oauth2.service_account import Credentials
