@@ -309,7 +309,20 @@ def generate_draft_api():
             </div>
             """
 
-    # పూర్తి మెయిల్ బాడీ (సిగ్నేచర్‌తో సహా)
+
+      # CC (Copy To) అధికారుల వివరాలు మరియు ఉద్దేశం స్పష్టంగా తెలిపే HTML సెక్షన్
+    cc_recipients_html = """
+        <br>
+        <p style="font-size: 13px; color: #555; line-height: 1.4;">
+            <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
+            1. <b>The District Collector & District Magistrate, Rajanna Sircilla</b> — తగు సమాచారము నిమిత్తము సమర్పించడమైనది (For favor of kind information).<br>
+            2. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది (For information and necessary action).<br>
+            3. <b>Branch Manager, Union Bank of India (Nodal Branch - Positive Pay System compliance)</b> — తగు సమాచారము నిమిత్తము మరియు ఆర్‌బిఐ నిబంధనల ప్రకారం పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
+            4. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము (For information & record).
+        </p>
+        """
+
+    # పూర్తి మెయిల్ బాడీ (సమాచార ఉద్దేశాలతో సహా)
     body_html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; line-height: 1.5;">
@@ -321,27 +334,32 @@ def generate_draft_api():
             <ul>
                 <li><b>Total Active Beneficiaries (Eligible for Credit):</b> {record_count}</li>
                 <li><b>Total Amount to Credit:</b> ₹{total_govt_share:,.2f}</li>
-                <li><b>Pending / Unopened RD-1 Accounts Count:</b> {pending_count}</li>
+                
             </ul>
 
-            {pending_notice_html}
+            
 
             <br>
             <p>The physical copy of the official letter along with Cheque for <b>₹{total_govt_share:,.2f}</b> is being submitted to your branch separately.</p>
 
-            <p>Kindly process the credits into the respective beneficiary RD2 accounts as per the attached Excel file at the earliest and share the confirmation statement along with reasons for pending accounts.</p>
+            <p>Kindly process the credits into the respective beneficiary RD2 accounts as per the attached Excel file at the earliest, strictly adhering to the <b>RBI Positive Pay System (PPS)</b> guidelines where applicable, and share the confirmation statement along with reasons for pending accounts.</p>
 
             <hr style="border: 0; border-top: 1px dashed #bbb; margin: 15px 0;">
 
             <p>తెలంగాణ నేతన్నకు చేయూత (త్రిఫ్ట్ ఫండ్ పథకం) కు సంబంధించిన లబ్ధిదారుల ప్రభుత్వ చందా (Govt Share) వివరాలు <b>({selected_month_name} {selected_year} Batch {target_batch})</b> ఈ ఇమెయిల్‌కు జతచేసిన ఎక్సెల్ ఫైల్ నందు పొందుపరచబడ్డాయి.</p>
 
-            <p>ఇంకా RD-1 ఖాతాలు ఓపెన్ కాక లేదా లావాదేవీలు లేక నిలిచిపోయిన <b>{pending_count}</b> మంది లబ్ధిదారుల వివరాలను కూడా త్వరితగతిన సరిచేసి RD-1 ఖాతాలు తెరవాల్సిందిగా కోరడమైనది.</p>
+            <p>ఇంకా RD-1 ఖాతాలు ఓపెన్ కాక లేదా లావాదేవీలు లేక నిలిచిపోయిన లబ్ధిదారుల వివరాలను కూడా త్వరితగతిన సరిచేసి RD-1 ఖాతాలు తెరవాల్సిందిగా కోరడమైనది.</p>
+
+            <p style="color: #444; font-weight: bold; margin-top: 15px;">ఈ విషయము తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.</p>
+
+            {cc_recipients_html}
 
             {OFFICIAL_SIGNATURE_HTML}
         </body>
         </html>
         """
 
+    
     message = MIMEMultipart()
     message['To'] = bank_email
     message['From'] = SENDER_EMAIL
