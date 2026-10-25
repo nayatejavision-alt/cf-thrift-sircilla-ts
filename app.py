@@ -246,20 +246,20 @@ def generate_draft_api():
           'BANK_SNO', active_df.get('SNO', '')
       )
       export_df['Name Of Benificiary'] = active_df['Name Of Benificiary']
-      export_df['Bank Account Number'] = active_df['Bank Account Number']
+      export_df['Bank Account Number'] = active_df['Bank Account Number'].apply(format_as_excel_text)
       export_df['RD ACCOUNT_1 (Beneficiary Contribution)'] = active_df[
           'RD ACCOUNT_1 (Beneficiary Contribution)'
-      ]
-      export_df['RD-1 (Beneficiary) Contribution'] = active_df['Govt_Share']
+      ].apply(format_as_excel_text)
+      export_df['RD-1 (Beneficiary) Contribution'] = active_df['Govt_Share'].apply(format_as_excel_text)
 
       if 'RD 2' in active_df.columns:
-        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2']
+        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2'].apply(format_as_excel_text)
       elif 'RD ACCOUNT_2' in active_df.columns:
-        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD ACCOUNT_2']
+        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD ACCOUNT_2'].apply(format_as_excel_text)
       elif 'RD 2_THRIFT' in active_df.columns:
         export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df[
             'RD 2_THRIFT'
-        ]
+        ].apply(format_as_excel_text)
       else:
         export_df['RD ACCOUNT_2 (Govt Contribution)'] = ''
 
@@ -273,10 +273,10 @@ def generate_draft_api():
             'BANK_SNO', pending_df.get('SNO', '')
         )
         p_export_df['Name Of Benificiary'] = pending_df['Name Of Benificiary']
-        p_export_df['Bank Account Number'] = pending_df['Bank Account Number']
+        p_export_df['Bank Account Number'] = pending_df['Bank Account Number'].apply(format_as_excel_text)
         p_export_df['RD ACCOUNT_1'] = pending_df[
             'RD ACCOUNT_1 (Beneficiary Contribution)'
-        ]
+        ].apply(format_as_excel_text)
         p_export_df['Contact Number'] = pending_df['Contact Number']
         p_export_df['Status'] = 'RD-1 Account Pending / Zero Transaction'
         p_export_df.to_excel(
