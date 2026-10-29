@@ -156,14 +156,14 @@ def get_bank_doc_details():
     default_data = {
         'Cheque_No': '',
         'Cheque_Date': '',
-        'Cheque_Amount': '',
+        #'Cheque_Amount': '',
     }
     for row in records:
       if str(row.get('FILE_NAME', '')).strip().lower() == bank_name.lower():
         default_data = {
             'Cheque_No': row.get('Cheque_No', ''),
             'Cheque_Date': row.get('Cheque_Date', ''),
-            'Cheque_Amount': row.get('Cheque_Amount', ''),
+            #'Cheque_Amount': row.get('Cheque_Amount', ''),
         }
         break
     return jsonify({'status': 'success', 'data': default_data})
@@ -183,7 +183,7 @@ def generate_draft_api():
     # ఫ్రంట్ ఎండ్ నుండి ఎడిట్ చేసి పంపిన చెక్ వివరాలు (లేకపోతే ఎంప్టీ)
     user_cheque_no = str(data.get('cheque_no', '')).strip()
     user_cheque_date = str(data.get('cheque_date', '')).strip()
-    user_cheque_amount = str(data.get('cheque_amount', '')).strip()
+    # user_cheque_amount = str(data.get('cheque_amount', '')).strip()
 
     if not selected_bank:
       return (
@@ -231,9 +231,9 @@ def generate_draft_api():
     # యూజర్ ఫ్రంట్ ఎండ్ నుండి పంపితే అవే వాడాలి,లేకపోతే షీట్ డిఫాల్ట్ వాల్యూస్ తీసుకోవాలి
     cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
     cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
-    cheque_amount = user_cheque_amount or str(
-        bank_doc_info.get('Cheque_Amount', '')
-    )
+    #cheque_amount = user_cheque_amount or str(
+    #    bank_doc_info.get('Cheque_Amount', '')
+    # )
 
     df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
     df_trans['Govt_Share'] = pd.to_numeric(
@@ -283,6 +283,8 @@ def generate_draft_api():
     record_count = len(active_df)
     pending_count = len(pending_df)
     total_govt_share = active_df['Govt_Share'].sum()
+
+    cheque_amount = str(total_govt_share)
 
     bank_email = email_dict.get(selected_bank, '')
     if not bank_email or '@' not in bank_email:
@@ -482,29 +484,27 @@ def generate_draft_api():
     message['Subject'] = subject
     message.attach(MIMEText(body_html, 'html'))
 
-    # అటాచ్‌మెంట్ 1: ఎక్సెల్ ఫైల్
+# 1. ఎక్సెల్ ఫైల్ అటాచ్‌మెంట్ (ఎక్స్‌టెన్షన్‌తో సహా)
     if os.path.exists(local_excel_path):
+      excel_filename = os.path.basename(local_excel_path)  # ఉదా: INDIAN_BANK_Month_1_Batch_1.xlsx
       with open(local_excel_path, 'rb') as f:
         part1 = MIMEBase('application', 'octet-stream')
         part1.set_payload(f.read())
       encoders.encode_base64(part1)
-      part1.add_header(
-          'Content-Disposition',
-          f'filename="{os.path.basename(local_excel_path)}"',
-      )
+      # ఇక్కడ డబుల్ కోట్స్ కచ్చితంగా ఉండాలి
+      part1.add_header('Content-Disposition', f'attachment; filename="{excel_filename}"')
       message.attach(part1)
 
-    # అటాచ్‌మెంట్ 2: ఆఫీస్ లెటర్ డాక్యుమెంట్ (.docx)
+    # 2. ఆఫీస్ లెటర్ డాక్యుమెంట్ అటాచ్‌మెంట్ (ఎక్స్‌టెన్షన్‌తో సహా - .docx)
     if letter_path and os.path.exists(letter_path):
+      letter_filename = os.path.basename(letter_path)  # ఉదా: Official_Letter_INDIAN_BANK.docx
       with open(letter_path, 'rb') as f:
         part2 = MIMEBase('application', 'octet-stream')
         part2.set_payload(f.read())
       encoders.encode_base64(part2)
-      part2.add_header(
-          'Content-Disposition', f'filename="{os.path.basename(letter_path)}"'
-      )
+      # ఇక్కడ కూడా డబుల్ కోట్స్ కచ్చితంగా ఉండాలి
+      part2.add_header('Content-Disposition', f'attachment; filename="{letter_filename}"')
       message.attach(part2)
-
     # జిమెయిల్ డ్రాఫ్ట్‌లో సేవ్ చేయడం
     mail = imaplib.IMAP4_SSL('imap.gmail.com')
     mail.login(SENDER_EMAIL, APP_PASSWORD)
