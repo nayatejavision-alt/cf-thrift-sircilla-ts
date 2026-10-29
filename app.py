@@ -143,6 +143,34 @@ def draft_generator_page():
   return render_template('draft_generator.html', banks=banks)
 
 
+@app.route('/api/get-bank-doc-details', methods=['GET'])
+def get_bank_doc_details():
+  """ఫ్రంట్ ఎండ్ నుండి బ్యాంక్ పేరు బట్టి PREPARE_DOC_RD_TRANSACTIONS నుండి డిఫాల్ట్ విలువలు పంపడానికి"""
+  try:
+    bank_name = request.args.get('bank_name', '').strip()
+    client = get_sheets_client()
+    sh = client.open(SPREADSHEET_NAME)
+    ws_doc = sh.worksheet('PREPARE_DOC_RD_TRANSACTIONS')
+    records = ws_doc.get_all_records()
+
+    default_data = {
+        'Cheque_No': '',
+        'Cheque_Date': '',
+        'Cheque_Amount': '',
+    }
+    for row in records:
+      if str(row.get('FILE_NAME', '')).strip().lower() == bank_name.lower():
+        default_data = {
+            'Cheque_No': row.get('Cheque_No', ''),
+            'Cheque_Date': row.get('Cheque_Date', ''),
+            'Cheque_Amount': row.get('Cheque_Amount', ''),
+        }
+        break
+    return jsonify({'status': 'success', 'data': default_data})
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)})
+
+
 @app.route('/api/generate-draft', methods=['POST'])
 def generate_draft_api():
   try:
@@ -151,6 +179,11 @@ def generate_draft_api():
     target_month = int(data.get('month', 1))
     target_batch = int(data.get('batch', 1))
     selected_bank = str(data.get('bank_name', '')).strip()
+
+    # ఫ్రంట్ ఎండ్ నుండి ఎడిట్ చేసి పంపిన చెక్ వివరాలు (లేకపోతే ఎంప్టీ)
+    user_cheque_no = str(data.get('cheque_no', '')).strip()
+    user_cheque_date = str(data.get('cheque_date', '')).strip()
+    user_cheque_amount = str(data.get('cheque_amount', '')).strip()
 
     if not selected_bank:
       return (
@@ -182,24 +215,41 @@ def generate_draft_api():
         )
     )
 
-    df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
-    df_trans['Govt_Share'] = (
-        pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
+    # PREPARE_DOC_RD_TRANSACTIONS నుండి డిఫాల్ట్ డాక్యుమెంట్ వివరాలు తెచ్చుకోవడం
+    try:
+      ws_doc_sheet = sh.worksheet('PREPARE_DOC_RD_TRANSACTIONS')
+      doc_records = ws_doc_sheet.get_all_records()
+    except Exception:
+      doc_records = []
+
+    bank_doc_info = {}
+    for r in doc_records:
+      if str(r.get('FILE_NAME', '')).strip().lower() == selected_bank.lower():
+        bank_doc_info = r
+        break
+
+    # యూజర్ ఫ్రంట్ ఎండ్ నుండి పంపితే అవే వాడాలి,లేకపోతే షీట్ డిఫాల్ట్ వాల్యూస్ తీసుకోవాలి
+    cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
+    cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
+    cheque_amount = user_cheque_amount or str(
+        bank_doc_info.get('Cheque_Amount', '')
     )
+
+    df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
+    df_trans['Govt_Share'] = pd.to_numeric(
+        df_trans['Govt_Share'], errors='coerce'
+    ).fillna(0)
     df_trans['MONTH_NUMBER'] = pd.to_numeric(
         df_trans['MONTH_NUMBER'], errors='coerce'
     )
     df_trans['BATCH_NUMBER'] = (
-        pd.to_numeric(df_trans['BATCH_NUMBER'], errors='coerce').fillna(1)
+        pd.to_numeric(df_trans['BATCH_NUMBER'], errors='coerce').fillna(0)
         if 'BATCH_NUMBER' in df_trans.columns
-        else 1
+        else 0
     )
 
     df_merged_full = pd.merge(
-        df_trans[
-            (df_trans['MONTH_NUMBER'] == target_month)
-            & (df_trans['BATCH_NUMBER'] == target_batch)
-        ],
+        df_trans[df_trans['MONTH_NUMBER'] == target_month],
         df_thrift,
         left_on='RD ACCOUNT_1 (Beneficiary Contribution)',
         right_on='RD 1',
@@ -207,18 +257,28 @@ def generate_draft_api():
         suffixes=('', '_THRIFT'),
     )
 
-    group_df = df_merged_full[
+    bank_month_df = df_merged_full[
         df_merged_full['FILE NAME'].astype(str).str.strip() == selected_bank
     ]
 
-    if group_df.empty:
+    if bank_month_df.empty:
       return jsonify({
           'status': 'error',
           'message': f'{selected_bank} కి సంబంధించి ఎలాంటి డేటా లభించలేదు!',
       })
 
-    active_df = group_df[group_df['Govt_Share'] > 0]
-    pending_df = group_df[group_df['Govt_Share'] == 0]
+    active_df = bank_month_df[
+        (bank_month_df['Govt_Share'] > 0)
+        & (bank_month_df['BATCH_NUMBER'] == target_batch)
+    ]
+    pending_df = bank_month_df[
+        (bank_month_df['Govt_Share'] == 0)
+        | (bank_month_df['BATCH_NUMBER'] == 0)
+        | (
+            (bank_month_df['BATCH_NUMBER'] != target_batch)
+            & (bank_month_df['Govt_Share'] > 0)
+        )
+    ]
 
     record_count = len(active_df)
     pending_count = len(pending_df)
@@ -231,7 +291,9 @@ def generate_draft_api():
           'message': f'{selected_bank} కి అధికారిక ఈమెయిల్ ఐడి లేదు!',
       })
 
-    target_folder_path = f'/tmp/Bank_Wise_Excel_Files_Month_{target_month}_Batch_{target_batch}'
+    target_folder_path = (
+        f'/tmp/Bank_Wise_Excel_Files_Month_{target_month}_Batch_{target_batch}'
+    )
     if not os.path.exists(target_folder_path):
       os.makedirs(target_folder_path)
 
@@ -240,22 +302,29 @@ def generate_draft_api():
         f'{selected_bank}_Month_{target_month}_Batch_{target_batch}.xlsx',
     )
 
+    # 1. ఎక్సెల్ ఫైల్ తయారీ
     with pd.ExcelWriter(local_excel_path, engine='openpyxl') as writer:
       export_df = pd.DataFrame()
       export_df['BENEFICIARY SNO'] = active_df.get(
           'BANK_SNO', active_df.get('SNO', '')
       )
       export_df['Name Of Benificiary'] = active_df['Name Of Benificiary']
-      export_df['Bank Account Number'] = active_df['Bank Account Number'].apply(format_as_excel_text)
+      export_df['Bank Account Number'] = active_df[
+          'Bank Account Number'
+      ].apply(format_as_excel_text)
       export_df['RD ACCOUNT_1 (Beneficiary Contribution)'] = active_df[
           'RD ACCOUNT_1 (Beneficiary Contribution)'
       ].apply(format_as_excel_text)
-      export_df['RD-1 (Beneficiary) Contribution'] = active_df['Govt_Share'].apply(format_as_excel_text)
+      export_df['RD-1 (Beneficiary) Contribution'] = active_df['Govt_Share']
 
       if 'RD 2' in active_df.columns:
-        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2'].apply(format_as_excel_text)
+        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2'].apply(
+            format_as_excel_text
+        )
       elif 'RD ACCOUNT_2' in active_df.columns:
-        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD ACCOUNT_2'].apply(format_as_excel_text)
+        export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df[
+            'RD ACCOUNT_2'
+        ].apply(format_as_excel_text)
       elif 'RD 2_THRIFT' in active_df.columns:
         export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df[
             'RD 2_THRIFT'
@@ -264,7 +333,11 @@ def generate_draft_api():
         export_df['RD ACCOUNT_2 (Govt Contribution)'] = ''
 
       export_df['RD-2 (Govt_Share) Contribution'] = active_df['Govt_Share']
-      export_df['Contact Number'] = active_df['Contact Number']
+      export_df['Contact Number'] = (
+          active_df['Contact Number'].apply(format_as_excel_text)
+          if 'Contact Number' in active_df.columns
+          else ''
+      )
       export_df.to_excel(writer, sheet_name='Eligible_Credit_List', index=False)
 
       if pending_count > 0:
@@ -273,20 +346,104 @@ def generate_draft_api():
             'BANK_SNO', pending_df.get('SNO', '')
         )
         p_export_df['Name Of Benificiary'] = pending_df['Name Of Benificiary']
-        p_export_df['Bank Account Number'] = pending_df['Bank Account Number'].apply(format_as_excel_text)
+        p_export_df['Bank Account Number'] = pending_df[
+            'Bank Account Number'
+        ].apply(format_as_excel_text)
         p_export_df['RD ACCOUNT_1'] = pending_df[
             'RD ACCOUNT_1 (Beneficiary Contribution)'
         ].apply(format_as_excel_text)
-        p_export_df['Contact Number'] = pending_df['Contact Number']
-        p_export_df['Status'] = 'RD-1 Account Pending / Zero Transaction'
+        p_export_df['Contact Number'] = (
+            pending_df['Contact Number'].apply(format_as_excel_text)
+            if 'Contact Number' in pending_df.columns
+            else ''
+        )
+        p_export_df['Status'] = (
+            'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
+        )
         p_export_df.to_excel(
             writer, sheet_name='Pending_RD1_List', index=False
         )
 
+    # 2. ఆఫీస్ లెటర్ డాక్యుమెంట్ తయారీ (Word Doc)
+    letter_path = None
+    doc_template_path = 'RD2_CREDIT_SANCTION_TEMPLATE.docx'
+    if os.path.exists(doc_template_path):
+      import docx
+
+      doc = docx.Document(doc_template_path)
+      try:
+        amt_words = (
+            num2words(float(cheque_amount or total_govt_share), lang='en_IN')
+            .title()
+            + ' Only'
+        )
+      except:
+        amt_words = f'Rupees {cheque_amount or total_govt_share} Only'
+
+      replacements = {
+          '{{Bank_Name}}': str(
+              bank_doc_info.get('Bank_Name', selected_bank)
+          ),
+          '{{Location}}': str(bank_doc_info.get('Location', 'Sircilla')),
+          '{{Current_Date}}': time.strftime('%d/%m/%Y'),
+          '{{Total_Count_Of_Records}}': str(
+              bank_doc_info.get('Total_Count_Of_Records', len(bank_month_df))
+          ),
+          '{{Cheque_No}}': cheque_no,
+          '{{Cheque_Date}}': cheque_date,
+          '{{Cheque_Amount}}': cheque_amount or str(total_govt_share),
+          '{{Amount_In_Words}}': amt_words,
+          '{{Rd_Total_Count_for_month_number}}': str(record_count),
+          '{{RD_Start_from_for_month_number}}': '1',
+          '{{RD_End_With_for_month_number}}': str(record_count),
+          '{{This_Office_Previous_Dates}}': str(
+              bank_doc_info.get(
+                  'This_Office_Previous_Dates',
+                  '04/07/2026 , 15/07/2026',
+              )
+          ),
+      }
+
+      for p in doc.paragraphs:
+        for k, v in replacements.items():
+          if k in p.text:
+            p.text = p.text.replace(k, str(v))
+
+      for table in doc.tables:
+        for row in table.rows:
+          for cell in row.cells:
+            for k, v in replacements.items():
+              if k in cell.text:
+                cell.text = cell.text.replace(k, str(v))
+
+      letter_path = os.path.join(
+          target_folder_path, f'Official_Letter_{selected_bank}.docx'
+      )
+      doc.save(letter_path)
+
+    # మెయిల్ బాడీ తయారీ
     subject = f'Official Letter & Beneficiary Excel List for TSPWTFS & SS RD2 Credit - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}'
-    
-      
-    # అధికారిక సిగ్నేచర్ (Signature) HTML
+
+    pending_notice_html = ''
+    if pending_count > 0:
+      pending_notice_html = f"""
+            <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
+                <p style="margin:0; font-weight: bold;">⚠️ Pending / Unassigned Accounts Notice:</p>
+                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are either pending, unassigned to this batch, or have zero transactions.</p>
+            </div>
+            """
+
+    cc_recipients_html = """
+        <br>
+        <p style="font-size: 13px; color: #555; line-height: 1.4;">
+            <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
+            
+            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది (For information and necessary action).<br>
+            2. <b>Branch Manager, Union Bank of India (Nodal Branch - Positive Pay System compliance)</b> — తగు సమాచారము నిమిత్తము మరియు ఆర్‌బిఐ నిబంధనల ప్రకారం పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
+            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము (For information & record).
+        </p>
+        """
+
     OFFICIAL_SIGNATURE_HTML = """
         <br><br>
         <hr style="border: 0; border-top: 1px solid #ccc;">
@@ -299,96 +456,56 @@ def generate_draft_api():
         </p>
         """
 
-    pending_notice_html = ""
-    if pending_count > 0:
-        pending_notice_html = f"""
-            <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
-                <p style="margin:0; font-weight: bold;">⚠️ Pending RD-1 / Zero Govt Share Notice:</p>
-                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> belonging to your branch whose RD-1 accounts have not been opened/updated, or have zero Govt Share transactions for this month.
-                Please review the separate <b>Pending Sheet</b> attached or verify and update their RD-1 account opening status at the earliest.</p>
-            </div>
-            """
-
-
-      # CC (Copy To) అధికారుల వివరాలు మరియు ఉద్దేశం స్పష్టంగా తెలిపే HTML సెక్షన్
-    cc_recipients_html = """
-        <br>
-        <p style="font-size: 13px; color: #555; line-height: 1.4;">
-            <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
-
-            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది (For information and necessary action).<br>
-            2. <b>Branch Manager, Union Bank of India (Nodal Branch - Positive Pay System compliance)</b> — తగు సమాచారము నిమిత్తము మరియు ఆర్‌బిఐ నిబంధనల ప్రకారం పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
-            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము (For information & record).
-        </p>
-        """
-
-    # పూర్తి మెయిల్ బాడీ (సమాచార ఉద్దేశాలతో సహా)
     body_html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; line-height: 1.5;">
             <p>Dear <b>{selected_bank} Branch Manager</b>,</p>
-
-            <p>Please find attached the official letter (<b>Rc.No. 176/2025-RSCL</b>) along with the Beneficiary Excel List for crediting the Government 8% matching share into RD2 Accounts for the month of <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
-
-            <p><b>Summary Details:</b></p>
-            <ul>
-                <li><b>Total Active Beneficiaries (Eligible for Credit):</b> {record_count}</li>
-                <li><b>Total Amount to Credit:</b> ₹{total_govt_share:,.2f}</li>
-                
-            </ul>
-
-            
-
-            <br>
-            <p>The physical copy of the official letter along with Cheque for <b>₹{total_govt_share:,.2f}</b> is being submitted to your branch separately.</p>
-
-            <p>Kindly process the credits into the respective beneficiary RD2 accounts as per the attached Excel file at the earliest, strictly adhering to the <b>RBI Positive Pay System (PPS)</b> guidelines where applicable, and share the confirmation statement along with reasons for pending accounts.</p>
-
-            <hr style="border: 0; border-top: 1px dashed #bbb; margin: 15px 0;">
-
-            <p>తెలంగాణ నేతన్నకు చేయూత (త్రిఫ్ట్ ఫండ్ పథకం) కు సంబంధించిన లబ్ధిదారుల ప్రభుత్వ చందా (Govt Share) వివరాలు <b>({selected_month_name} {selected_year} Batch {target_batch})</b> ఈ ఇమెయిల్‌కు జతచేసిన ఎక్సెల్ ఫైల్ నందు పొందుపరచబడ్డాయి.</p>
-
-            <p>ఇంకా RD-1 ఖాతాలు ఓపెన్ కాక లేదా లావాదేవీలు లేక నిలిచిపోయిన లబ్ధిదారుల వివరాలను కూడా త్వరితగతిన సరిచేసి RD-1 ఖాతాలు తెరవాల్సిందిగా కోరడమైనది.</p>
-
+            <p>Please find attached the official letter along with the Beneficiary Excel List for crediting the Government 8% matching share into RD2 Accounts for <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
+            <p><b>Summary Details:</b> Active: {record_count} | Amount: ₹{total_govt_share:,.2f} | Cheque No: {cheque_no}</p>
+            {pending_notice_html}
+            <p>Kindly process the credits strictly adhering to the <b>RBI Positive Pay System (PPS)</b> guidelines.</p>
             <p style="color: #444; font-weight: bold; margin-top: 15px;">ఈ విషయము తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.</p>
-
             {cc_recipients_html}
-
             {OFFICIAL_SIGNATURE_HTML}
         </body>
         </html>
         """
 
-
-    # మెయిన్ బ్యాంక్ ఈమెయిల్ కాకుండా అదనంగా కలపవలసిన ఈమెయిల్స్
-    cc_emails = [
+    message = MIMEMultipart()
+    message['To'] = bank_email
+    message['Cc'] = ', '.join([
         'ldmsircilla@unionbankofindia.bank.in',
         'ubin0827444@unionbankofindia.bank.in',
         'rajannahandtex@gmail.com',
-    ]
-
-    message = MIMEMultipart()
-    message['To'] = bank_email  # ప్రధాన బ్యాంకు ఈమెయిల్
-    
-    # ఒకవేళ అందరికీ CC లో వెళ్లాలంటే:
-    message['Cc'] = ', '.join(cc_emails)
-
+    ])
     message['From'] = SENDER_EMAIL
     message['Subject'] = subject
     message.attach(MIMEText(body_html, 'html'))
 
-    # అటాచ్‌మెంట్ 'noname' రాకుండా సరిచేసిన కోడ్
+    # అటాచ్‌మెంట్ 1: ఎక్సెల్ ఫైల్
     if os.path.exists(local_excel_path):
-        filename = os.path.basename(local_excel_path)
-        with open(local_excel_path, "rb") as attachment:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(attachment.read())
+      with open(local_excel_path, 'rb') as f:
+        part1 = MIMEBase('application', 'octet-stream')
+        part1.set_payload(f.read())
+      encoders.encode_base64(part1)
+      part1.add_header(
+          'Content-Disposition',
+          f'filename="{os.path.basename(local_excel_path)}"',
+      )
+      message.attach(part1)
 
-        encoders.encode_base64(part)
-        # ఇక్కడ డబుల్ కోట్స్ కచ్చితంగా ఉండాలి, అప్పుడే 'noname' సమస్య రాదు
-        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-        message.attach(part)
+    # అటాచ్‌మెంట్ 2: ఆఫీస్ లెటర్ డాక్యుమెంట్ (.docx)
+    if letter_path and os.path.exists(letter_path):
+      with open(letter_path, 'rb') as f:
+        part2 = MIMEBase('application', 'octet-stream')
+        part2.set_payload(f.read())
+      encoders.encode_base64(part2)
+      part2.add_header(
+          'Content-Disposition', f'filename="{os.path.basename(letter_path)}"'
+      )
+      message.attach(part2)
 
+    # జిమెయిల్ డ్రాఫ్ట్‌లో సేవ్ చేయడం
     mail = imaplib.IMAP4_SSL('imap.gmail.com')
     mail.login(SENDER_EMAIL, APP_PASSWORD)
     mail.append(
@@ -398,19 +515,48 @@ def generate_draft_api():
         message.as_bytes(),
     )
     mail.logout()
-      
+
+    # 3. ట్రాన్సాక్షన్ సక్సెస్ అయిన తర్వాత 'Bank_Transactions' షీట్‌లో లాగ్ చేయడం
+    try:
+      try:
+        ws_log = sh.worksheet('Bank_Transactions')
+      except:
+        ws_log = sh.add_worksheet(
+            title='Bank_Transactions', rows=100, cols=10
+        )
+        ws_log.append_row([
+            'Timestamp',
+            'Bank Name',
+            'Month',
+            'Batch',
+            'Cheque No',
+            'Cheque Date',
+            'Amount',
+            'Beneficiaries Count',
+        ])
+
+      ws_log.append_row([
+          time.strftime('%Y-%m-%d %H:%M:%S'),
+          selected_bank,
+          f'{selected_month_name} {selected_year}',
+          target_batch,
+          cheque_no,
+          cheque_date,
+          total_govt_share,
+          record_count,
+      ])
+    except Exception as log_err:
+      print(f'Logging Error: {log_err}')
+
     return jsonify({
         'status': 'success',
-        'message': (
-            f'{selected_bank} కోసం జిమెయిల్ డ్రాఫ్ట్ విజయవంతంగా సృష్టించబడింది!'
-        ),
+        'message': f'{selected_bank} కోసం అధికారిక లేఖ మరియు ఎక్సెల్ ఫైల్‌తో జిమెయిల్ డ్రాఫ్ట్ విజయవంతంగా తయారైంది!',
     })
 
   except Exception as e:
     return jsonify(
         {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
     ), 500
-
 
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
