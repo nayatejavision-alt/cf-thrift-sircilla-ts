@@ -25,6 +25,7 @@ from flask_cors import CORS
 from google.auth import default
 from google.oauth2.service_account import Credentials
 import gspread
+from num2words import num2words
 from mismatch_routes import mismatch_bp
 import pandas as pd
 from rd_home import rd_bp
@@ -257,20 +258,39 @@ def generate_draft_api():
         suffixes=('', '_THRIFT'),
     )
 
-    bank_month_df = df_merged_full[
-        df_merged_full['FILE NAME'].astype(str).str.strip() == selected_bank
-    ]
+    # 1. ముందుగా ఆ బ్యాంకుకి చెందిన మొత్తం త్రిఫ్ట్ బెనెఫిషరీలను తీసుకోవాలి
+    bank_thrift_df = df_thrift[
+        df_thrift['FILE NAME'].astype(str).str.strip() == selected_bank
+    ].copy()
 
-    if bank_month_df.empty:
-      return jsonify({
-          'status': 'error',
-          'message': f'{selected_bank} కి సంబంధించి ఎలాంటి డేటా లభించలేదు!',
-      })
+    # డూప్లికేట్స్ తొలగించడం
+    bank_thrift_df = bank_thrift_df.drop_duplicates(subset=['RD 1'], keep='first')
 
+    # 2. ఆ నెల ట్రాన్సాక్షన్ డేటాతో 'left' merge చేయడం (దీనివల్ల అసలు ఎంట్రీ లేనివారు కూడా మిస్ కాకుండా వస్తారు)
+    bank_month_df = pd.merge(
+        bank_thrift_df,
+        df_trans[df_trans['MONTH_NUMBER'] == target_month],
+        left_on='RD 1',
+        right_on='RD ACCOUNT_1 (Beneficiary Contribution)',
+        how='left',
+        suffixes=('', '_TRANS')
+    )
+
+    # 3. నంబర్ ఫార్మాటింగ్ క్లీన్ చేయడం
+    bank_month_df['Govt_Share'] = pd.to_numeric(bank_month_df['Govt_Share'], errors='coerce').fillna(0)
+    bank_month_df['BATCH_NUMBER'] = (
+        pd.to_numeric(bank_month_df['BATCH_NUMBER'], errors='coerce').fillna(0)
+        if 'BATCH_NUMBER' in bank_month_df.columns
+        else 0
+    )
+
+    # 4. Active DF (ప్రస్తుత బ్యాచ్‌లో సక్సెస్‌ఫుల్‌గా ఉన్నవి)
     active_df = bank_month_df[
         (bank_month_df['Govt_Share'] > 0)
         & (bank_month_df['BATCH_NUMBER'] == target_batch)
     ]
+
+    # 5. Pending DF (మీరు కోరుకున్న లాజిక్: టోటల్ త్రిఫ్ట్ నుండి ఆక్టివ్ మరియు ఇతర బ్యాచ్‌లను మినహాయించడం)
     pending_df = bank_month_df[
         (bank_month_df['Govt_Share'] == 0)
         | (bank_month_df['BATCH_NUMBER'] == 0)
@@ -279,6 +299,8 @@ def generate_draft_api():
             & (bank_month_df['Govt_Share'] > 0)
         )
     ]
+    
+
 
     record_count = len(active_df)
     pending_count = len(pending_df)
