@@ -61,6 +61,23 @@
             </select>
         </div>
 
+     
+
+<!-- చెక్ వివరాలు ఎడిట్ చేసుకునే ఇన్‌పుట్ బాక్సులు -->
+<div class="row">
+    <div class="col-md-4 mb-3">
+        <label for="cheque_no">చెక్కు నంబర్ (Cheque No):</label>
+        <input type="text" id="cheque_no" name="cheque_no" class="form-control" placeholder="చెక్కు నంబర్ ఎంటర్ చేయండి">
+    </div>
+    <div class="col-md-4 mb-3">
+        <label for="cheque_date">చెక్కు తేదీ (Cheque Date):</label>
+        <input type="text" id="cheque_date" name="cheque_date" class="form-control" placeholder="ఉదా: Dated: 19/09/2026">
+    </div>
+    <div class="col-md-4 mb-3">
+        <label for="cheque_amount">మొత్తం (Cheque Amount):</label>
+        <input type="text" id="cheque_amount" name="cheque_amount" class="form-control" placeholder="రూపాయలలో మొత్తం">
+    </div>
+</div>
         <button type="submit" id="submitBtn">Create Draft</button>
     </form>
 
@@ -80,10 +97,13 @@
         msgDiv.innerText = "దయచేసి వేచి ఉండండి, మెయిల్ డ్రాఫ్ట్ తయారవుతోంది...";
 
         const formData = {
-            month: document.getElementById('month').value,
-            batch: document.getElementById('batch').value,
-            bank_name: document.getElementById('bank_name').value
-        };
+    month: document.getElementById('month').value,
+    batch: document.getElementById('batch').value,
+    bank_name: document.getElementById('bank_name').value,
+    cheque_no: document.getElementById('cheque_no').value,
+    cheque_date: document.getElementById('cheque_date').value,
+    cheque_amount: document.getElementById('cheque_amount').value
+};
 
         try {
             const response = await fetch('/api/generate-draft', {
