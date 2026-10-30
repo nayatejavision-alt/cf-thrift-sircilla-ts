@@ -294,10 +294,6 @@ def generate_draft_api():
     pending_df = bank_month_df[
         (bank_month_df['Govt_Share'] == 0)
         | (bank_month_df['BATCH_NUMBER'] == 0)
-        | (
-            (bank_month_df['BATCH_NUMBER'] != target_batch)
-            & (bank_month_df['Govt_Share'] > 0)
-        )
     ]
     
 
