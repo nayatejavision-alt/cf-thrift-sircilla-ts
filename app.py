@@ -236,7 +236,7 @@ def generate_draft_api():
     #    bank_doc_info.get('Cheque_Amount', '')
     # )
 
-    df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
+    #df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
     df_trans['Govt_Share'] = pd.to_numeric(
         df_trans['Govt_Share'], errors='coerce'
     ).fillna(0)
@@ -254,7 +254,7 @@ def generate_draft_api():
         df_thrift,
         left_on='RD ACCOUNT_1 (Beneficiary Contribution)',
         right_on='RD 1',
-        how='inner',
+        how='left',
         suffixes=('', '_THRIFT'),
     )
 
@@ -264,7 +264,7 @@ def generate_draft_api():
     ].copy()
 
     # డూప్లికేట్స్ తొలగించడం
-    bank_thrift_df = bank_thrift_df.drop_duplicates(subset=['RD 1'], keep='first')
+    #bank_thrift_df = bank_thrift_df.drop_duplicates(subset=['RD 1'], keep='first')
 
     # 2. ఆ నెల ట్రాన్సాక్షన్ డేటాతో 'left' merge చేయడం (దీనివల్ల అసలు ఎంట్రీ లేనివారు కూడా మిస్ కాకుండా వస్తారు)
     bank_month_df = pd.merge(
@@ -289,6 +289,8 @@ def generate_draft_api():
         (bank_month_df['Govt_Share'] > 0)
         & (bank_month_df['BATCH_NUMBER'] == target_batch)
     ]
+
+    active_df = active_df.drop_duplicates(subset=['RD 1'], keep='first')
 
     # 5. Pending DF (మీరు కోరుకున్న లాజిక్: టోటల్ త్రిఫ్ట్ నుండి ఆక్టివ్ మరియు ఇతర బ్యాచ్‌లను మినహాయించడం)
     pending_df = bank_month_df[
