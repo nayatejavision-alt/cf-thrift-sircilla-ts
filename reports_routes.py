@@ -2,19 +2,19 @@ import os
 import openpyxl
 from datetime import datetime
 import pandas as pd
-from flask import Blueprint, jsonify, request, send_file, session
-import gspread
+from flask import Blueprint, jsonify, request, send_file, session, render_template
+import traceback
 
 reports_bp = Blueprint('reports_bp', __name__)
 
-# టెంప్లేట్ ఫైల్ ఉండే ఫోల్డర్ (మీ ప్రాజెక్ట్ డైరెక్టరీలో ఉండాలి)
+# టెంప్లేట్ ఫైల్ ఉండే ఫోల్డర్ (assets/templates లేదా templates ఫోల్డర్)
 TEMPLATE_DIR = 'assets/templates'
 OUTPUT_DIR = 'assets/outputs'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(TEMPLATE_DIR, exist_ok=True)
 
 @reports_bp.route('/reports-dashboard')
 def reports_dashboard():
-    # ఇక్కడ మీరు ఫ్రంట్ ఎండ్ పేజీని రెండర్ చేయవచ్చు
     return render_template('reports_dashboard.html')
 
 @reports_bp.route('/api/generate-thrift-report', methods=['POST'])
@@ -26,7 +26,7 @@ def generate_thrift_report():
         if not form_type:
             return jsonify({'status': 'error', 'message': 'దయచేసి రిపోర్ట్ రకాన్ని (Form Type) ఎంచుకోండి!'}), 400
 
-        # గూగుల్ షీట్ నుండి డేటా లోడ్ చేయడం (మీ యాప్‌లో ఉన్న get_sheets_client() వాడవచ్చు)
+        # గూగుల్ షీట్ నుండి డేటా లోడ్ చేయడం
         from app import get_sheets_client, SPREADSHEET_NAME
         
         client = get_sheets_client()
@@ -35,7 +35,7 @@ def generate_thrift_report():
         df_thrift = pd.DataFrame(ws_thrift.get_all_records())
 
         if df_thrift.empty:
-            return jsonify({'status': 'error', 'message': 'গూగుల్ షీట్‌లో డేటా అందుబాటులో లేదు!'}), 400
+            return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో డేటా అందుబాటులో లేదు!'}), 400
 
         current_month = datetime.now().strftime("%B_%Y")
         template_filename = "Forms III, IV & V under Powerloom Thrift Scheme.xlsx"
@@ -145,7 +145,7 @@ def generate_thrift_report():
             output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month}.xlsx"
 
         # ==========================================
-        # 3. FORM V (All Beneficiaries)
+        # 3. FORM V (All Beneficiaries Total Register)
         # ==========================================
         elif form_type == 'FORM_V':
             df_v = df_thrift.copy().reset_index(drop=True)
@@ -197,4 +197,6 @@ def generate_thrift_report():
         return send_file(output_path, as_attachment=True, download_name=output_filename)
 
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'రిపోర్ట్ తయారీలో లోపం: അന്തർગત లోపం: {str(e)}'}), 500
+        error_msg = traceback.format_exc()
+        print("ERROR:", error_msg)
+        return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
