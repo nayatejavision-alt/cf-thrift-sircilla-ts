@@ -69,12 +69,6 @@ def generate_thrift_report():
                 return f"'{val_str}"
             return ''
 
-        # సురక్షితంగా కాలమ్ వాల్యూస్ పొందడానికి ఫంక్షన్
-        def get_col(df, col_name, default=''):
-            if col_name in df.columns:
-                return df[col_name]
-            return default
-
         # ==========================================
         # 1. FORM III-A (Powerloom Weavers Only - నేరుగా df_thrift వాడకం)
         # ==========================================
@@ -96,11 +90,11 @@ def generate_thrift_report():
 
             df_weavers['Father_Husband_Name'] = df_weavers[father_col].fillna('') if father_col else ''
             df_weavers['Full_Address'] = (
-                df_weavers[hno_col].fillna('').astype(str) + ", " if hno_col else ""
+                (df_weavers[hno_col].fillna('').astype(str) + ", ") if hno_col else ""
             ) + (
-                df_weavers[vill_col].fillna('').astype(str) + ", " if vill_col else ""
+                (df_weavers[vill_col].fillna('').astype(str) + ", ") if vill_col else ""
             ) + (
-                df_weavers[mandal_col].fillna('').astype(str) + ", " if mandal_col else ""
+                (df_weavers[mandal_col].fillna('').astype(str) + ", ") if mandal_col else ""
             ) + (
                 df_weavers[dist_col].fillna('').astype(str) if dist_col else ""
             )
@@ -169,11 +163,11 @@ def generate_thrift_report():
 
             df_ancillary['Father_Husband_Name'] = df_ancillary[father_col].fillna('') if father_col else ''
             df_ancillary['Full_Address'] = (
-                df_ancillary[hno_col].fillna('').astype(str) + ", " if hno_col else ""
+                (df_ancillary[hno_col].fillna('').astype(str) + ", ") if hno_col else ""
             ) + (
-                df_ancillary[vill_col].fillna('').astype(str) + ", " if vill_col else ""
+                (df_ancillary[vill_col].fillna('').astype(str) + ", ") if vill_col else ""
             ) + (
-                df_ancillary[mandal_col].fillna('').astype(str) + ", " if mandal_col else ""
+                (df_ancillary[mandal_col].fillna('').astype(str) + ", ") if mandal_col else ""
             ) + (
                 df_ancillary[dist_col].fillna('').astype(str) if dist_col else ""
             )
