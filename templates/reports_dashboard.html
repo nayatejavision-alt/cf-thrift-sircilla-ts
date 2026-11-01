@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>థ్రిఫ్ట్ స్కీమ్ - అధికారిక రిపోర్ట్స్ డ్యాష్‌బోర్డ్</title>
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #f4f7f6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .header-section {
+            background: linear-gradient(135deg, #0d6efd, #0dcaf0);
+            color: white;
+            padding: 2.5rem 1rem;
+            border-radius: 0 0 1.5rem 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .card-custom {
+            border: none;
+            border-radius: 1rem;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        }
+        .card-custom:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .icon-box {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header-section text-center">
+        <div class="container">
+            <h2><i class="fa-solid fa-file-excel me-2"></i>చేనేత మరియు జౌళి శాఖ</h2>
+            <p class="lead mb-0">తెలంగాణ రాష్ట్ర పవర్ లూమ్ వీవర్స్ త్రిఫ్ట్ ఫండ్ పథకం - రిపోర్ట్స్ జనరేటర్</p>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container mb-5">
+        
+        <!-- Alert Box for Messages -->
+        <div id="alertBox" class="alert d-none" role="alert"></div>
+
+        <div class="row g-4">
+            
+            <!-- 1. Form III-A (Powerloom Weavers) -->
+            <div class="col-md-4">
+                <div class="card card-custom h-100 p-4 text-center bg-white">
+                    <div class="card-body d-flex flex-column justify-content-between">
+                        <div>
+                            <div class="icon-box text-primary">
+                                <i class="fa-solid fa-user-tie"></i>
+                            </div>
+                            <h4 class="card-title fw-bold text-dark">Form III-A</h4>
+                            <h6 class="text-muted mb-3">Powerloom Weavers Report</h6>
+                            <p class="card-text text-secondary small">కేవలం పవర్ లూమ్ నేత కార్మికుల వివరాలతో కూడిన రిజిస్టర్ నివేదిక.</p>
+                        </div>
+                        <button onclick="generateReport('FORM_III_A', this)" class="btn btn-outline-primary w-100 mt-3 rounded-pill fw-bold">
+                            <i class="fa-solid fa-download me-2"></i>డౌన్‌లోడ్ రిపోర్ట్
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Form III-B (Ancillary Workers) -->
+            <div class="col-md-4">
+                <div class="card card-custom h-100 p-4 text-center bg-white">
+                    <div class="card-body d-flex flex-column justify-content-between">
+                        <div>
+                            <div class="icon-box text-success">
+                                <i class="fa-solid fa-users-gear"></i>
+                            </div>
+                            <h4 class="card-title fw-bold text-dark">Form III-B</h4>
+                            <h6 class="text-muted mb-3">Ancillary Workers Report</h6>
+                            <p class="card-text text-secondary small">అనుబంధ కార్మికుల (Ancillary Workers) వివరాలతో కూడిన నివేదిక.</p>
+                        </div>
+                        <button onclick="generateReport('FORM_III_B', this)" class="btn btn-outline-success w-100 mt-3 rounded-pill fw-bold">
+                            <i class="fa-solid fa-download me-2"></i>డౌన్‌లోడ్ రిపోర్ట్
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Form V (All Beneficiaries Total Register) -->
+            <div class="col-md-4">
+                <div class="card card-custom h-100 p-4 text-center bg-white">
+                    <div class="card-body d-flex flex-column justify-content-between">
+                        <div>
+                            <div class="icon-box text-warning">
+                                <i class="fa-solid fa-clipboard-list"></i>
+                            </div>
+                            <h4 class="card-title fw-bold text-dark">Form V</h4>
+                            <h6 class="text-muted mb-3">Total Enrolled Register</h6>
+                            <p class="card-text text-secondary small">మొత్తం లబ్ధిదారులందరికీ ఉద్దేశించిన మాన్యువల్ రిజిస్టర్ రిపోర్ట్.</p>
+                        </div>
+                        <button onclick="generateReport('FORM_V', this)" class="btn btn-outline-warning text-dark w-100 mt-3 rounded-pill fw-bold">
+                            <i class="fa-solid fa-download me-2"></i>డౌన్‌లోడ్ రిపోర్ట్
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Back to Home -->
+        <div class="text-center mt-5">
+            <a href="/" class="btn btn-secondary px-4 rounded-pill">
+                <i class="fa-solid fa-arrow-left me-2"></i>హోమ్ పేజీకి వెళ్ళండి
+            </a>
+        </div>
+    </div>
+
+    <!-- JavaScript for AJAX Download -->
+    <script>
+        async function generateReport(formType, btnElement) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = "alert d-none"; // Reset alert
+            
+            // Disable button and show loading
+            const originalHtml = btnElement.innerHTML;
+            btnElement.disabled = true;
+            btnElement.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>తయారవుతోంది...`;
+
+            try {
+                const response = await fetch('/api/generate-thrift-report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ form_type: formType })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = `${formType}_Report.xlsx`;
+                    
+                    if (contentDisposition && contentDisposition.includes('filename=')) {
+                        const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                        if (matches != null && matches[1]) {
+                            filename = matches[1].replace(/['"]/g, '');
+                        }
+                    }
+
+                    // Create download link dynamically
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+
+                    alertBox.className = "alert alert-success";
+                    alertBox.innerHTML = `<i class="fa-solid fa-circle-check me-2"></i>రిపోర్ట్ విజయవంతంగా డౌన్‌లోడ్ అయింది!`;
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'లోపం సంభవించింది.');
+                }
+            } catch (error) {
+                alertBox.className = "alert alert-danger";
+                alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-2"></i>లోపం: ${error.message}`;
+            } finally {
+                // Restore button state
+                btnElement.disabled = false;
+                btnElement.innerHTML = originalHtml;
+            }
+        }
+    </script>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
