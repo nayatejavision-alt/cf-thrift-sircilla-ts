@@ -133,11 +133,12 @@ def generate_form_iiia():
         ws = wb[target_sheet]
         start_row = 8
         output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month_str}.xlsx"
-
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
             current_r = start_row + row_idx
             for col_idx, value in enumerate(row, start=1):
-                safe_set_cell_value(ws, current_r, col_idx, value)
+                cell = ws.cell(row=current_r, column=col_idx)
+                cell.value = value
+
 
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         wb.save(output_path)
@@ -254,7 +255,8 @@ def generate_form_iiib():
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
             current_r = start_row + row_idx
             for col_idx, value in enumerate(row, start=1):
-                safe_set_cell_value(ws, current_r, col_idx, value)
+                cell = ws.cell(row=current_r, column=col_idx)
+                cell.value = value
 
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         wb.save(output_path)
@@ -392,7 +394,8 @@ def generate_form_v():
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
             current_r = start_row + row_idx
             for col_idx, value in enumerate(row, start=1):
-                safe_set_cell_value(ws, current_r, col_idx, value)
+                cell = ws.cell(row=current_r, column=col_idx)
+                cell.value = value
 
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         wb.save(output_path)
