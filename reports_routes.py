@@ -155,24 +155,33 @@ def generate_thrift_report():
             )
             df_v['Date_of_Enrollment'] = "01/08/2026"
 
+            # పెద్ద డిజిట్ల అకౌంట్ నంబర్లు ఎక్సెల్‌లో పాడవకుండా టెక్స్ట్ ఫార్మాట్‌లోకి మార్చే హెల్పర్
+            def format_acc(val):
+                if val is None:
+                    return ''
+                val_str = str(val).split('.')[0].strip().strip("'")
+                if val_str and val_str != 'nan' and val_str != '0':
+                    return f"'{val_str}"
+                return ''
+
             report_df = pd.DataFrame({
                 'Sl. No.': range(1, len(df_v) + 1),
                 'Name of the beneficiary': df_v['Name Of Benificiary'],
                 'Profession/Activity': df_v['Profession'],
                 'Father / Husband Name': df_v['Father Name'].fillna(''),
                 'Age': df_v['Age'],
-                'Aadhar No.': df_v['Aadhar Number'],
+                'Aadhar No.': df_v['Aadhar Number'].apply(format_acc), # ఆధార్ నంబర్లకు కూడా రక్షణ
                 'Address - H.No. & Street': df_v['H.NO. Residentional H.No'].fillna(''),
                 'Address - Village & Mandal': df_v['Village_Mandal'],
                 'Address - District': df_v['DISTRICT NAME'].fillna(''),
                 'Geo-tag Number': df_v['GEO TAG NUMBER'].fillna(''),
-                'Mobile No.': df_v['Contact Number'].fillna(''),
+                'Mobile No.': df_v['Contact Number'].apply(format_acc),
                 'Date of Enrollment into the Scheme': df_v['Date_of_Enrollment'],
-                'SB A/c No.': df_v['Bank Account Number'].fillna(''),
+                'SB A/c No.': df_v['Bank Account Number'].apply(format_acc),  # 15-16 డిజిట్ల సేవింగ్స్ అకౌంట్
                 'Name of the Bank & Branch Location': df_v['Bank Name'].fillna(''),
                 'IFSC Code': df_v['IFSC code'].fillna(''),
-                'RD A/c No.1': df_v['RD 1'].fillna(''),
-                'RD A/c No.2': df_v['RD 2'].fillna(''),
+                'RD A/c No.1': df_v['RD 1'].apply(format_acc),                 # 15-16 డిజిట్ల RD A/c 1
+                'RD A/c No.2': df_v['RD 2'].apply(format_acc),                 # 15-16 డిజిట్ల RD A/c 2
                 'Declared wages earned per month': df_v['MONTHLY WAGES'].fillna(''),
                 'Weaver contribution 8%': df_v['8% Of Monthly Wages'].fillna(''),
                 'Govt. contribution 8%': df_v['8% Of Monthly Wages'].fillna('')
@@ -182,6 +191,8 @@ def generate_thrift_report():
             ws = wb[target_sheet]
             start_row = 11
             output_filename = f"FORM_V_Register_Report_{current_month}.xlsx"
+        
+        
         else:
             return jsonify({'status': 'error', 'message': 'తప్పు ఫారమ్ రకం ఎంచుకోబడింది!'}), 400
 
