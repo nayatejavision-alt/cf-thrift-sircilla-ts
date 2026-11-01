@@ -27,6 +27,7 @@ from google.oauth2.service_account import Credentials
 import gspread
 from num2words import num2words
 from mismatch_routes import mismatch_bp
+from reports_routes import reports_bp
 import pandas as pd
 from rd_home import rd_bp
 from werkzeug.utils import secure_filename
@@ -64,6 +65,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(cf_bp)
 app.register_blueprint(mismatch_bp)
 app.register_blueprint(rd_bp)
+app.register_blueprint(reports_bp)
 
 
 # ✅ ఇదివరకు సగ్గా పనిచేసిన (ఫైల్ 7) సేఫ్ ఆథెంటికేషన్ పద్ధతి (ఎర్రర్స్ రావు)
