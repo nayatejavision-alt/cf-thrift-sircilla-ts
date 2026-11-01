@@ -7,7 +7,6 @@ import traceback
 
 reports_bp = Blueprint('reports_bp', __name__)
 
-# టెంప్లేట్ ఫైల్ ఉండే ఫోల్డర్ (assets/templates లేదా templates ఫోల్డర్)
 TEMPLATE_DIR = 'assets/templates'
 OUTPUT_DIR = 'assets/outputs'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -17,27 +16,47 @@ os.makedirs(TEMPLATE_DIR, exist_ok=True)
 def reports_dashboard():
     return render_template('reports_dashboard.html')
 
+def safe_set_cell_value(ws, row, col, value):
+    cell = ws.cell(row=row, column=col)
+    for merged_range in ws.merged_cells.ranges:
+        if cell.coordinate in merged_range:
+            top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+            top_left_cell.value = value
+            return
+    cell.value = value
+
 @reports_bp.route('/api/generate-thrift-report', methods=['POST'])
 def generate_thrift_report():
     try:
         data = request.get_json() if request.is_json else request.form
-        form_type = data.get('form_type', '').strip().upper() # FORM_III_A, FORM_III_B, FORM_V
+        form_type = data.get('form_type', '').strip().upper() 
+        target_month = int(data.get('month', 1)) # ఫ్రంట్ ఎండ్ నుండి వచ్చే నెల నంబర్ (డీఫాల్ట్ 1)
         
         if not form_type:
-            return jsonify({'status': 'error', 'message': 'దయచేసి రిపోర్ట్ రకాన్ని (Form Type) ఎంచుకోండి!'}), 400
+            return jsonify({'status': 'error', 'message': 'దయచేసి రిపోర్ట్ రకాన్ని ఎంచుకోండి!'}), 400
 
-        # గూగుల్ షీట్ నుండి డేటా లోడ్ చేయడం
-        from app import get_sheets_client, SPREADSHEET_NAME
+        from app import get_sheets_client, SPREADSHEET_NAME, MONTH_MAPPING
         
         client = get_sheets_client()
         sh = client.open(SPREADSHEET_NAME)
+        
+        # 1. త్రిఫ్ట్ మాస్టర్ డేటా లోడ్ చేయడం
         ws_thrift = sh.worksheet("NEW THRIFT DATA")
         df_thrift = pd.DataFrame(ws_thrift.get_all_records())
 
-        if df_thrift.empty:
-            return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో డేటా అందుబాటులో లేదు!'}), 400
+        # 2. ట్రాన్సాక్షన్ డేటా లోడ్ చేయడం (ఆ నెలలో Govt_Share > 0 ఉన్నవారిని ఫిల్టర్ చేయడానికి)
+        try:
+            ws_trans = sh.worksheet("Transactions_Year1")
+            df_trans = pd.DataFrame(ws_trans.get_all_records())
+        except Exception:
+            df_trans = pd.DataFrame()
 
-        current_month = datetime.now().strftime("%B_%Y")
+        if df_thrift.empty:
+            return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
+
+        selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
+        current_month_str = f"{selected_month_name}_{selected_year}"
+        
         template_filename = "Forms III, IV & V under Powerloom Thrift Scheme.xlsx"
         template_path = os.path.join(TEMPLATE_DIR, template_filename)
 
@@ -47,46 +66,81 @@ def generate_thrift_report():
         wb = openpyxl.load_workbook(template_path)
         output_filename = ""
 
+        # ట్రాన్సాక్షన్ డేటాతో మెర్జ్ చేసి ఆ నెలలో అర్హులైన (Govt_Share > 0) వారిని మాత్రమే ఫిల్టర్ చేయడం
+        if not df_trans.empty:
+            df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
+            df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce')
+            
+            # ఆ నెలకి చెందిన ట్రాన్సాక్షన్స్ మాత్రమే
+            df_month_trans = df_trans[(df_trans['MONTH_NUMBER'] == target_month) & (df_trans['Govt_Share'] > 0)]
+            
+            # మాస్టర్ డేటాతో మెర్జ్ చేయడం (RD 1 లేదా BANK_SNO ద్వారా)
+            df_filtered = pd.merge(
+                df_month_trans,
+                df_thrift,
+                left_on='RD ACCOUNT_1 (Beneficiary Contribution)',
+                right_on='RD 1',
+                how='inner', # కేవలం ఆ నెలలో ట్రాన్సాక్షన్ ఉన్నవారు మాత్రమే
+                suffixes=('', '_THRIFT')
+            )
+            df_filtered = df_filtered.drop_duplicates(subset=['RD 1']).reset_index(drop=True)
+        else:
+            df_filtered = pd.DataFrame()
+
+        # ఒకవేళ ఆ నెలలో ఎంట్రీలు లేకపోతే మాస్టర్ డేటా తీసుకోవాలా లేదా ఎర్రర్ చెప్పాలా అనేది ఇక్కడ హ్యాండిల్ చేయొచ్చు
+        if df_filtered.empty and form_type == 'FORM_V':
+            # ఒకవేళ మాస్టర్ డేటా అందరిదీ కావాలంటే df_thrift వాడవచ్చు, కానీ మీరు అడిగినట్లు ఆ నెల ట్రేడింగ్ ప్రకారం రావాలంటే:
+            df_filtered = df_thrift.copy() # లేదా రికార్డులు లేవు అనొచ్చు
+
+        # అకౌంట్ నంబర్లు సైంటిఫిక్ నోటేషన్ కాకుండా టెక్స్ట్ ఫార్మాట్‌లో ఉంచే హెల్పర్
+        def format_acc(val):
+            if val is None:
+                return ''
+            val_str = str(val).split('.')[0].strip().strip("'")
+            if val_str and val_str != 'nan' and val_str != '0':
+                return f"'{val_str}"
+            return ''
+
         # ==========================================
         # 1. FORM III-A (Powerloom Weavers Only)
         # ==========================================
         if form_type == 'FORM_III_A':
-            df_weavers = df_thrift[df_thrift['Profession'].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy()
+            df_weavers = df_thrift[df_thrift['Profession'].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy() if not df_thrift.empty else pd.DataFrame()
             df_weavers = df_weavers.reset_index(drop=True)
 
-            df_weavers['Father_Husband_Name'] = df_weavers['Father Name'].fillna('')
+            df_weavers['Father_Husband_Name'] = df_weavers.get('Father Name', '').fillna('')
             df_weavers['Full_Address'] = (
-                df_weavers['H.NO. Residentional H.No'].fillna('').astype(str) + ", " +
-                df_weavers['VILLAGE NAME'].fillna('').astype(str) + ", " +
-                df_weavers['MANDAL NAME'].fillna('').astype(str) + ", " +
-                df_weavers['DISTRICT NAME'].fillna('').astype(str)
+                df_weavers.get('H.NO. Residentional H.No', '').fillna('').astype(str) + ", " +
+                df_weavers.get('VILLAGE NAME', '').fillna('').astype(str) + ", " +
+                df_weavers.get('MANDAL NAME', '').fillna('').astype(str) + ", " +
+                df_weavers.get('DISTRICT NAME', '').fillna('').astype(str)
             )
             df_weavers['SB_Account_Details'] = (
-                "A/c: " + df_weavers['Bank Account Number'].fillna('').astype(str) +
-                ", Bank: " + df_weavers['Bank Name'].fillna('').astype(str) +
-                ", IFSC: " + df_weavers['IFSC code'].fillna('').astype(str)
+                "A/c: " + df_weavers.get('Bank Account Number', '').fillna('').astype(str) +
+                ", Bank: " + df_weavers.get('Bank Name', '').fillna('').astype(str) +
+                ", IFSC: " + df_weavers.get('IFSC code', '').fillna('').astype(str)
             )
             df_weavers['Nominee_Details'] = (
-                "Name: " + df_weavers['Nominee Name'].fillna('').astype(str) +
-                ", Rel: " + df_weavers['Relation'].fillna('').astype(str)
+                "Name: " + df_weavers.get('Nominee Name', '').fillna('').astype(str) +
+                ", Rel: " + df_weavers.get('Relation', '').fillna('').astype(str)
             )
-            df_weavers['Date_of_Enrollment'] = "01/08/2026"
+            df_weavers['Date_of_Enrollment'] = "01/06/2026"
 
             report_df = pd.DataFrame({
                 'Sl. No.': range(1, len(df_weavers) + 1),
-                'Name of the Powerloom Weaver': df_weavers['Name Of Benificiary'],
+                'Name of the Powerloom Weaver': df_weavers.get('Name Of Benificiary', ''),
                 'Whether belongs to MACS/SSI/ Individual': 'Individual',
                 'If Yes, Indicate Name of MAC/SSI': '',
-                'Geo Tagged Loom No.': df_weavers['GEO TAG NUMBER'],
+                'Geo Tagged Loom No.': df_weavers.get('GEO TAG NUMBER', ''),
                 'Full Address': df_weavers['Full_Address'],
                 "Father's/Husband's Name": df_weavers['Father_Husband_Name'],
                 'Date of Enrollment': df_weavers['Date_of_Enrollment'],
-                'Aadhar No.': df_weavers['Aadhar Number'],
-                'Age as per Aadhar': df_weavers['Age'],
-                'Caste': df_weavers['Caste'],
-                'Mobile No.': df_weavers['Contact Number'],
-                'Amount of Contribution (8% of wages)': df_weavers['8% Of Monthly Wages'],
-                'Amount of 8% contribution required from Govt': df_weavers['8% Of Monthly Wages'],
+                'Aadhar No.': df_weavers.get('Aadhar Number', '').apply(format_acc),
+                'Age as per Aadhar': df_weavers.get('Age', ''),
+                'Caste': df_weavers.get('Caste', 'BC'),
+                'Mobile No.': df_weavers.get('Contact Number', '').apply(format_acc),
+                'Amount of Contribution (8% of wages)': df_weavers.get('8% Of Monthly Wages', ''),
+                'Amount of 8% contribution required from Govt': df_weavers.get('8% Of Monthly Wages', ''),
                 'S/B Account details': df_weavers['SB_Account_Details'],
                 'Nominee details': df_weavers['Nominee_Details']
             })
@@ -94,47 +148,47 @@ def generate_thrift_report():
             target_sheet = next((s for s in wb.sheetnames if "IIIA Revised" in s or "Form IIIA" in s), wb.sheetnames[0])
             ws = wb[target_sheet]
             start_row = 7
-            output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month}.xlsx"
+            output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month_str}.xlsx"
 
         # ==========================================
         # 2. FORM III-B (Ancillary Workers)
         # ==========================================
         elif form_type == 'FORM_III_B':
-            df_ancillary = df_thrift[df_thrift['Profession'].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy()
+            df_ancillary = df_thrift[df_thrift['Profession'].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy() if not df_thrift.empty else pd.DataFrame()
             df_ancillary = df_ancillary.reset_index(drop=True)
 
-            df_ancillary['Father_Husband_Name'] = df_ancillary['Father Name'].fillna('')
+            df_ancillary['Father_Husband_Name'] = df_ancillary.get('Father Name', '').fillna('')
             df_ancillary['Full_Address'] = (
-                df_ancillary['H.NO. Residentional H.No'].fillna('').astype(str) + ", " +
-                df_ancillary['VILLAGE NAME'].fillna('').astype(str) + ", " +
-                df_ancillary['MANDAL NAME'].fillna('').astype(str) + ", " +
-                df_ancillary['DISTRICT NAME'].fillna('').astype(str)
+                df_ancillary.get('H.NO. Residentional H.No', '').fillna('').astype(str) + ", " +
+                df_ancillary.get('VILLAGE NAME', '').fillna('').astype(str) + ", " +
+                df_ancillary.get('MANDAL NAME', '').fillna('').astype(str) + ", " +
+                df_ancillary.get('DISTRICT NAME', '').fillna('').astype(str)
             )
             df_ancillary['SB_Account_Details'] = (
-                "A/c: " + df_ancillary['Bank Account Number'].fillna('').astype(str) +
-                ", Bank: " + df_ancillary['Bank Name'].fillna('').astype(str) +
-                ", IFSC: " + df_ancillary['IFSC code'].fillna('').astype(str)
+                "A/c: " + df_ancillary.get('Bank Account Number', '').fillna('').astype(str) +
+                ", Bank: " + df_ancillary.get('Bank Name', '').fillna('').astype(str) +
+                ", IFSC: " + df_ancillary.get('IFSC code', '').fillna('').astype(str)
             )
             df_ancillary['Nominee_Details'] = (
-                "Name: " + df_ancillary['Nominee Name'].fillna('').astype(str) +
-                ", Rel: " + df_ancillary['Relation'].fillna('').astype(str)
+                "Name: " + df_ancillary.get('Nominee Name', '').fillna('').astype(str) +
+                ", Rel: " + df_ancillary.get('Relation', '').fillna('').astype(str)
             )
-            df_ancillary['Date_of_Enrollment'] = "01/08/2026"
+            df_ancillary['Date_of_Enrollment'] = "01/06/2026"
 
             report_df = pd.DataFrame({
                 'Sl. No.': range(1, len(df_ancillary) + 1),
-                'Name of the Ancillary Worker': df_ancillary['Name Of Benificiary'],
-                'Category of Ancillary Work': df_ancillary['Profession'],
-                'Geo Tagged Loom No.': df_ancillary['GEO TAG NUMBER'],
+                'Name of the Ancillary Worker': df_ancillary.get('Name Of Benificiary', ''),
+                'Category of Ancillary Work': df_ancillary.get('Profession', ''),
+                'Geo Tagged Loom No.': df_ancillary.get('GEO TAG NUMBER', ''),
                 'Full Address': df_ancillary['Full_Address'],
                 "Father's/Husband's Name": df_ancillary['Father_Husband_Name'],
                 'Date of Enrollment': df_ancillary['Date_of_Enrollment'],
-                'Aadhar No.': df_ancillary['Aadhar Number'],
-                'Age as per Aadhar': df_ancillary['Age'],
-                'Caste': df_ancillary['Caste'],
-                'Mobile No.': df_ancillary['Contact Number'],
-                'Amount of Contribution (8% of wages)': df_ancillary['8% Of Monthly Wages'],
-                'Amount of 8% contribution required from Govt': df_ancillary['8% Of Monthly Wages'],
+                'Aadhar No.': df_ancillary.get('Aadhar Number', '').apply(format_acc),
+                'Age as per Aadhar': df_ancillary.get('Age', ''),
+                'Caste': df_ancillary.get('Caste', 'BC'),
+                'Mobile No.': df_ancillary.get('Contact Number', '').apply(format_acc),
+                'Amount of Contribution (8% of wages)': df_ancillary.get('8% Of Monthly Wages', ''),
+                'Amount of 8% contribution required from Govt': df_ancillary.get('8% Of Monthly Wages', ''),
                 'S/B Account details': df_ancillary['SB_Account_Details'],
                 'Nominee details': df_ancillary['Nominee_Details']
             })
@@ -142,65 +196,61 @@ def generate_thrift_report():
             target_sheet = next((s for s in wb.sheetnames if "IIIB Revised" in s or "Form IIIB" in s), wb.sheetnames[0])
             ws = wb[target_sheet]
             start_row = 7
-            output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month}.xlsx"
+            output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month_str}.xlsx"
 
         # ==========================================
         # 3. FORM V (All Beneficiaries Total Register)
         # ==========================================
         elif form_type == 'FORM_V':
-            df_v = df_thrift.copy().reset_index(drop=True)
-            df_v['Village_Mandal'] = (
-                df_v['VILLAGE NAME'].fillna('').astype(str) + ", " +
-                df_v['MANDAL NAME'].fillna('').astype(str)
-            )
-            df_v['Date_of_Enrollment'] = "01/08/2026"
+            df_v = df_filtered.copy().reset_index(drop=True) if not df_filtered.empty else pd.DataFrame()
+            
+            if not df_v.empty:
+                df_v['Village_Mandal'] = (
+                    df_v.get('VILLAGE NAME', '').fillna('').astype(str) + ", " +
+                    df_v.get('MANDAL NAME', '').fillna('').astype(str)
+                )
+                df_v['Date_of_Enrollment'] = "01/06/2026"
 
-            # పెద్ద డిజిట్ల అకౌంట్ నంబర్లు ఎక్సెల్‌లో పాడవకుండా టెక్స్ట్ ఫార్మాట్‌లోకి మార్చే హెల్పర్
-            def format_acc(val):
-                if val is None:
-                    return ''
-                val_str = str(val).split('.')[0].strip().strip("'")
-                if val_str and val_str != 'nan' and val_str != '0':
-                    return f"'{val_str}"
-                return ''
-
-            report_df = pd.DataFrame({
-                'Sl. No.': range(1, len(df_v) + 1),
-                'Name of the beneficiary': df_v['Name Of Benificiary'],
-                'Profession/Activity': df_v['Profession'],
-                'Father / Husband Name': df_v['Father Name'].fillna(''),
-                'Age': df_v['Age'],
-                'Aadhar No.': df_v['Aadhar Number'].apply(format_acc), # ఆధార్ నంబర్లకు కూడా రక్షణ
-                'Address - H.No. & Street': df_v['H.NO. Residentional H.No'].fillna(''),
-                'Address - Village & Mandal': df_v['Village_Mandal'],
-                'Address - District': df_v['DISTRICT NAME'].fillna(''),
-                'Geo-tag Number': df_v['GEO TAG NUMBER'].fillna(''),
-                'Mobile No.': df_v['Contact Number'].apply(format_acc),
-                'Date of Enrollment into the Scheme': df_v['Date_of_Enrollment'],
-                'SB A/c No.': df_v['Bank Account Number'].apply(format_acc),  # 15-16 డిజిట్ల సేవింగ్స్ అకౌంట్
-                'Name of the Bank & Branch Location': df_v['Bank Name'].fillna(''),
-                'IFSC Code': df_v['IFSC code'].fillna(''),
-                'RD A/c No.1': df_v['RD 1'].apply(format_acc),                 # 15-16 డిజిట్ల RD A/c 1
-                'RD A/c No.2': df_v['RD 2'].apply(format_acc),                 # 15-16 డిజిట్ల RD A/c 2
-                'Declared wages earned per month': df_v['MONTHLY WAGES'].fillna(''),
-                'Weaver contribution 8%': df_v['8% Of Monthly Wages'].fillna(''),
-                'Govt. contribution 8%': df_v['8% Of Monthly Wages'].fillna('')
-            })
+                report_df = pd.DataFrame({
+                    'Sl. No.': range(1, len(df_v) + 1),
+                    'Name of the beneficiary': df_v.get('Name Of Benificiary', ''),
+                    'Profession/Activity': df_v.get('Profession', ''),
+                    'Father / Husband Name': df_v.get('Father Name', '').fillna(''),
+                    'Age': df_v.get('Age', ''),
+                    'Aadhar No.': df_v.get('Aadhar Number', '').apply(format_acc),
+                    'Address - H.No. & Street': df_v.get('H.NO. Residentional H.No', '').fillna(''),
+                    'Address - Village & Mandal': df_v['Village_Mandal'],
+                    'Address - District': df_v.get('DISTRICT NAME', '').fillna(''),
+                    'Geo-tag Number': df_v.get('GEO TAG NUMBER', '').fillna(''),
+                    'Mobile No.': df_v.get('Contact Number', '').apply(format_acc),
+                    'Date of Enrollment into the Scheme': df_v['Date_of_Enrollment'],
+                    'SB A/c No.': df_v.get('Bank Account Number', '').apply(format_acc),
+                    'Name of the Bank & Branch Location': df_v.get('Bank Name', '').fillna(''),
+                    'IFSC Code': df_v.get('IFSC code', '').fillna(''),
+                    'RD A/c No.1': df_v.get('RD 1', '').apply(format_acc),
+                    'RD A/c No.2': df_v.get('RD 2', '').apply(format_acc),
+                    'Declared wages earned per month': df_v.get('MONTHLY WAGES', '').fillna(''),
+                    'Weaver contribution 8%': df_v.get('8% Of Monthly Wages', '').fillna(''),
+                    'Govt. contribution 8%': df_v.get('8% Of Monthly Wages', '').fillna('')
+                })
+            else:
+                report_df = pd.DataFrame()
 
             target_sheet = next((s for s in wb.sheetnames if "Form-V" in s or "Form V" in s), wb.sheetnames[0])
             ws = wb[target_sheet]
             start_row = 11
-            output_filename = f"FORM_V_Register_Report_{current_month}.xlsx"
-        
-        
+            output_filename = f"FORM_V_Register_Report_{current_month_str}.xlsx"
         else:
             return jsonify({'status': 'error', 'message': 'తప్పు ఫారమ్ రకం ఎంచుకోబడింది!'}), 400
 
-        # ఎక్సెల్ గడులను నింపడం
+        if report_df.empty:
+            return jsonify({'status': 'error', 'message': f'ఎంచుకున్న నెల ({selected_month_name} {selected_year}) లో ఎలాంటి అర్హత గల రికార్డులు (Govt Share > 0) కనుగొనబడలేదు!'}), 400
+
+        # ఎక్సెల్ గడులను సురక్షితంగా నింపడం
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
             current_r = start_row + row_idx
             for col_idx, value in enumerate(row, start=1):
-                ws.cell(row=current_r, column=col_idx, value=value)
+                safe_set_cell_value(ws, current_r, col_idx, value)
 
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         wb.save(output_path)
