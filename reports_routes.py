@@ -1,4 +1,5 @@
 import os
+import gc
 import openpyxl
 from datetime import datetime
 import pandas as pd
@@ -42,10 +43,13 @@ def generate_thrift_report():
         
         # 1. త్రిఫ్ట్ మాస్టర్ డేటా లోడ్ చేయడం
         ws_thrift = sh.worksheet("NEW THRIFT DATA")
-        df_thrift = pd.DataFrame(ws_thrift.get_all_records())
-
-        if df_thrift.empty:
+        thrift_data = ws_thrift.get_all_records()
+        if not thrift_data:
             return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
+            
+        df_thrift = pd.DataFrame(thrift_data)
+        del thrift_data
+        gc.collect()
 
         selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
         current_month_str = f"{selected_month_name}_{selected_year}"
@@ -60,7 +64,6 @@ def generate_thrift_report():
         output_filename = ""
         report_df = pd.DataFrame()
 
-        # అకౌంట్ నంబర్లు సైంటిఫిక్ నోటేషన్ కాకుండా టెక్స్ట్ ఫార్మాట్‌లో ఉంచే హెల్పర్
         def format_acc(val):
             if val is None:
                 return ''
@@ -70,7 +73,7 @@ def generate_thrift_report():
             return ''
 
         # ==========================================
-        # 1. FORM III-A (Powerloom Weavers Only - నేరుగా df_thrift వాడకం)
+        # 1. FORM III-A
         # ==========================================
         if form_type == 'FORM_III_A':
             profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
@@ -141,9 +144,12 @@ def generate_thrift_report():
             ws = wb[target_sheet]
             start_row = 7
             output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month_str}.xlsx"
+            
+            del df_weavers
+            gc.collect()
 
         # ==========================================
-        # 2. FORM III-B (Ancillary Workers - నేరుగా df_thrift వాడకం)
+        # 2. FORM III-B
         # ==========================================
         elif form_type == 'FORM_III_B':
             profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
@@ -213,22 +219,30 @@ def generate_thrift_report():
             ws = wb[target_sheet]
             start_row = 7
             output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month_str}.xlsx"
+            
+            del df_ancillary
+            gc.collect()
 
         # ==========================================
-        # 3. FORM V (All Beneficiaries Total Register - కేవలం దీనికి మాత్రమే ట్రాన్సాక్షన్ ఫిల్టర్ వర్తిస్తుంది)
+        # 3. FORM V
         # ==========================================
         elif form_type == 'FORM_V':
             try:
                 ws_trans = sh.worksheet("Transactions_Year1")
-                df_trans = pd.DataFrame(ws_trans.get_all_records())
+                trans_data = ws_trans.get_all_records()
+                df_trans = pd.DataFrame(trans_data) if trans_data else pd.DataFrame()
+                del trans_data
             except Exception:
                 df_trans = pd.DataFrame()
 
+            df_filtered = pd.DataFrame()
             if not df_trans.empty and 'Govt_Share' in df_trans.columns and 'MONTH_NUMBER' in df_trans.columns:
                 df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
                 df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce')
                 
                 df_month_trans = df_trans[(df_trans['MONTH_NUMBER'] == target_month) & (df_trans['Govt_Share'] > 0)]
+                del df_trans
+                gc.collect()
                 
                 if not df_month_trans.empty and 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_month_trans.columns and 'RD 1' in df_thrift.columns:
                     df_filtered = pd.merge(
@@ -240,15 +254,15 @@ def generate_thrift_report():
                         suffixes=('', '_THRIFT')
                     )
                     df_filtered = df_filtered.drop_duplicates(subset=['RD 1']).reset_index(drop=True)
-                else:
-                    df_filtered = pd.DataFrame()
-            else:
-                df_filtered = pd.DataFrame()
+                del df_month_trans
+                gc.collect()
 
             if df_filtered.empty:
                 df_filtered = df_thrift.copy()
 
             df_v = df_filtered.copy().reset_index(drop=True)
+            del df_filtered
+            gc.collect()
             
             if not df_v.empty:
                 vill_col = 'VILLAGE NAME' if 'VILLAGE NAME' in df_v.columns else ''
@@ -302,13 +316,15 @@ def generate_thrift_report():
             ws = wb[target_sheet]
             start_row = 11
             output_filename = f"FORM_V_Register_Report_{current_month_str}.xlsx"
+            
+            del df_v
+            gc.collect()
         else:
             return jsonify({'status': 'error', 'message': 'తప్పు ఫారమ్ రకం ఎంచుకోబడింది!'}), 400
 
         if report_df.empty:
             return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
 
-        # ఎక్సెల్ గడులను సురక్షితంగా నింపడం
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
             current_r = start_row + row_idx
             for col_idx, value in enumerate(row, start=1):
@@ -316,6 +332,9 @@ def generate_thrift_report():
 
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         wb.save(output_path)
+        
+        del df_thrift
+        gc.collect()
 
         return send_file(output_path, as_attachment=True, download_name=output_filename)
 
