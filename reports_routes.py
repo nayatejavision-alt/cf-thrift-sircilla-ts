@@ -131,7 +131,7 @@ def generate_form_iiia():
 
         target_sheet = next((s for s in wb.sheetnames if "IIIA Revised" in s or "Form IIIA" in s), wb.sheetnames[0])
         ws = wb[target_sheet]
-        start_row = 7
+        start_row = 8
         output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month_str}.xlsx"
 
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
@@ -248,7 +248,7 @@ def generate_form_iiib():
 
         target_sheet = next((s for s in wb.sheetnames if "IIIB Revised" in s or "Form IIIB" in s), wb.sheetnames[0])
         ws = wb[target_sheet]
-        start_row = 7
+        start_row = 8
         output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month_str}.xlsx"
 
         for row_idx, row in enumerate(report_df.itertuples(index=False)):
