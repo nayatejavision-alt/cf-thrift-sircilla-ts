@@ -408,3 +408,231 @@ def generate_form_v():
     except Exception as e:
         print("ERROR IN FORM_V:", traceback.format_exc())
         return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
+
+# ==========================================
+# 4. MASTER REPORT (All Tabs: Form III-A, III-B, IV & V)
+# ==========================================
+@reports_bp.route('/api/generate-all-reports', methods=['POST'])
+def generate_all_reports():
+    try:
+        data = request.get_json() if request.is_json else request.form
+        target_month = int(data.get('month', 1))
+        
+        from app import get_sheets_client, SPREADSHEET_NAME, MONTH_MAPPING
+        client = get_sheets_client()
+        sh = client.open(SPREADSHEET_NAME)
+        
+        ws_thrift = sh.worksheet("NEW THRIFT DATA")
+        thrift_data = ws_thrift.get_all_records()
+        if not thrift_data:
+            return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
+            
+        df_thrift = pd.DataFrame(thrift_data)
+        del thrift_data
+        gc.collect()
+
+        selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
+        current_month_str = f"{selected_month_name}_{selected_year}"
+        
+        template_path = os.path.join(TEMPLATE_DIR, "Forms III, IV & V under Powerloom Thrift Scheme.xlsx")
+        wb = openpyxl.load_workbook(template_path)
+
+        # Common column mappings
+        profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
+        father_col = 'Father Name' if 'Father Name' in df_thrift.columns else ''
+        hno_col = 'H.NO. Residentional H.No' if 'H.NO. Residentional H.No' in df_thrift.columns else ''
+        vill_col = 'VILLAGE NAME' if 'VILLAGE NAME' in df_thrift.columns else ''
+        mandal_col = 'MANDAL NAME' if 'MANDAL NAME' in df_thrift.columns else ''
+        dist_col = 'DISTRICT NAME' if 'DISTRICT NAME' in df_thrift.columns else ''
+        acc_col = 'Bank Account Number' if 'Bank Account Number' in df_thrift.columns else ''
+        bank_col = 'Bank Name' if 'Bank Name' in df_thrift.columns else ''
+        ifsc_col = 'IFSC code' if 'IFSC code' in df_thrift.columns else ''
+        nom_col = 'Nominee Name' if 'Nominee Name' in df_thrift.columns else ''
+        rel_col = 'Relation' if 'Relation' in df_thrift.columns else ''
+        name_col = 'Name Of Benificiary' if 'Name Of Benificiary' in df_thrift.columns else df_thrift.columns[1]
+        geo_col = 'GEO TAG NUMBER' if 'GEO TAG NUMBER' in df_thrift.columns else ''
+        aadhar_col = 'Aadhar Number' if 'Aadhar Number' in df_thrift.columns else ''
+        age_col = 'Age' if 'Age' in df_thrift.columns else ''
+        caste_col = 'Caste' if 'Caste' in df_thrift.columns else ''
+        mobile_col = 'Contact Number' if 'Contact Number' in df_thrift.columns else ''
+        wages_col = '8% Of Monthly Wages' if '8% Of Monthly Wages' in df_thrift.columns else ''
+
+        # ------------------------------------------
+        # A. Fill FORM IIIA Revised (Powerloom Weavers)
+        # ------------------------------------------
+        df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy().reset_index(drop=True)
+        if not df_weavers.empty:
+            df_weavers['Father_Husband_Name'] = df_weavers[father_col].fillna('') if father_col else ''
+            df_weavers['Full_Address'] = (
+                (df_weavers[hno_col].fillna('').astype(str) + ", ") if hno_col else ""
+            ) + (
+                (df_weavers[vill_col].fillna('').astype(str) + ", ") if vill_col else ""
+            ) + (
+                (df_weavers[mandal_col].fillna('').astype(str) + ", ") if mandal_col else ""
+            ) + (
+                df_weavers[dist_col].fillna('').astype(str) if dist_col else ""
+            )
+            df_weavers['SB_Account_Details'] = (
+                "A/c: " + df_weavers[acc_col].fillna('').astype(str) +
+                ", Bank: " + df_weavers[bank_col].fillna('').astype(str) +
+                ", IFSC: " + df_weavers[ifsc_col].fillna('').astype(str) if (acc_col and bank_col and ifsc_col) else ''
+            )
+            df_weavers['Nominee_Details'] = (
+                "Name: " + df_weavers[nom_col].fillna('').astype(str) +
+                ", Rel: " + df_weavers[rel_col].fillna('').astype(str) if (nom_col and rel_col) else ''
+            )
+            df_weavers['Date_of_Enrollment'] = "01/06/2026"
+
+            report_df_iiia = pd.DataFrame({
+                'Sl. No.': range(1, len(df_weavers) + 1),
+                'Name of the Powerloom Weaver': df_weavers[name_col],
+                'Whether belongs to MACS/SSI/ Individual': 'Individual',
+                'If Yes, Indicate Name of MAC/SSI': '',
+                'Geo Tagged Loom No.': df_weavers[geo_col].fillna('') if geo_col else '',
+                'Full Address': df_weavers['Full_Address'],
+                "Father's/Husband's Name": df_weavers['Father_Husband_Name'],
+                'Date of Enrollment': df_weavers['Date_of_Enrollment'],
+                'Aadhar No.': df_weavers[aadhar_col].apply(format_acc) if aadhar_col else '',
+                'Age as per Aadhar': df_weavers[age_col] if age_col else '',
+                'Caste': df_weavers[caste_col].fillna('BC') if caste_col else 'BC',
+                'Mobile No.': df_weavers[mobile_col].apply(format_acc) if mobile_col else '',
+                'Amount of Contribution (8% of wages)': df_weavers[wages_col] if wages_col else '',
+                'Amount of 8% contribution required from Govt': df_weavers[wages_col] if wages_col else '',
+                'S/B Account details': df_weavers['SB_Account_Details'],
+                'Nominee details': df_weavers['Nominee_Details']
+            })
+            
+            target_sheet_iiia = next((s for s in wb.sheetnames if "IIIA Revised" in s or "Form IIIA" in s), None)
+            if target_sheet_iiia:
+                ws_iiia = wb[target_sheet_iiia]
+                for row_idx, row in enumerate(report_df_iiia.itertuples(index=False)):
+                    current_r = 8 + row_idx
+                    for col_idx, value in enumerate(row, start=1):
+                        ws_iiia.cell(row=current_r, column=col_idx).value = value
+
+        # ------------------------------------------
+        # B. Fill Form IIIB Revised (Ancillary Workers)
+        # ------------------------------------------
+        df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy().reset_index(drop=True)
+        if not df_ancillary.empty:
+            df_ancillary['Father_Husband_Name'] = df_ancillary[father_col].fillna('') if father_col else ''
+            df_ancillary['Full_Address'] = (
+                (df_ancillary[hno_col].fillna('').astype(str) + ", ") if hno_col else ""
+            ) + (
+                (df_ancillary[vill_col].fillna('').astype(str) + ", ") if vill_col else ""
+            ) + (
+                (df_ancillary[mandal_col].fillna('').astype(str) + ", ") if mandal_col else ""
+            ) + (
+                df_ancillary[dist_col].fillna('').astype(str) if dist_col else ""
+            )
+            df_ancillary['SB_Account_Details'] = (
+                "A/c: " + df_ancillary[acc_col].fillna('').astype(str) +
+                ", Bank: " + df_ancillary[bank_col].fillna('').astype(str) +
+                ", IFSC: " + df_ancillary[ifsc_col].fillna('').astype(str) if (acc_col and bank_col and ifsc_col) else ''
+            )
+            df_ancillary['Nominee_Details'] = (
+                "Name: " + df_ancillary[nom_col].fillna('').astype(str) +
+                ", Rel: " + df_ancillary[rel_col].fillna('').astype(str) if (nom_col and rel_col) else ''
+            )
+            df_ancillary['Date_of_Enrollment'] = "01/06/2026"
+
+            report_df_iiib = pd.DataFrame({
+                'Sl. No.': range(1, len(df_ancillary) + 1),
+                'Name of the Ancillary Worker': df_ancillary[name_col],
+                'Category of Ancillary Work': df_ancillary[profession_col],
+                'Geo Tagged Loom No.': df_ancillary[geo_col].fillna('') if geo_col else '',
+                'Full Address': df_ancillary['Full_Address'],
+                "Father's/Husband's Name": df_ancillary['Father_Husband_Name'],
+                'Date of Enrollment': df_ancillary['Date_of_Enrollment'],
+                'Aadhar No.': df_ancillary[aadhar_col].apply(format_acc) if aadhar_col else '',
+                'Age as per Aadhar': df_ancillary[age_col] if age_col else '',
+                'Caste': df_ancillary[caste_col].fillna('BC') if caste_col else 'BC',
+                'Mobile No.': df_ancillary[mobile_col].apply(format_acc) if mobile_col else '',
+                'Amount of Contribution (8% of wages)': df_ancillary[wages_col] if wages_col else '',
+                'Amount of 8% contribution required from Govt': df_ancillary[wages_col] if wages_col else '',
+                'S/B Account details': df_ancillary['SB_Account_Details'],
+                'Nominee details': df_ancillary['Nominee_Details']
+            })
+
+            target_sheet_iiib = next((s for s in wb.sheetnames if "IIIB Revised" in s or "Form IIIB" in s), None)
+            if target_sheet_iiib:
+                ws_iiib = wb[target_sheet_iiib]
+                for row_idx, row in enumerate(report_df_iiib.itertuples(index=False)):
+                    current_r = 8 + row_idx
+                    for col_idx, value in enumerate(row, start=1):
+                        ws_iiib.cell(row=current_r, column=col_idx).value = value
+
+        # ------------------------------------------
+        # C. Fill Form-V (Total Register)
+        # ------------------------------------------
+        df_v = df_thrift.copy().reset_index(drop=True)
+        df_v['Village_Mandal'] = (
+            df_v[vill_col].fillna('').astype(str) + ", " + df_v[mandal_col].fillna('').astype(str) if (vill_col and mandal_col) else ''
+        )
+        df_v['Date_of_Enrollment'] = "01/06/2026"
+        rd1_col = 'RD 1' if 'RD 1' in df_v.columns else ''
+        rd2_col = 'RD 2' if 'RD 2' in df_v.columns else ''
+        wages_monthly_col = 'MONTHLY WAGES' if 'MONTHLY WAGES' in df_v.columns else ''
+
+        report_df_v = pd.DataFrame({
+            'Sl. No.': range(1, len(df_v) + 1),
+            'Name of the beneficiary': df_v[name_col] if name_col else '',
+            'Profession/Activity': df_v[profession_col].fillna('') if profession_col else '',
+            'Father / Husband Name': df_v[father_col].fillna('') if father_col else '',
+            'Age': df_v[age_col] if age_col else '',
+            'Aadhar No.': df_v[aadhar_col].apply(format_acc) if aadhar_col else '',
+            'Address - H.No. & Street': df_v[hno_col].fillna('') if hno_col else '',
+            'Address - Village & Mandal': df_v['Village_Mandal'],
+            'Address - District': df_v[dist_col].fillna('') if dist_col else '',
+            'Geo-tag Number': df_v[geo_col].fillna('') if geo_col else '',
+            'Mobile No.': df_v[mobile_col].apply(format_acc) if mobile_col else '',
+            'Date of Enrollment into the Scheme': df_v['Date_of_Enrollment'],
+            'SB A/c No.': df_v[acc_col].apply(format_acc) if acc_col else '',
+            'Name of the Bank & Branch Location': df_v[bank_col].fillna('') if bank_col else '',
+            'IFSC Code': df_v[ifsc_col].fillna('') if ifsc_col else '',
+            'RD A/c No.1': df_v[rd1_col].apply(format_acc) if rd1_col else '',
+            'RD A/c No.2': df_v[rd2_col].apply(format_acc) if rd2_col else '',
+            'Declared wages earned per month': df_v[wages_monthly_col].fillna('') if wages_monthly_col else '',
+            'Weaver contribution 8%': df_v[wages_col].fillna('') if wages_col else '',
+            'Govt. contribution 8%': df_v[wages_col].fillna('') if wages_col else ''
+        })
+
+        target_sheet_v = next((s for s in wb.sheetnames if "Form-V" in s or "Form V" in s), None)
+        if target_sheet_v:
+            ws_v = wb[target_sheet_v]
+            for row_idx, row in enumerate(report_df_v.itertuples(index=False)):
+                current_r = 11 + row_idx
+                for col_idx, value in enumerate(row, start=1):
+                    ws_v.cell(row=current_r, column=col_idx).value = value
+
+        # ------------------------------------------
+        # D. Fill Form-IV Revised (Summary Counts)
+        # ------------------------------------------
+        target_sheet_iv = next((s for s in wb.sheetnames if "Form-IV" in s), None)
+        if target_sheet_iv:
+            ws_iv = wb[target_sheet_iv]
+            weavers_count = len(df_weavers)
+            ancillary_count = len(df_ancillary)
+            
+            # Row 9 values update based on counts
+            ws_iv.cell(row=9, column=3).value = weavers_count
+            ws_iv.cell(row=9, column=4).value = ancillary_count
+            ws_iv.cell(row=9, column=6).value = weavers_count
+            ws_iv.cell(row=9, column=7).value = ancillary_count
+            ws_iv.cell(row=9, column=9).value = weavers_count
+            ws_iv.cell(row=9, column=10).value = ancillary_count
+            ws_iv.cell(row=9, column=12).value = weavers_count
+            ws_iv.cell(row=9, column=13).value = ancillary_count
+
+        output_filename = f"MASTER_Thrift_Scheme_All_Reports_{current_month_str}.xlsx"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        wb.save(output_path)
+        
+        del df_thrift
+        gc.collect()
+
+        return send_file(output_path, as_attachment=True, download_name=output_filename)
+
+    except Exception as e:
+        print("ERROR IN MASTER_REPORT:", traceback.format_exc())
+        return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
