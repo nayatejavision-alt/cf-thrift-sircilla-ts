@@ -154,28 +154,31 @@
 
     <!-- JavaScript for AJAX Download -->
     <script>
-        async function generateReport(formType, btnElement) {
+  async function generateReport(formType, btnElement) {
             const alertBox = document.getElementById('alertBox');
-            alertBox.className = "alert d-none"; // Reset alert
+            alertBox.className = "alert d-none"; 
             
-            // డ్రాప్‌డౌన్ నుండి సెలెక్ట్ చేసిన నెల నంబర్ తీసుకోవడం
             const selectedMonth = document.getElementById('reportMonth').value;
 
-            // Disable button and show loading
+            // ఫారమ్ రకాన్ని బట్టి సరైన API ఎండ్‌పాయింట్ ఎంచుకోవడం
+            let apiEndpoint = '/api/generate-form-v';
+            if (formType === 'FORM_III_A') {
+                apiEndpoint = '/api/generate-form-iiia';
+            } else if (formType === 'FORM_III_B') {
+                apiEndpoint = '/api/generate-form-iiib';
+            }
+
             const originalHtml = btnElement.innerHTML;
             btnElement.disabled = true;
             btnElement.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>తయారవుతోంది...`;
 
             try {
-                const response = await fetch('/api/generate-thrift-report', {
+                const response = await fetch(apiEndpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ 
-                        form_type: formType, 
-                        month: selectedMonth 
-                    })
+                    body: JSON.stringify({ month: selectedMonth })
                 });
 
                 if (response.ok) {
@@ -190,7 +193,6 @@
                         }
                     }
 
-                    // Create download link dynamically
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
@@ -210,7 +212,6 @@
                 alertBox.className = "alert alert-danger";
                 alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-2"></i>లోపం: ${error.message}`;
             } finally {
-                // Restore button state
                 btnElement.disabled = false;
                 btnElement.innerHTML = originalHtml;
             }
