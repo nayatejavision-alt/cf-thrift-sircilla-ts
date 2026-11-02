@@ -1395,11 +1395,12 @@ def bulk_upload():
       bank_sno = clean_sno(row.get("BANK_SNO"))
       rd1 = str(row.get("RD ACCOUNT_1") or row.get("RD 1") or "").strip()
       rd2 = str(row.get("RD ACCOUNT_2") or row.get("RD 2") or "").strip()
-      balance_str = str(
+      
+      raw_balance = (
           row.get("Bank Closing Balance")
           or row.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)")
           or ""
-      ).strip()
+      )
 
       if not bank_sno or bank_sno not in master_row_dict:
         continue
@@ -1409,27 +1410,23 @@ def bulk_upload():
         continue
 
       try:
-          if (
-              pd.isna(raw_balance)
-              or raw_balance is None
-              or str(raw_balance).strip() == ""
-              or str(raw_balance).strip().lower() == "nan"
-          ):
-              bank_closing_balance = 0.0
-              balance_str = "0.0"
-          else:
-              bank_closing_balance = float(raw_balance)
-              if math.isnan(bank_closing_balance) or math.isinf(
-                  bank_closing_balance
-              ):
-                  bank_closing_balance = 0.0
-                balance_str = str(bank_closing_balance)           
-              
+        if (
+            pd.isna(raw_balance)
+            or raw_balance is None
+            or str(raw_balance).strip() == ""
+            or str(raw_balance).strip().lower() == "nan"
+        ):
+          bank_closing_balance = 0.0
+          balance_str = "0.0"
+        else:
+          bank_closing_balance = float(raw_balance)
+          if pd.isna(bank_closing_balance) or math.isinf(bank_closing_balance):
+            bank_closing_balance = 0.0
+          balance_str = str(bank_closing_balance)
       except (ValueError, TypeError):
         bank_closing_balance = 0.0
         balance_str = "0.0"
 
-    
       m_info = master_row_dict[bank_sno]
       master_row_idx = m_info["row_idx"]
       monthly_wages = m_info["wages"]
@@ -1486,9 +1483,7 @@ def bulk_upload():
           elif h_clean in ["BATCH_NUMBER", "batch_number"]:
             row_data_dict[h_clean] = batch_number
           elif h_clean in ["BANK_SNO", "Bank SNO"]:
-            row_data_dict[h_clean] = (
-                bank_sno  # Cleaned SNO ని ఇక్కడ సేవ్ చేస్తుంది
-            )
+            row_data_dict[h_clean] = bank_sno
           elif h_clean == "Name Of Benificiary":
             row_data_dict[h_clean] = beneficiary_name
           elif h_clean == "Bank Account Number":
@@ -1518,7 +1513,6 @@ def bulk_upload():
 
       updated_count += 1
 
-    # గూగుల్ షీట్ అప్‌డేట్స్‌ను బ్యాచ్‌లు (Chunks) గా పంపడం
     chunk_size = 500
     if master_cell_updates:
       for i in range(0, len(master_cell_updates), chunk_size):
@@ -1548,7 +1542,8 @@ def bulk_upload():
     return jsonify(
         {"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"}
     )
-      
+
+
 def format_as_excel_text(val):
       if val is None:
         return ''
