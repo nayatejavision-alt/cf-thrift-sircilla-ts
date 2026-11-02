@@ -1409,10 +1409,27 @@ def bulk_upload():
         continue
 
       try:
-        bank_closing_balance = float(balance_str) if balance_str else 0.0
-      except ValueError:
+          if (
+              pd.isna(raw_balance)
+              or raw_balance is None
+              or str(raw_balance).strip() == ""
+              or str(raw_balance).strip().lower() == "nan"
+          ):
+              bank_closing_balance = 0.0
+              balance_str = "0.0"
+          else:
+              bank_closing_balance = float(raw_balance)
+              if math.isnan(bank_closing_balance) or math.isinf(
+                  bank_closing_balance
+              ):
+                  bank_closing_balance = 0.0
+                balance_str = str(bank_closing_balance)           
+              
+      except (ValueError, TypeError):
         bank_closing_balance = 0.0
+        balance_str = "0.0"
 
+    
       m_info = master_row_dict[bank_sno]
       master_row_idx = m_info["row_idx"]
       monthly_wages = m_info["wages"]
