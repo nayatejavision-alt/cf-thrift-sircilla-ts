@@ -438,6 +438,8 @@ def generate_all_reports():
         template_path = os.path.join(TEMPLATE_DIR, "Forms III, IV & V under Powerloom Thrift Scheme.xlsx")
         wb = openpyxl.load_workbook(template_path)
 
+
+
         # Common column mappings
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
         father_col = 'Father Name' if 'Father Name' in df_thrift.columns else ''
@@ -566,7 +568,45 @@ def generate_all_reports():
         # ------------------------------------------
         # C. Fill Form-V (Total Register)
         # ------------------------------------------
-        df_v = df_thrift.copy().reset_index(drop=True)
+        try:
+            ws_trans = sh.worksheet("Transactions_Year1")
+            trans_data = ws_trans.get_all_records()
+            df_trans = pd.DataFrame(trans_data) if trans_data else pd.DataFrame()
+            del trans_data
+        except Exception:
+            df_trans = pd.DataFrame()
+
+        df_filtered = pd.DataFrame()
+        if not df_trans.empty and 'Govt_Share' in df_trans.columns and 'MONTH_NUMBER' in df_trans.columns:
+            df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
+            df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce')
+            
+            df_month_trans = df_trans[(df_trans['MONTH_NUMBER'] == target_month) & (df_trans['Govt_Share'] > 0)]
+            del df_trans
+            gc.collect()
+            
+            if not df_month_trans.empty and 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_month_trans.columns and 'RD 1' in df_thrift.columns:
+                df_filtered = pd.merge(
+                    df_month_trans,
+                    df_thrift,
+                    left_on='RD ACCOUNT_1 (Beneficiary Contribution)',
+                    right_on='RD 1',
+                    how='inner',
+                    suffixes=('', '_THRIFT')
+                )
+                df_filtered = df_filtered.drop_duplicates(subset=['RD 1']).reset_index(drop=True)
+            del df_month_trans
+            gc.collect()
+
+        if df_filtered.empty:
+            df_filtered = df_thrift.copy()
+
+        df_v = df_filtered.copy().reset_index(drop=True)
+        del df_filtered
+        gc.collect()
+
+        
+        # df_v = df_thrift.copy().reset_index(drop=True)
         df_v['Village_Mandal'] = (
             df_v[vill_col].fillna('').astype(str) + ", " + df_v[mandal_col].fillna('').astype(str) if (vill_col and mandal_col) else ''
         )
@@ -574,6 +614,8 @@ def generate_all_reports():
         rd1_col = 'RD 1' if 'RD 1' in df_v.columns else ''
         rd2_col = 'RD 2' if 'RD 2' in df_v.columns else ''
         wages_monthly_col = 'MONTHLY WAGES' if 'MONTHLY WAGES' in df_v.columns else ''
+        govt_share = 'Govt_Share' if 'Govt_Share' in df_v.columns else ''
+
 
         report_df_v = pd.DataFrame({
             'Sl. No.': range(1, len(df_v) + 1),
@@ -595,7 +637,7 @@ def generate_all_reports():
             'RD A/c No.2': df_v[rd2_col].apply(format_acc) if rd2_col else '',
             'Declared wages earned per month': df_v[wages_monthly_col].fillna('') if wages_monthly_col else '',
             'Weaver contribution 8%': df_v[wages_col].fillna('') if wages_col else '',
-            'Govt. contribution 8%': df_v[wages_col].fillna('') if wages_col else ''
+            'Govt. contribution 8%': df_v[govt_share].fillna('') if govt_share else ''
         })
 
         target_sheet_v = next((s for s in wb.sheetnames if "Form-V" in s or "Form V" in s), None)
