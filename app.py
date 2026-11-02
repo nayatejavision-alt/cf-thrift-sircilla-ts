@@ -186,7 +186,6 @@ def generate_draft_api():
     # ఫ్రంట్ ఎండ్ నుండి ఎడిట్ చేసి పంపిన చెక్ వివరాలు (లేకపోతే ఎంప్టీ)
     user_cheque_no = str(data.get('cheque_no', '')).strip()
     user_cheque_date = str(data.get('cheque_date', '')).strip()
-    # user_cheque_amount = str(data.get('cheque_amount', '')).strip()
 
     if not selected_bank:
       return (
@@ -234,11 +233,7 @@ def generate_draft_api():
     # యూజర్ ఫ్రంట్ ఎండ్ నుండి పంపితే అవే వాడాలి,లేకపోతే షీట్ డిఫాల్ట్ వాల్యూస్ తీసుకోవాలి
     cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
     cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
-    #cheque_amount = user_cheque_amount or str(
-    #    bank_doc_info.get('Cheque_Amount', '')
-    # )
 
-    #df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
     df_trans['Govt_Share'] = pd.to_numeric(
         df_trans['Govt_Share'], errors='coerce'
     ).fillna(0)
@@ -251,24 +246,12 @@ def generate_draft_api():
         else 0
     )
 
-    df_merged_full = pd.merge(
-        df_trans[df_trans['MONTH_NUMBER'] == target_month],
-        df_thrift,
-        left_on='RD ACCOUNT_1 (Beneficiary Contribution)',
-        right_on='RD 1',
-        how='left',
-        suffixes=('', '_THRIFT'),
-    )
-
     # 1. ముందుగా ఆ బ్యాంకుకి చెందిన మొత్తం త్రిఫ్ట్ బెనెఫిషరీలను తీసుకోవాలి
     bank_thrift_df = df_thrift[
         df_thrift['FILE NAME'].astype(str).str.strip() == selected_bank
     ].copy()
 
-    # డూప్లికేట్స్ తొలగించడం
-    #bank_thrift_df = bank_thrift_df.drop_duplicates(subset=['RD 1'], keep='first')
-
-    # 2. ఆ నెల ట్రాన్సాక్షన్ డేటాతో 'left' merge చేయడం (దీనివల్ల అసలు ఎంట్రీ లేనివారు కూడా మిస్ కాకుండా వస్తారు)
+    # 2. ఆ నెల ట్రాన్సాక్షన్ డేటాతో 'left' merge చేయడం
     bank_month_df = pd.merge(
         bank_thrift_df,
         df_trans[df_trans['MONTH_NUMBER'] == target_month],
@@ -286,21 +269,32 @@ def generate_draft_api():
         else 0
     )
 
-    # 4. Active DF (ప్రస్తుత బ్యాచ్‌లో సక్సెస్‌ఫుల్‌గా ఉన్నవి)
+    # -------------------------------------------------------------
+    # ✅ DIED లాజిక్ చేర్చబడింది: BANK_REMARKS లో DIED ఉన్నవారిని వేరు చేయడం
+    # -------------------------------------------------------------
+    if 'BANK_REMARKS' in bank_month_df.columns:
+      bank_month_df['BANK_REMARKS_CLEAN'] = bank_month_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
+    else:
+      bank_month_df['BANK_REMARKS_CLEAN'] = ''
+
+    died_mask = bank_month_df['BANK_REMARKS_CLEAN'].str.contains('DIED', na=False)
+
+    # 4. Active DF (ప్రస్తుత బ్యాచ్‌లో సక్సెస్‌ఫుల్‌గా ఉన్నవి, కానీ డైడ్ అయిన వారు కచ్చితంగా ఉండకూడదు)
     active_df = bank_month_df[
         (bank_month_df['Govt_Share'] > 0)
         & (bank_month_df['BATCH_NUMBER'] == target_batch)
+        & (~died_mask)  # DIED కానివారు మాత్రమే
     ]
 
     active_df = active_df.drop_duplicates(subset=['RD 1'], keep='first')
 
-    # 5. Pending DF (మీరు కోరుకున్న లాజిక్: టోటల్ త్రిఫ్ట్ నుండి ఆక్టివ్ మరియు ఇతర బ్యాచ్‌లను మినహాయించడం)
+    # 5. Pending / Excluded DF (జీరో బ్యాలెన్స్, అన్‌అసైన్డ్ బ్యాచ్ లేదా డైడ్ అయిన వారు పెండింగ్ లిస్ట్‌లోకి వెళ్తారు)
     pending_df = bank_month_df[
         (bank_month_df['Govt_Share'] == 0)
         | (bank_month_df['BATCH_NUMBER'] == 0)
+        | (died_mask)   # మరణించిన లబ్ధిదారులు ఇక్కడ ప్రత్యేకంగా కనిపిస్తారు
     ]
-    
-
+    # -------------------------------------------------------------
 
     record_count = len(active_df)
     pending_count = len(pending_df)
@@ -381,8 +375,9 @@ def generate_draft_api():
             if 'Contact Number' in pending_df.columns
             else ''
         )
-        p_export_df['Status'] = (
-            'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
+        # రిమార్క్స్‌లో డైడ్ అని ఉంటే ఆ స్టేటస్‌ని ఎక్సెల్ షీట్‌లో స్పష్టంగా చూపించడానికి
+        p_export_df['Status'] = pending_df['BANK_REMARKS_CLEAN'].apply(
+            lambda x: 'Beneficiary Died (మరణించినవారు)' if 'DIED' in str(x) else 'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
         )
         p_export_df.to_excel(
             writer, sheet_name='Pending_RD1_List', index=False
@@ -452,8 +447,8 @@ def generate_draft_api():
     if pending_count > 0:
       pending_notice_html = f"""
             <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
-                <p style="margin:0; font-weight: bold;">⚠️ Pending / Unassigned Accounts Notice:</p>
-                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are either pending, unassigned to this batch, or have zero transactions.</p>
+                <p style="margin:0; font-weight: bold;">⚠️ Pending / Excluded Accounts Notice:</p>
+                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are pending, unassigned, or marked as expired/died.</p>
             </div>
             """
 
@@ -461,10 +456,9 @@ def generate_draft_api():
         <br>
         <p style="font-size: 13px; color: #555; line-height: 1.4;">
             <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
-            
-            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది (For information and necessary action).<br>
-            2. <b>Branch Manager, Union Bank of India (Nodal Branch - Positive Pay System compliance)</b> — తగు సమాచారము నిమిత్తము మరియు ఆర్‌బిఐ నిబంధనల ప్రకారం పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
-            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము (For information & record).
+            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.<br>
+            2. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
+            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
         </p>
         """
 
@@ -506,27 +500,26 @@ def generate_draft_api():
     message['Subject'] = subject
     message.attach(MIMEText(body_html, 'html'))
 
-# 1. ఎక్సెల్ ఫైల్ అటాచ్‌మెంట్ (ఎక్స్‌టెన్షన్‌తో సహా)
+    # ఎక్సెల్ ఫైల్ అటాచ్‌మెంట్
     if os.path.exists(local_excel_path):
-      excel_filename = os.path.basename(local_excel_path)  # ఉదా: INDIAN_BANK_Month_1_Batch_1.xlsx
+      excel_filename = os.path.basename(local_excel_path)
       with open(local_excel_path, 'rb') as f:
         part1 = MIMEBase('application', 'octet-stream')
         part1.set_payload(f.read())
       encoders.encode_base64(part1)
-      # ఇక్కడ డబుల్ కోట్స్ కచ్చితంగా ఉండాలి
       part1.add_header('Content-Disposition', f'attachment; filename="{excel_filename}"')
       message.attach(part1)
 
-    # 2. ఆఫీస్ లెటర్ డాక్యుమెంట్ అటాచ్‌మెంట్ (ఎక్స్‌టెన్షన్‌తో సహా - .docx)
+    # ఆఫీస్ లెటర్ డాక్యుమెంట్ అటాచ్‌మెంట్
     if letter_path and os.path.exists(letter_path):
-      letter_filename = os.path.basename(letter_path)  # ఉదా: Official_Letter_INDIAN_BANK.docx
+      letter_filename = os.path.basename(letter_path)
       with open(letter_path, 'rb') as f:
         part2 = MIMEBase('application', 'octet-stream')
         part2.set_payload(f.read())
       encoders.encode_base64(part2)
-      # ఇక్కడ కూడా డబుల్ కోట్స్ కచ్చితంగా ఉండాలి
       part2.add_header('Content-Disposition', f'attachment; filename="{letter_filename}"')
       message.attach(part2)
+
     # జిమెయిల్ డ్రాఫ్ట్‌లో సేవ్ చేయడం
     mail = imaplib.IMAP4_SSL('imap.gmail.com')
     mail.login(SENDER_EMAIL, APP_PASSWORD)
@@ -538,7 +531,7 @@ def generate_draft_api():
     )
     mail.logout()
 
-    # 3. ట్రాన్సాక్షన్ సక్సెస్ అయిన తర్వాత 'Bank_Transactions' షీట్‌లో లాగ్ చేయడం
+    # లాగ్ చేయడం
     try:
       try:
         ws_log = sh.worksheet('Bank_Transactions')
@@ -579,6 +572,7 @@ def generate_draft_api():
     return jsonify(
         {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
     ), 500
+
 
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
