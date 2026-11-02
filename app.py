@@ -9,6 +9,7 @@ import imaplib
 import json
 import os
 import time
+import math
 from admin_routes import admin_bp
 from cf_routes import cf_bp
 from flask import (
@@ -68,13 +69,11 @@ app.register_blueprint(rd_bp)
 app.register_blueprint(reports_bp)
 
 
-# ✅ ఇదివరకు సగ్గా పనిచేసిన (ఫైల్ 7) సేఫ్ ఆథెంటికేషన్ పద్ధతి (ఎర్రర్స్ రావు)
 def get_sheets_client():
   scopes = [
       'https://www.googleapis.com/auth/spreadsheets',
       'https://www.googleapis.com/auth/drive',
   ]
-
   credentials_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
   if credentials_json_str:
@@ -92,6 +91,15 @@ def get_sheets_client():
       creds, _ = default(scopes=scopes)
 
   return gspread.authorize(creds)
+
+
+def format_as_excel_text(val):
+  if val is None:
+    return ''
+  val_str = str(val).strip().strip("'")
+  if val_str:
+    return f"'{val_str}"
+  return ''
 
 
 def get_bank_list_from_sheet():
@@ -115,7 +123,6 @@ def home():
   try:
     client = get_sheets_client()
     spreadsheet = client.open(SPREADSHEET_NAME)
-
     login_sheet = spreadsheet.worksheet('BANK_LOGINS')
     logins = login_sheet.get_all_records()
 
@@ -127,17 +134,11 @@ def home():
         cleaned_name = str(b_name).strip()
         if cleaned_name and cleaned_name not in bank_list:
           bank_list.append(cleaned_name)
-
   except Exception as e:
     print('Error fetching bank list:', e)
     bank_list = []
 
   return render_template('index.html', banks=bank_list)
-
-
-# ==========================================
-# GMAIL DRAFT GENERATOR ROUTES
-# ==========================================
 
 
 @app.route('/draft-generator')
@@ -148,7 +149,6 @@ def draft_generator_page():
 
 @app.route('/api/get-bank-doc-details', methods=['GET'])
 def get_bank_doc_details():
-  """ఫ్రంట్ ఎండ్ నుండి బ్యాంక్ పేరు బట్టి PREPARE_DOC_RD_TRANSACTIONS నుండి డిఫాల్ట్ విలువలు పంపడానికి"""
   try:
     bank_name = request.args.get('bank_name', '').strip()
     client = get_sheets_client()
@@ -159,14 +159,12 @@ def get_bank_doc_details():
     default_data = {
         'Cheque_No': '',
         'Cheque_Date': '',
-        #'Cheque_Amount': '',
     }
     for row in records:
       if str(row.get('FILE_NAME', '')).strip().lower() == bank_name.lower():
         default_data = {
             'Cheque_No': row.get('Cheque_No', ''),
             'Cheque_Date': row.get('Cheque_Date', ''),
-            #'Cheque_Amount': row.get('Cheque_Amount', ''),
         }
         break
     return jsonify({'status': 'success', 'data': default_data})
@@ -183,10 +181,8 @@ def generate_draft_api():
     target_batch = int(data.get('batch', 1))
     selected_bank = str(data.get('bank_name', '')).strip()
 
-    # ఫ్రంట్ ఎండ్ నుండి ఎడిట్ చేసి పంపిన చెక్ వివరాలు (లేకపోతే ఎంప్టీ)
     user_cheque_no = str(data.get('cheque_no', '')).strip()
     user_cheque_date = str(data.get('cheque_date', '')).strip()
-    # user_cheque_amount = str(data.get('cheque_amount', '')).strip()
 
     if not selected_bank:
       return (
@@ -218,7 +214,6 @@ def generate_draft_api():
         )
     )
 
-    # PREPARE_DOC_RD_TRANSACTIONS నుండి డిఫాల్ట్ డాక్యుమెంట్ వివరాలు తెచ్చుకోవడం
     try:
       ws_doc_sheet = sh.worksheet('PREPARE_DOC_RD_TRANSACTIONS')
       doc_records = ws_doc_sheet.get_all_records()
@@ -231,14 +226,9 @@ def generate_draft_api():
         bank_doc_info = r
         break
 
-    # యూజర్ ఫ్రంట్ ఎండ్ నుండి పంపితే అవే వాడాలి,లేకపోతే షీట్ డిఫాల్ట్ వాల్యూస్ తీసుకోవాలి
     cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
     cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
-    #cheque_amount = user_cheque_amount or str(
-    #    bank_doc_info.get('Cheque_Amount', '')
-    # )
 
-    #df_thrift = df_thrift.drop_duplicates(subset=['RD 1'], keep='first')
     df_trans['Govt_Share'] = pd.to_numeric(
         df_trans['Govt_Share'], errors='coerce'
     ).fillna(0)
@@ -251,56 +241,38 @@ def generate_draft_api():
         else 0
     )
 
-    df_merged_full = pd.merge(
-        df_trans[df_trans['MONTH_NUMBER'] == target_month],
-        df_thrift,
-        left_on='RD ACCOUNT_1 (Beneficiary Contribution)',
-        right_on='RD 1',
-        how='left',
-        suffixes=('', '_THRIFT'),
-    )
-
-    # 1. ముందుగా ఆ బ్యాంకుకి చెందిన మొత్తం త్రిఫ్ట్ బెనెఫిషరీలను తీసుకోవాలి
     bank_thrift_df = df_thrift[
         df_thrift['FILE NAME'].astype(str).str.strip() == selected_bank
     ].copy()
 
-    # డూప్లికేట్స్ తొలగించడం
-    #bank_thrift_df = bank_thrift_df.drop_duplicates(subset=['RD 1'], keep='first')
-
-    # 2. ఆ నెల ట్రాన్సాక్షన్ డేటాతో 'left' merge చేయడం (దీనివల్ల అసలు ఎంట్రీ లేనివారు కూడా మిస్ కాకుండా వస్తారు)
     bank_month_df = pd.merge(
         bank_thrift_df,
         df_trans[df_trans['MONTH_NUMBER'] == target_month],
         left_on='RD 1',
         right_on='RD ACCOUNT_1 (Beneficiary Contribution)',
         how='left',
-        suffixes=('', '_TRANS')
+        suffixes=('', '_TRANS'),
     )
 
-    # 3. నంబర్ ఫార్మాటింగ్ క్లీన్ చేయడం
-    bank_month_df['Govt_Share'] = pd.to_numeric(bank_month_df['Govt_Share'], errors='coerce').fillna(0)
+    bank_month_df['Govt_Share'] = pd.to_numeric(
+        bank_month_df['Govt_Share'], errors='coerce'
+    ).fillna(0)
     bank_month_df['BATCH_NUMBER'] = (
         pd.to_numeric(bank_month_df['BATCH_NUMBER'], errors='coerce').fillna(0)
         if 'BATCH_NUMBER' in bank_month_df.columns
         else 0
     )
 
-    # 4. Active DF (ప్రస్తుత బ్యాచ్‌లో సక్సెస్‌ఫుల్‌గా ఉన్నవి)
     active_df = bank_month_df[
         (bank_month_df['Govt_Share'] > 0)
         & (bank_month_df['BATCH_NUMBER'] == target_batch)
     ]
-
     active_df = active_df.drop_duplicates(subset=['RD 1'], keep='first')
 
-    # 5. Pending DF (మీరు కోరుకున్న లాజిక్: టోటల్ త్రిఫ్ట్ నుండి ఆక్టివ్ మరియు ఇతర బ్యాచ్‌లను మినహాయించడం)
     pending_df = bank_month_df[
         (bank_month_df['Govt_Share'] == 0)
         | (bank_month_df['BATCH_NUMBER'] == 0)
     ]
-    
-
 
     record_count = len(active_df)
     pending_count = len(pending_df)
@@ -326,7 +298,6 @@ def generate_draft_api():
         f'{selected_bank}_Month_{target_month}_Batch_{target_batch}.xlsx',
     )
 
-    # 1. ఎక్సెల్ ఫైల్ తయారీ
     with pd.ExcelWriter(local_excel_path, engine='openpyxl') as writer:
       export_df = pd.DataFrame()
       export_df['BENEFICIARY SNO'] = active_df.get(
@@ -388,7 +359,6 @@ def generate_draft_api():
             writer, sheet_name='Pending_RD1_List', index=False
         )
 
-    # 2. ఆఫీస్ లెటర్ డాక్యుమెంట్ తయారీ (Word Doc)
     letter_path = None
     doc_template_path = 'RD2_CREDIT_SANCTION_TEMPLATE.docx'
     if os.path.exists(doc_template_path):
@@ -445,7 +415,6 @@ def generate_draft_api():
       )
       doc.save(letter_path)
 
-    # మెయిల్ బాడీ తయారీ
     subject = f'Official Letter & Beneficiary Excel List for TSPWTFS & SS RD2 Credit - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}'
 
     pending_notice_html = ''
@@ -461,10 +430,9 @@ def generate_draft_api():
         <br>
         <p style="font-size: 13px; color: #555; line-height: 1.4;">
             <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
-            
-            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది (For information and necessary action).<br>
-            2. <b>Branch Manager, Union Bank of India (Nodal Branch - Positive Pay System compliance)</b> — తగు సమాచారము నిమిత్తము మరియు ఆర్‌బిఐ నిబంధనల ప్రకారం పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
-            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము (For information & record).
+            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.<br>
+            2. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — ఆర్‌బిఐ నిబంధనల ప్రకారం పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
+            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
         </p>
         """
 
@@ -506,1066 +474,17 @@ def generate_draft_api():
     message['Subject'] = subject
     message.attach(MIMEText(body_html, 'html'))
 
-# 1. ఎక్సెల్ ఫైల్ అటాచ్‌మెంట్ (ఎక్స్‌టెన్షన్‌తో సహా)
     if os.path.exists(local_excel_path):
-      excel_filename = os.path.basename(local_excel_path)  # ఉదా: INDIAN_BANK_Month_1_Batch_1.xlsx
+      excel_filename = os.path.basename(local_excel_path)
       with open(local_excel_path, 'rb') as f:
         part1 = MIMEBase('application', 'octet-stream')
         part1.set_payload(f.read())
       encoders.encode_base64(part1)
-      # ఇక్కడ డబుల్ కోట్స్ కచ్చితంగా ఉండాలి
       part1.add_header('Content-Disposition', f'attachment; filename="{excel_filename}"')
       message.attach(part1)
 
-    # 2. ఆఫీస్ లెటర్ డాక్యుమెంట్ అటాచ్‌మెంట్ (ఎక్స్‌టెన్షన్‌తో సహా - .docx)
     if letter_path and os.path.exists(letter_path):
-      letter_filename = os.path.basename(letter_path)  # ఉదా: Official_Letter_INDIAN_BANK.docx
+      letter_filename = os.path.basename(letter_path)
       with open(letter_path, 'rb') as f:
         part2 = MIMEBase('application', 'octet-stream')
         part2.set_payload(f.read())
-      encoders.encode_base64(part2)
-      # ఇక్కడ కూడా డబుల్ కోట్స్ కచ్చితంగా ఉండాలి
-      part2.add_header('Content-Disposition', f'attachment; filename="{letter_filename}"')
-      message.attach(part2)
-    # జిమెయిల్ డ్రాఫ్ట్‌లో సేవ్ చేయడం
-    mail = imaplib.IMAP4_SSL('imap.gmail.com')
-    mail.login(SENDER_EMAIL, APP_PASSWORD)
-    mail.append(
-        '"[Gmail]/Drafts"',
-        '',
-        imaplib.Time2Internaldate(time.time()),
-        message.as_bytes(),
-    )
-    mail.logout()
-
-    # 3. ట్రాన్సాక్షన్ సక్సెస్ అయిన తర్వాత 'Bank_Transactions' షీట్‌లో లాగ్ చేయడం
-    try:
-      try:
-        ws_log = sh.worksheet('Bank_Transactions')
-      except:
-        ws_log = sh.add_worksheet(
-            title='Bank_Transactions', rows=100, cols=10
-        )
-        ws_log.append_row([
-            'Timestamp',
-            'Bank Name',
-            'Month',
-            'Batch',
-            'Cheque No',
-            'Cheque Date',
-            'Amount',
-            'Beneficiaries Count',
-        ])
-
-      ws_log.append_row([
-          time.strftime('%Y-%m-%d %H:%M:%S'),
-          selected_bank,
-          f'{selected_month_name} {selected_year}',
-          target_batch,
-          cheque_no,
-          cheque_date,
-          total_govt_share,
-          record_count,
-      ])
-    except Exception as log_err:
-      print(f'Logging Error: {log_err}')
-
-    return jsonify({
-        'status': 'success',
-        'message': f'{selected_bank} కోసం అధికారిక లేఖ మరియు ఎక్సెల్ ఫైల్‌తో జిమెయిల్ డ్రాఫ్ట్ విజయవంతంగా తయారైంది!',
-    })
-
-  except Exception as e:
-    return jsonify(
-        {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
-    ), 500
-
-@app.route('/api/search', methods=['POST'])
-def search_beneficiary():
-  try:
-    data = request.get_json()
-    if not data:
-      return (
-          jsonify({'success': False, 'message': 'సరైన డేటా అందలేదు.'}),
-          400,
-      )
-
-    input_id = (
-        str(data.get('aadhar', '')).strip().replace('-', '').replace(' ', '')
-    )
-
-    if not input_id or len(input_id) != 12 or not input_id.isdigit():
-      return (
-          jsonify({
-              'success': False,
-              'message': 'దయచేసి సరైన 12 అంకెల సంఖ్యను ఎంటర్ చేయండి.',
-          }),
-          400,
-      )
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-    target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-    records = target_sheet.get_all_records()
-
-    matched_record = None
-    for row in records:
-      raw_val = (
-          str(
-              row.get('Aadhar Number')
-              or row.get('ADHAR')
-              or row.get('AADHAR')
-              or ''
-          )
-          .split('.')[0]
-          .strip()
-      )
-      if raw_val == input_id:
-        matched_record = row
-        break
-
-    if matched_record:
-      masked_id = f'XXXX-XXXX-{input_id[-4:]}'
-
-      result = {
-          'sno': matched_record.get('BANK_SNO'),
-          'masked_aadhar': masked_id,
-          'name': (
-              matched_record.get('Name Of Benificiary')
-              or matched_record.get('NAME')
-          ),
-          'father_name': (
-              matched_record.get('Father Name')
-              or matched_record.get('FATHER NAME')
-          ),
-          'village': (
-              matched_record.get('VILLAGE NAME') or matched_record.get('VILLAGE')
-          ),
-          'mandal': (
-              matched_record.get('MANDAL NAME') or matched_record.get('MANDAL')
-          ),
-          'bank_name': (
-              matched_record.get('Bank Name') or matched_record.get('BANK NAME')
-          ),
-          'rd1_status': matched_record.get('RD 1'),
-          'rd2_status': matched_record.get('RD 2'),
-          'wages': matched_record.get('MONTHLY WAGES'),
-      }
-      return jsonify({'success': True, 'data': result})
-    else:
-      return jsonify(
-          {'success': False, 'message': 'సదరు సంఖ్యతో ఎలాంటి వివరాలు లభించలేదు.'}
-      )
-
-  except Exception as e:
-    return (
-        jsonify(
-            {'success': False, 'message': f'సర్వర్ లోపం సంభవించింది: {str(e)}'}
-        ),
-        500,
-    )
-
-
-@app.route('/api/login', methods=['POST'])
-def bank_login():
-  try:
-    data = request.get_json()
-    bank_name = str(data.get('bank_name', '')).strip()
-    pin = str(data.get('pin', '')).strip()
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-    login_sheet = spreadsheet.worksheet('BANK_LOGINS')
-    logins = login_sheet.get_all_records()
-
-    authenticated = False
-    for row in logins:
-      sheet_bank = str(
-          row.get('Bank Name') or row.get('BANK NAME') or ''
-      ).strip()
-      sheet_pin = str(row.get('PIN') or row.get('Pin') or '').strip()
-
-      if sheet_bank.lower() == bank_name.lower() and sheet_pin == pin:
-        authenticated = True
-        break
-
-    if authenticated:
-      session['bank_user'] = bank_name
-      session.permanent = True
-      return jsonify({'status': 'success', 'message': 'లాగిన్ విజయవంతమైంది!'})
-    else:
-      return jsonify(
-          {'status': 'error', 'message': 'తప్పు PIN లేదా బ్యాంక్ పేరు!'}
-      )
-
-  except Exception as e:
-    return jsonify({"status": "error", "message": f"లాగిన్ లోపం: {str(e)}"})
-
-
-@app.route('/api/bank-data', methods=['GET'])
-def get_bank_data():
-  try:
-    bank_user = session.get('bank_user')
-    if not bank_user:
-      return jsonify(
-          {'status': 'error', 'message': 'దయచేసి ముందుగా లాగిన్ అవ్వండి!'}
-      )
-
-    current_month = str(
-        request.args.get('month', session.get('current_month', '1'))
-    ).strip()
-    batch_number = str(
-        request.args.get('batch', session.get('batch_number', '1'))
-    ).strip()
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-
-    target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-    master_records = target_sheet.get_all_records()
-
-    try:
-      trans_sheet = spreadsheet.worksheet('Transactions_Year1')
-      trans_records = trans_sheet.get_all_records()
-    except Exception:
-      trans_records = []
-
-    bank_user_clean = bank_user.strip().lower()
-
-    balance_map = {}
-    completed_transactions = set()
-    already_covered_in_this_month = set()
-
-    for t in trans_records:
-      t_sno = str(t.get('BANK_SNO') or t.get('Bank SNO') or '').strip()
-      t_month = str(
-          t.get('MONTH_NUMBER') or t.get('month_number') or t.get('MONTH') or ''
-      ).strip()
-      t_batch = str(
-          t.get('BATCH_NUMBER')
-          or t.get('BATCH')
-          or t.get('batch_number')
-          or ''
-      ).strip()
-      t_filename = (
-          str(t.get('FILE NAME') or t.get('File Name') or '').strip().lower()
-      )
-
-      if t_month == current_month and t_filename == bank_user_clean:
-        bal_val = (
-            t.get(
-                'Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న'
-                ' బ్యాలెన్స్)'
-            )
-            or t.get('Bank Closing Balance')
-            or ''
-        )
-        if t_sno:
-          balance_map[t_sno] = bal_val
-
-        try:
-          govt_share_val = float(
-              t.get('Govt_Share') or t.get('GOVT_SHARE') or 0
-          )
-        except ValueError:
-          govt_share_val = 0
-
-        if t_batch != batch_number and govt_share_val > 0:
-          if t_sno:
-            already_covered_in_this_month.add(t_sno)
-
-        if t_batch == batch_number and govt_share_val > 0:
-          if t_sno:
-            completed_transactions.add(t_sno)
-
-    filtered_data = []
-    for row in master_records:
-      file_name = (
-          str(row.get('FILE NAME') or row.get('File Name') or '')
-          .strip()
-          .lower()
-      )
-
-      if file_name == bank_user_clean:
-        bank_sno = str(row.get('BANK_SNO') or '').strip()
-
-        if bank_sno in already_covered_in_this_month:
-          continue
-
-        if bank_sno in balance_map:
-          row['Bank Closing Balance'] = balance_map[bank_sno]
-
-        is_completed = bank_sno in completed_transactions
-        row['is_completed'] = is_completed
-        filtered_data.append(row)
-
-    return jsonify({
-        'status': 'success',
-        'bank': bank_user,
-        'month': current_month,
-        'batch': batch_number,
-        'data': filtered_data,
-    })
-
-  except Exception as e:
-    return jsonify(
-        {'status': 'error', 'message': f'డేటా లోడ్ అవ్వడంలో లోపం: {str(e)}'}
-    )
-
-
-@app.route('/api/download-csv', methods=['GET'])
-def download_csv():
-  bank_user = session.get('bank_user')
-  if not bank_user:
-    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
-
-  client = get_sheets_client()
-  spreadsheet = client.open(SPREADSHEET_NAME)
-  target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-  records = target_sheet.get_all_records()
-
-  bank_user_clean = bank_user.strip().lower()
-  filtered_data = [
-      row
-      for row in records
-      if str(row.get('FILE NAME') or row.get('File Name') or '')
-      .strip()
-      .lower()
-      == bank_user_clean
-  ]
-
-  output = []
-  output.append(['SNO', 'Name', 'Account No', 'File Name'])
-
-  for idx, row in enumerate(filtered_data):
-    output.append([
-        idx + 1,
-        row.get('Name Of Benificiary') or row.get('NAME') or '',
-        row.get('Bank Account Number') or row.get('ACCOUNT') or '',
-        row.get('FILE NAME') or '',
-    ])
-
-  response = make_response()
-  writer = csv.writer(response.stream)
-  for row in output:
-    writer.writerow(row)
-
-  response.headers['Content-Disposition'] = (
-      f'attachment; filename={bank_user}_beneficiaries.csv'
-  )
-  response.headers['Content-Type'] = 'text/csv'
-  return response
-
-
-@app.route('/api/update-rd-accounts', methods=['POST'])
-def update_rd_accounts():
-  try:
-    bank_user = session.get('bank_user')
-    if not bank_user:
-      return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
-
-    data = request.get_json()
-    bank_sno = str(data.get('bank_sno')).strip()
-    rd1 = str(data.get('rd1', '')).strip()
-    rd2 = str(data.get('rd2', '')).strip()
-    bank_closing_balance_str = str(data.get('bank_closing_balance', '')).strip()
-
-    current_month = str(
-        data.get('month', session.get('current_month', '1'))
-    ).strip()
-    batch_number = str(
-        data.get('batch', session.get('batch_number', '1'))
-    ).strip()
-
-    try:
-      bank_closing_balance = (
-          float(bank_closing_balance_str) if bank_closing_balance_str else 0.0
-      )
-    except ValueError:
-      bank_closing_balance = 0.0
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-
-    target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-    master_records = target_sheet.get_all_records()
-
-    master_row_index = None
-    beneficiary_name = ''
-    beneficiary_acc = ''
-    monthly_wages = 0.0
-    bank_user_clean = bank_user.strip().lower()
-
-    for idx, row in enumerate(master_records):
-      row_bank_sno = str(row.get('BANK_SNO') or row.get('Bank SNO') or '').strip()
-      file_name = (
-          str(row.get('FILE NAME') or row.get('File Name') or '')
-          .strip()
-          .lower()
-      )
-
-      if row_bank_sno == bank_sno and file_name == bank_user_clean:
-        master_row_index = idx + 2
-        beneficiary_name = str(
-            row.get('Name Of Benificiary') or row.get('NAME') or ''
-        ).strip()
-        beneficiary_acc = str(
-            row.get('Bank Account Number') or row.get('ACCOUNT') or ''
-        ).strip()
-
-        try:
-          wages_val = (
-              row.get('8% Of Monthly Wages') or row.get('MONTHLYWAGES') or 0
-          )
-          monthly_wages = float(wages_val)
-        except ValueError:
-          monthly_wages = 0.0
-        break
-
-    if master_row_index:
-      header_row = target_sheet.row_values(1)
-      rd1_col, rd2_col = None, None
-      for c_idx, header in enumerate(header_row):
-        h_cleaned = header.strip().upper()
-        if h_cleaned in ['RD 1', 'RD_1']:
-          rd1_col = c_idx + 1
-        elif h_cleaned in ['RD 2', 'RD_2']:
-          rd2_col = c_idx + 1
-
-      if rd1_col:
-        target_sheet.update_cell(master_row_index, rd1_col, rd1)
-      if rd2_col:
-        target_sheet.update_cell(master_row_index, rd2_col, rd2)
-
-    due_amount = monthly_wages
-
-    trans_sheet = spreadsheet.worksheet('Transactions_Year1')
-    trans_records = trans_sheet.get_all_records()
-
-    trans_row_index = None
-
-    for idx, row in enumerate(trans_records):
-      t_sno = str(row.get('BANK_SNO') or row.get('Bank SNO') or '').strip()
-      t_month = str(
-          row.get('MONTH_NUMBER') or row.get('month_number') or ''
-      ).strip()
-      t_batch = str(
-          row.get('BATCH_NUMBER') or row.get('batch_number') or ''
-      ).strip()
-      t_filename = (
-          str(row.get('FILE NAME') or row.get('File Name') or '').strip().lower()
-      )
-
-      if (
-          t_sno == bank_sno
-          and t_month == current_month
-          and t_batch == batch_number
-          and t_filename == bank_user_clean
-      ):
-        trans_row_index = idx + 2
-        try:
-          existing_due = float(row.get('(C) ఈ నెల డ్యూ(Due)') or 0)
-          if existing_due > 0:
-            due_amount = existing_due
-        except ValueError:
-          pass
-        break
-
-    trans_headers = trans_sheet.row_values(1)
-    col_map = {}
-    for c_idx, h in enumerate(trans_headers):
-      h_clean = h.strip().lower()
-      col_map[h_clean] = c_idx + 1
-
-    balance_col_idx = None
-    for h_clean, c_idx in col_map.items():
-      if 'bank closing balance' in h_clean or 'బ్యాలెన్స్' in h_clean:
-        balance_col_idx = c_idx
-        break
-
-    standard_col_map = {
-        h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)
-    }
-
-    previous_arrears = 0.0
-    actual_paid = bank_closing_balance
-
-    govt_share = min(due_amount, actual_paid)
-    remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
-    govt_rd_closing_bal = govt_share
-    govt_status_val = 'MATCHED' if remaining_arrears <= 0 else 'PENDING'
-
-    rd1_col_name = 'RD ACCOUNT_1 (Beneficiary Contribution)'
-    arrears_b_name = '(B) పాత బాకీ(Previous Arrears)'
-    due_c_name = '(C) ఈ నెల డ్యూ(Due)'
-    actual_paid_d_name = '(D) Actual Paid'
-    govt_share_name = 'Govt_Share'
-    remaining_f_name = '(F) మిగిలిన బాకీ(Remaining Arrears)'
-    govt_closing_h_name = 'Govt RD Closing Bal (H)'
-    govt_status_i_name = 'Govt RD Status (I)'
-
-    if trans_row_index:
-      if balance_col_idx:
-        trans_sheet.update_cell(
-            trans_row_index, balance_col_idx, bank_closing_balance_str
-        )
-
-      updates = [
-          (rd1_col_name, rd1),
-          (arrears_b_name, previous_arrears),
-          (due_c_name, due_amount),
-          (actual_paid_d_name, actual_paid),
-          (govt_share_name, govt_share),
-          (remaining_f_name, remaining_arrears),
-          (govt_closing_h_name, govt_rd_closing_bal),
-          (govt_status_i_name, govt_status_val),
-      ]
-      for col_name, val in updates:
-        if col_name in standard_col_map:
-          trans_sheet.update_cell(
-              trans_row_index, standard_col_map[col_name], val
-          )
-    else:
-      row_data_dict = {h.strip(): '' for h in trans_headers}
-
-      for h in trans_headers:
-        h_clean = h.strip()
-        h_upper = h_clean.upper()
-
-        if h_clean in ['MONTH_NUMBER', 'month_number']:
-          row_data_dict[h_clean] = current_month
-        elif h_clean in ['BATCH_NUMBER', 'batch_number']:
-          row_data_dict[h_clean] = batch_number
-        elif h_clean in ['BANK_SNO', 'Bank SNO']:
-          row_data_dict[h_clean] = bank_sno
-        elif (
-            'NAME OF BENIFICIARY' in h_upper
-            or h_clean == 'Name Of Benificiary'
-        ):
-          row_data_dict[h_clean] = beneficiary_name
-        elif (
-            'BANK ACCOUNT NUMBER' in h_upper
-            or h_clean == 'Bank Account Number'
-        ):
-          row_data_dict[h_clean] = beneficiary_acc
-        elif h_clean == rd1_col_name:
-          row_data_dict[h_clean] = rd1
-        elif (
-            'bank closing balance' in h_clean.lower()
-            or 'బ్యాలెన్స్' in h_clean
-        ):
-          row_data_dict[h_clean] = bank_closing_balance_str
-        elif h_clean == arrears_b_name:
-          row_data_dict[h_clean] = previous_arrears
-        elif h_clean == due_c_name:
-          row_data_dict[h_clean] = due_amount
-        elif h_clean == actual_paid_d_name:
-          row_data_dict[h_clean] = actual_paid
-        elif h_clean == govt_share_name:
-          row_data_dict[h_clean] = govt_share
-        elif h_clean == remaining_f_name:
-          row_data_dict[h_clean] = remaining_arrears
-        elif h_clean == govt_closing_h_name:
-          row_data_dict[h_clean] = govt_rd_closing_bal
-        elif h_clean == govt_status_i_name:
-          row_data_dict[h_clean] = govt_status_val
-        elif h_clean == 'FILE NAME':
-          row_data_dict[h_clean] = bank_user
-
-      new_row_data = [row_data_dict.get(h.strip(), '') for h in trans_headers]
-      trans_sheet.append_row(new_row_data)
-
-    return jsonify({
-        'status': 'success',
-        'message': 'డేటా మరియు లెక్కలు విజయవంతంగా అప్‌డేట్ చేయబడ్డాయి!',
-    })
-
-  except Exception as e:
-    return jsonify(
-        {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
-    )
-
-
-@app.route('/api/download-excel', methods=['GET'])
-def download_excel():
-  bank_user = session.get('bank_user')
-  if not bank_user:
-    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
-
-  try:
-    current_month = str(
-        request.args.get('month', session.get('current_month', '1'))
-    ).strip()
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-
-    target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
-    master_records = target_sheet.get_all_records()
-    df_master = pd.DataFrame(master_records)
-
-    bank_user_clean = bank_user.strip().lower()
-    df_master = df_master[
-        df_master['FILE NAME'].astype(str).str.strip().str.lower()
-        == bank_user_clean
-    ].copy()
-
-    try:
-      trans_sheet = spreadsheet.worksheet('Transactions_Year1')
-      trans_records = trans_sheet.get_all_records()
-      df_trans = pd.DataFrame(trans_records)
-      if not df_trans.empty:
-        df_trans = df_trans[
-            df_trans['FILE NAME'].astype(str).str.strip().str.lower()
-            == bank_user_clean
-        ].copy()
-    except Exception:
-      df_trans = pd.DataFrame()
-
-    month_trans_records = []
-    batch_wise_data = {}
-    all_month_data = []
-
-    if not df_trans.empty:
-      for _, t in df_trans.iterrows():
-        t_sno = str(t.get('BANK_SNO') or t.get('Bank SNO') or '').strip()
-        t_month = str(
-            t.get('MONTH_NUMBER') or t.get('month_number') or ''
-        ).strip()
-        t_batch = str(
-            t.get('BATCH_NUMBER') or t.get('batch_number') or ''
-        ).strip()
-
-        if t_month == current_month:
-          month_trans_records.append((t_sno, t_batch, t))
-
-    sno_to_batch = {}
-    sno_to_balance = {}
-    for t_sno, t_batch, t in month_trans_records:
-      t_balance = (
-          t.get(
-              'Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న'
-              ' బ్యాలెన్స్)'
-          )
-          or t.get('Bank Closing Balance')
-          or ''
-      )
-      if t_sno:
-        sno_to_batch[t_sno] = t_batch
-        sno_to_balance[t_sno] = t_balance
-
-    def format_as_excel_text(val):
-      if val is None:
-        return ''
-      val_str = str(val).strip().strip("'")
-      if val_str:
-        return f"'{val_str}"
-      return ''
-
-    for idx, (_, row) in enumerate(df_master.iterrows()):
-      file_name = str(
-          row.get('FILE NAME') or row.get('File Name') or ''
-      ).strip()
-      bank_sno = str(row.get('BANK_SNO') or row.get('Bank SNO') or '').strip()
-
-      raw_batch = sno_to_batch.get(bank_sno, '')
-      assigned_batch = raw_batch if raw_batch != '' else 'Unassigned'
-
-      closing_balance = sno_to_balance.get(
-          bank_sno, row.get('Bank Closing Balance', '')
-      )
-
-      acc_num = format_as_excel_text(
-          row.get('Bank Account Number') or row.get('ACCOUNT')
-      )
-      rd_1 = format_as_excel_text(row.get('RD 1') or row.get('RD_1'))
-      rd_2 = format_as_excel_text(row.get('RD 2') or row.get('RD_2'))
-
-      record_item = {
-          'BANK_SNO': bank_sno or idx + 1,
-          'MONTH_NUMBER': current_month,
-          'BATCH_NUMBER': assigned_batch,
-          'Name Of Benificiary': (
-              row.get('Name Of Benificiary') or row.get('NAME') or ''
-          ),
-          'Bank Account Number': acc_num,
-          'RD ACCOUNT_1': rd_1,
-          'RD ACCOUNT_2': rd_2,
-          'Bank Closing Balance': closing_balance,
-          'FILE NAME': file_name,
-      }
-
-      all_month_data.append(record_item)
-
-      if assigned_batch not in batch_wise_data:
-        batch_wise_data[assigned_batch] = []
-      batch_wise_data[assigned_batch].append(record_item)
-
-    if not all_month_data:
-      return jsonify({'status': 'error', 'message': 'డేటా ఏదీ అందుబాటులో లేదు.'})
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-      sorted_batches = sorted(
-          batch_wise_data.keys(), key=lambda x: (x == 'Unassigned', x)
-      )
-
-      for batch_key in sorted_batches:
-        df_batch = pd.DataFrame(batch_wise_data[batch_key])
-        sheet_name = (
-            f'Batch_{batch_key}'
-            if batch_key != 'Unassigned'
-            else 'Unassigned_Batch'
-        )
-        df_batch.to_excel(writer, index=False, sheet_name=sheet_name)
-
-      df_all = pd.DataFrame(all_month_data)
-      df_all.to_excel(writer, index=False, sheet_name='All_Data')
-
-    output.seek(0)
-    filename = (
-        f"{bank_user.replace(' ', '_')}_Month_{current_month}_All_Batches.xlsx"
-    )
-
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=filename,
-    )
-  except Exception as e:
-    return jsonify(
-        {'status': 'error', 'message': f'డౌన్‌లోడ్ చేయడంలో లోపం: {str(e)}'}
-    )
-
-
-@app.route("/api/bulk-upload", methods=["POST"])
-def bulk_upload():
-  try:
-    bank_user = session.get("bank_user")
-    if not bank_user:
-      return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
-
-    if "file" not in request.files:
-      return jsonify({"status": "error", "message": "ఫైల్ ఏదీ ఎంచుకోలేదు."})
-
-    file = request.files["file"]
-    if file.filename == "":
-      return jsonify({"status": "error", "message": "ఫైల్ పేరు ఖాళీగా ఉంది."})
-
-    df = pd.read_excel(file)
-
-    current_month = str(
-        request.form.get("month", session.get("current_month", "1"))
-    ).strip()
-    batch_number = str(
-        request.form.get("batch", session.get("batch_number", "1"))
-    ).strip()
-
-    # --- పర్ఫెక్ట్ మాచింగ్ కోసం SNO క్లీనింగ్ ఫంక్షన్ ---
-    def clean_sno(val):
-      if val is None:
-        return ""
-      val_str = str(val).strip()
-      if not val_str or val_str.lower() == "nan":
-        return ""
-      if val_str.endswith(".0"):
-        val_str = val_str[:-2]
-      return val_str.strip()
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-
-    target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
-    master_records = target_sheet.get_all_records()
-    master_headers = target_sheet.row_values(1)
-    master_col_map = {
-        h.strip().upper(): c_idx + 1 for c_idx, h in enumerate(master_headers)
-    }
-
-    trans_sheet = spreadsheet.worksheet("Transactions_Year1")
-    trans_records = trans_sheet.get_all_records()
-    trans_headers = trans_sheet.row_values(1)
-    trans_col_map = {
-        h.strip(): c_idx + 1 for c_idx, h in enumerate(trans_headers)
-    }
-
-    bank_user_clean = bank_user.strip().lower()
-
-    # 1. Transactions నుండి already_covered_snos ని సరిగ్గా క్లీన్ చేసి సేకరించడం
-    already_covered_snos = set()
-    for t_row in trans_records:
-      t_sno = clean_sno(t_row.get("BANK_SNO") or t_row.get("Bank SNO"))
-      t_month = str(
-          t_row.get("MONTH_NUMBER") or t_row.get("month_number") or ""
-      ).strip()
-      t_batch = str(
-          t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or ""
-      ).strip()
-      t_filename = (
-          str(t_row.get("FILE NAME") or t_row.get("File Name") or "")
-          .strip()
-          .lower()
-      )
-
-      if (
-          t_month == current_month
-          and t_batch != batch_number
-          and t_filename == bank_user_clean
-          and t_sno
-      ):
-        try:
-          if (
-              float(
-                  t_row.get("Govt_Share") or t_row.get("GOVT_SHARE") or 0
-              )
-              > 0
-          ):
-            already_covered_snos.add(t_sno)
-        except ValueError:
-          pass
-
-    updated_count = 0
-    skipped_beneficiaries = []
-
-    master_cell_updates = []
-    trans_cell_updates = []
-    new_trans_rows = []
-
-    # 2. Master Records ని క్లీన్డ్ SNO తో మ్యాప్ చేయడం
-    master_row_dict = {}
-    for idx, m_row in enumerate(master_records):
-      m_sno = clean_sno(m_row.get("BANK_SNO") or m_row.get("Bank SNO"))
-      m_file = (
-          str(m_row.get("FILE NAME") or m_row.get("File Name") or "")
-          .strip()
-          .lower()
-      )
-
-      if m_sno and m_file == bank_user_clean:
-        try:
-          wages_val = float(
-              m_row.get("8% Of Monthly Wages")
-              or m_row.get("MONTHLY WAGES")
-              or 0
-          )
-        except (ValueError, TypeError):
-          wages_val = 0.0
-
-        master_row_dict[m_sno] = {
-            "row_idx": idx + 2,
-            "name": str(
-                m_row.get("Name Of Benificiary") or m_row.get("NAME") or ""
-            ).strip(),
-            "acc": str(
-                m_row.get("Bank Account Number") or m_row.get("ACCOUNT") or ""
-            ).strip(),
-            "wages": wages_val,
-        }
-
-    # 3. Transactions Row Dict ని క్లీన్డ్ SNO తో మ్యాప్ చేయడం
-    trans_row_dict = {}
-    for idx, t_row in enumerate(trans_records):
-      t_sno = clean_sno(t_row.get("BANK_SNO") or t_row.get("Bank SNO"))
-      t_month = str(
-          t_row.get("MONTH_NUMBER") or t_row.get("month_number") or ""
-      ).strip()
-      t_batch = str(
-          t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or ""
-      ).strip()
-      t_filename = (
-          str(t_row.get("FILE NAME") or t_row.get("File Name") or "")
-          .strip()
-          .lower()
-      )
-
-      if (
-          t_sno
-          and t_month == current_month
-          and t_batch == batch_number
-          and t_filename == bank_user_clean
-      ):
-        trans_row_dict[t_sno] = idx + 2
-
-    rd1_col = master_col_map.get("RD 1") or master_col_map.get("RD_1")
-    rd2_col = master_col_map.get("RD 2") or master_col_map.get("RD_2")
-
-    # 4. ఎక్సెల్ డేటాఫ్రేమ్ (df) లోని SNO లను క్లీన్ చేసి చెక్ చేయడం
-    for _, row in df.iterrows():
-      bank_sno = clean_sno(row.get("BANK_SNO"))
-      rd1 = str(row.get("RD ACCOUNT_1") or row.get("RD 1") or "").strip()
-      rd2 = str(row.get("RD ACCOUNT_2") or row.get("RD 2") or "").strip()
-      balance_str = str(
-          row.get("Bank Closing Balance")
-          or row.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)")
-          or ""
-      ).strip()
-
-      if not bank_sno or bank_sno not in master_row_dict:
-        continue
-
-      if bank_sno in already_covered_snos:
-        skipped_beneficiaries.append(bank_sno)
-        continue
-
-      try:
-          if (
-              pd.isna(raw_balance)
-              or raw_balance is None
-              or str(raw_balance).strip() == ""
-              or str(raw_balance).strip().lower() == "nan"
-          ):
-              bank_closing_balance = 0.0
-              balance_str = "0.0"
-          else:
-              bank_closing_balance = float(raw_balance)
-              if math.isnan(bank_closing_balance) or math.isinf(
-                  bank_closing_balance
-              ):
-                  bank_closing_balance = 0.0
-                balance_str = str(bank_closing_balance)           
-              
-      except (ValueError, TypeError):
-        bank_closing_balance = 0.0
-        balance_str = "0.0"
-
-    
-      m_info = master_row_dict[bank_sno]
-      master_row_idx = m_info["row_idx"]
-      monthly_wages = m_info["wages"]
-      beneficiary_name = m_info["name"]
-      beneficiary_acc = m_info["acc"]
-
-      if rd1_col:
-        master_cell_updates.append(gspread.Cell(master_row_idx, rd1_col, rd1))
-      if rd2_col:
-        master_cell_updates.append(gspread.Cell(master_row_idx, rd2_col, rd2))
-
-      due_amount = monthly_wages
-      previous_arrears = 0.0
-      actual_paid = bank_closing_balance
-      govt_share = min(due_amount, actual_paid)
-      remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
-      govt_rd_closing_bal = govt_share
-      govt_rd_status = "MATCHED" if remaining_arrears <= 0 else "PENDING"
-
-      rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
-      balance_col_name = (
-          "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
-      )
-      due_c_name = "(C) ఈ నెల డ్యూ(Due)"
-      actual_paid_d_name = "(D) Actual Paid"
-      govt_share_name = "Govt_Share"
-      remaining_f_name = "(F) మిగిలిన బాకీ(Remaining Arrears)"
-      govt_closing_h_name = "Govt RD Closing Bal (H)"
-      govt_status_i_name = "Govt RD Status (I)"
-
-      if bank_sno in trans_row_dict:
-        t_row_idx = trans_row_dict[bank_sno]
-        t_updates_map = {
-            rd1_col_name: rd1,
-            balance_col_name: balance_str,
-            due_c_name: due_amount,
-            actual_paid_d_name: actual_paid,
-            govt_share_name: govt_share,
-            remaining_f_name: remaining_arrears,
-            govt_closing_h_name: govt_rd_closing_bal,
-            govt_status_i_name: govt_rd_status,
-        }
-        for c_name, val in t_updates_map.items():
-          if c_name in trans_col_map:
-            trans_cell_updates.append(
-                gspread.Cell(t_row_idx, trans_col_map[c_name], val)
-            )
-      else:
-        row_data_dict = {h.strip(): "" for h in trans_headers}
-        for h in trans_headers:
-          h_clean = h.strip()
-          if h_clean in ["MONTH_NUMBER", "month_number"]:
-            row_data_dict[h_clean] = current_month
-          elif h_clean in ["BATCH_NUMBER", "batch_number"]:
-            row_data_dict[h_clean] = batch_number
-          elif h_clean in ["BANK_SNO", "Bank SNO"]:
-            row_data_dict[h_clean] = (
-                bank_sno  # Cleaned SNO ని ఇక్కడ సేవ్ చేస్తుంది
-            )
-          elif h_clean == "Name Of Benificiary":
-            row_data_dict[h_clean] = beneficiary_name
-          elif h_clean == "Bank Account Number":
-            row_data_dict[h_clean] = beneficiary_acc
-          elif h_clean == rd1_col_name:
-            row_data_dict[h_clean] = rd1
-          elif h_clean == balance_col_name:
-            row_data_dict[h_clean] = balance_str
-          elif h_clean == due_c_name:
-            row_data_dict[h_clean] = due_amount
-          elif h_clean == actual_paid_d_name:
-            row_data_dict[h_clean] = actual_paid
-          elif h_clean == govt_share_name:
-            row_data_dict[h_clean] = govt_share
-          elif h_clean == remaining_f_name:
-            row_data_dict[h_clean] = remaining_arrears
-          elif h_clean == govt_closing_h_name:
-            row_data_dict[h_clean] = govt_rd_closing_bal
-          elif h_clean == govt_status_i_name:
-            row_data_dict[h_clean] = govt_rd_status
-          elif h_clean == "FILE NAME":
-            row_data_dict[h_clean] = bank_user
-
-        new_trans_rows.append(
-            [row_data_dict.get(h.strip(), "") for h in trans_headers]
-        )
-
-      updated_count += 1
-
-    # గూగుల్ షీట్ అప్‌డేట్స్‌ను బ్యాచ్‌లు (Chunks) గా పంపడం
-    chunk_size = 500
-    if master_cell_updates:
-      for i in range(0, len(master_cell_updates), chunk_size):
-        target_sheet.update_cells(master_cell_updates[i : i + chunk_size])
-
-    if trans_cell_updates:
-      for i in range(0, len(trans_cell_updates), chunk_size):
-        trans_sheet.update_cells(trans_cell_updates[i : i + chunk_size])
-
-    if new_trans_rows:
-      trans_sheet.append_rows(new_trans_rows)
-
-    message = (
-        f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు విజయవంతంగా అప్‌డేట్"
-        " చేయబడ్డాయి! 🎉"
-    )
-    if skipped_beneficiaries:
-      message += (
-          " (గమనిక: SNOs"
-          f" {', '.join(map(str, skipped_beneficiaries))} ఈ నెలలో ఇప్పటికే"
-          " వేరే బ్యాచ్‌లో ఉన్నందున స్కిప్ చేయబడ్డాయి)."
-      )
-
-    return jsonify({"status": "success", "message": message})
-
-  except Exception as e:
-    return jsonify(
-        {"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"}
-    )
-      
-def format_as_excel_text(val):
-      if val is None:
-        return ''
-      val_str = str(val).strip().strip("'")
-      if val_str:
-        return f"'{val_str}"
-      return ''
-
-
-@app.route('/api/logout', methods=['POST'])
-def api_logout():
-  session.pop('bank_user', None)
-  session.pop('current_month', None)
-  session.pop('batch_number', None)
-  return jsonify({'status': 'success', 'message': 'లాగౌట్ అయ్యారు.'})
-
-
-if __name__ == '__main__':
-  port = int(os.environ.get('PORT', 8080))
-  app.run(host='0.0.0.0', port=port)
