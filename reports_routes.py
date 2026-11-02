@@ -1,5 +1,6 @@
 import os
 import gc
+import shutil
 import openpyxl
 from datetime import datetime
 import pandas as pd
@@ -16,15 +17,6 @@ os.makedirs(TEMPLATE_DIR, exist_ok=True)
 @reports_bp.route('/reports-dashboard')
 def reports_dashboard():
     return render_template('reports_dashboard.html')
-
-def safe_set_cell_value(ws, row, col, value):
-    cell = ws.cell(row=row, column=col)
-    for merged_range in ws.merged_cells.ranges:
-        if cell.coordinate in merged_range:
-            top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
-            top_left_cell.value = value
-            return
-    cell.value = value
 
 def format_acc(val):
     if val is None:
@@ -60,7 +52,13 @@ def generate_form_iiia():
         current_month_str = f"{selected_month_name}_{selected_year}"
         
         template_path = os.path.join(TEMPLATE_DIR, "Forms III, IV & V under Powerloom Thrift Scheme.xlsx")
-        wb = openpyxl.load_workbook(template_path)
+        output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month_str}.xlsx"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        shutil.copy(template_path, output_path)
+
+        wb_temp = openpyxl.load_workbook(template_path, read_only=True)
+        target_sheet = next((s for s in wb_temp.sheetnames if "IIIA Revised" in s or "Form IIIA" in s), wb_temp.sheetnames[0])
+        wb_temp.close()
 
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
         df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy()
@@ -129,21 +127,10 @@ def generate_form_iiia():
         if report_df.empty:
             return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
 
-        target_sheet = next((s for s in wb.sheetnames if "IIIA Revised" in s or "Form IIIA" in s), wb.sheetnames[0])
-        ws = wb[target_sheet]
-        start_row = 8
-        output_filename = f"FORM_III_A_Powerloom_Weavers_Report_{current_month_str}.xlsx"
-        for row_idx, row in enumerate(report_df.itertuples(index=False)):
-            current_r = start_row + row_idx
-            for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=current_r, column=col_idx)
-                cell.value = value
-
-
-        output_path = os.path.join(OUTPUT_DIR, output_filename)
-        wb.save(output_path)
+        with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            report_df.to_excel(writer, sheet_name=target_sheet, startrow=7, startcol=0, header=False, index=False)
         
-        del df_thrift, df_weavers
+        del df_thrift, df_weavers, report_df
         gc.collect()
 
         return send_file(output_path, as_attachment=True, download_name=output_filename)
@@ -179,7 +166,13 @@ def generate_form_iiib():
         current_month_str = f"{selected_month_name}_{selected_year}"
         
         template_path = os.path.join(TEMPLATE_DIR, "Forms III, IV & V under Powerloom Thrift Scheme.xlsx")
-        wb = openpyxl.load_workbook(template_path)
+        output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month_str}.xlsx"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        shutil.copy(template_path, output_path)
+
+        wb_temp = openpyxl.load_workbook(template_path, read_only=True)
+        target_sheet = next((s for s in wb_temp.sheetnames if "IIIB Revised" in s or "Form IIIB" in s), wb_temp.sheetnames[0])
+        wb_temp.close()
 
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
         df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy()
@@ -247,21 +240,10 @@ def generate_form_iiib():
         if report_df.empty:
             return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
 
-        target_sheet = next((s for s in wb.sheetnames if "IIIB Revised" in s or "Form IIIB" in s), wb.sheetnames[0])
-        ws = wb[target_sheet]
-        start_row = 8
-        output_filename = f"FORM_III_B_Ancillary_Workers_Report_{current_month_str}.xlsx"
-
-        for row_idx, row in enumerate(report_df.itertuples(index=False)):
-            current_r = start_row + row_idx
-            for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=current_r, column=col_idx)
-                cell.value = value
-
-        output_path = os.path.join(OUTPUT_DIR, output_filename)
-        wb.save(output_path)
+        with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            report_df.to_excel(writer, sheet_name=target_sheet, startrow=7, startcol=0, header=False, index=False)
         
-        del df_thrift, df_ancillary
+        del df_thrift, df_ancillary, report_df
         gc.collect()
 
         return send_file(output_path, as_attachment=True, download_name=output_filename)
@@ -297,7 +279,13 @@ def generate_form_v():
         current_month_str = f"{selected_month_name}_{selected_year}"
         
         template_path = os.path.join(TEMPLATE_DIR, "Forms III, IV & V under Powerloom Thrift Scheme.xlsx")
-        wb = openpyxl.load_workbook(template_path)
+        output_filename = f"FORM_V_Register_Report_{current_month_str}.xlsx"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        shutil.copy(template_path, output_path)
+
+        wb_temp = openpyxl.load_workbook(template_path, read_only=True)
+        target_sheet = next((s for s in wb_temp.sheetnames if "Form-V" in s or "Form V" in s), wb_temp.sheetnames[0])
+        wb_temp.close()
 
         try:
             ws_trans = sh.worksheet("Transactions_Year1")
@@ -387,21 +375,10 @@ def generate_form_v():
         if report_df.empty:
             return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
 
-        target_sheet = next((s for s in wb.sheetnames if "Form-V" in s or "Form V" in s), wb.sheetnames[0])
-        ws = wb[target_sheet]
-        start_row = 11
-        output_filename = f"FORM_V_Register_Report_{current_month_str}.xlsx"
-
-        for row_idx, row in enumerate(report_df.itertuples(index=False)):
-            current_r = start_row + row_idx
-            for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=current_r, column=col_idx)
-                cell.value = value
-
-        output_path = os.path.join(OUTPUT_DIR, output_filename)
-        wb.save(output_path)
+        with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            report_df.to_excel(writer, sheet_name=target_sheet, startrow=10, startcol=0, header=False, index=False)
         
-        del df_thrift, df_v
+        del df_thrift, df_v, report_df
         gc.collect()
 
         return send_file(output_path, as_attachment=True, download_name=output_filename)
@@ -436,9 +413,17 @@ def generate_all_reports():
         current_month_str = f"{selected_month_name}_{selected_year}"
         
         template_path = os.path.join(TEMPLATE_DIR, "Forms III, IV & V under Powerloom Thrift Scheme.xlsx")
-        wb = openpyxl.load_workbook(template_path)
+        output_filename = f"MASTER_Thrift_Scheme_All_Reports_{current_month_str}.xlsx"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        shutil.copy(template_path, output_path)
 
-
+        wb_temp = openpyxl.load_workbook(template_path, read_only=True)
+        sheet_names = wb_temp.sheetnames
+        target_sheet_iiia = next((s for s in sheet_names if "IIIA Revised" in s or "Form IIIA" in s), None)
+        target_sheet_iiib = next((s for s in sheet_names if "IIIB Revised" in s or "Form IIIB" in s), None)
+        target_sheet_v = next((s for s in sheet_names if "Form-V" in s or "Form V" in s), None)
+        target_sheet_iv = next((s for s in sheet_names if "Form-IV" in s), None)
+        wb_temp.close()
 
         # Common column mappings
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
@@ -461,9 +446,10 @@ def generate_all_reports():
         wages_col = '8% Of Monthly Wages' if '8% Of Monthly Wages' in df_thrift.columns else ''
 
         # ------------------------------------------
-        # A. Fill FORM IIIA Revised (Powerloom Weavers)
+        # A. Prepare FORM IIIA Revised (Powerloom Weavers)
         # ------------------------------------------
         df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy().reset_index(drop=True)
+        report_df_iiia = pd.DataFrame()
         if not df_weavers.empty:
             df_weavers['Father_Husband_Name'] = df_weavers[father_col].fillna('') if father_col else ''
             df_weavers['Full_Address'] = (
@@ -504,19 +490,12 @@ def generate_all_reports():
                 'S/B Account details': df_weavers['SB_Account_Details'],
                 'Nominee details': df_weavers['Nominee_Details']
             })
-            
-            target_sheet_iiia = next((s for s in wb.sheetnames if "IIIA Revised" in s or "Form IIIA" in s), None)
-            if target_sheet_iiia:
-                ws_iiia = wb[target_sheet_iiia]
-                for row_idx, row in enumerate(report_df_iiia.itertuples(index=False)):
-                    current_r = 8 + row_idx
-                    for col_idx, value in enumerate(row, start=1):
-                        ws_iiia.cell(row=current_r, column=col_idx).value = value
 
         # ------------------------------------------
-        # B. Fill Form IIIB Revised (Ancillary Workers)
+        # B. Prepare Form IIIB Revised (Ancillary Workers)
         # ------------------------------------------
         df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy().reset_index(drop=True)
+        report_df_iiib = pd.DataFrame()
         if not df_ancillary.empty:
             df_ancillary['Father_Husband_Name'] = df_ancillary[father_col].fillna('') if father_col else ''
             df_ancillary['Full_Address'] = (
@@ -557,16 +536,8 @@ def generate_all_reports():
                 'Nominee details': df_ancillary['Nominee_Details']
             })
 
-            target_sheet_iiib = next((s for s in wb.sheetnames if "IIIB Revised" in s or "Form IIIB" in s), None)
-            if target_sheet_iiib:
-                ws_iiib = wb[target_sheet_iiib]
-                for row_idx, row in enumerate(report_df_iiib.itertuples(index=False)):
-                    current_r = 8 + row_idx
-                    for col_idx, value in enumerate(row, start=1):
-                        ws_iiib.cell(row=current_r, column=col_idx).value = value
-
         # ------------------------------------------
-        # C. Fill Form-V (Total Register)
+        # C. Prepare Form-V (Total Register)
         # ------------------------------------------
         try:
             ws_trans = sh.worksheet("Transactions_Year1")
@@ -605,8 +576,6 @@ def generate_all_reports():
         del df_filtered
         gc.collect()
 
-        
-        # df_v = df_thrift.copy().reset_index(drop=True)
         df_v['Village_Mandal'] = (
             df_v[vill_col].fillna('').astype(str) + ", " + df_v[mandal_col].fillna('').astype(str) if (vill_col and mandal_col) else ''
         )
@@ -615,7 +584,6 @@ def generate_all_reports():
         rd2_col = 'RD 2' if 'RD 2' in df_v.columns else ''
         wages_monthly_col = 'MONTHLY WAGES' if 'MONTHLY WAGES' in df_v.columns else ''
         govt_share = 'Govt_Share' if 'Govt_Share' in df_v.columns else ''
-
 
         report_df_v = pd.DataFrame({
             'Sl. No.': range(1, len(df_v) + 1),
@@ -640,24 +608,24 @@ def generate_all_reports():
             'Govt. contribution 8%': df_v[govt_share].fillna('') if govt_share else ''
         })
 
-        target_sheet_v = next((s for s in wb.sheetnames if "Form-V" in s or "Form V" in s), None)
-        if target_sheet_v:
-            ws_v = wb[target_sheet_v]
-            for row_idx, row in enumerate(report_df_v.itertuples(index=False)):
-                current_r = 11 + row_idx
-                for col_idx, value in enumerate(row, start=1):
-                    ws_v.cell(row=current_r, column=col_idx).value = value
+        # Write all sheets in a single ExcelWriter pass (Overlay mode)
+        with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            if not report_df_iiia.empty and target_sheet_iiia:
+                report_df_iiia.to_excel(writer, sheet_name=target_sheet_iiia, startrow=7, startcol=0, header=False, index=False)
+            if not report_df_iiib.empty and target_sheet_iiib:
+                report_df_iiib.to_excel(writer, sheet_name=target_sheet_iiib, startrow=7, startcol=0, header=False, index=False)
+            if not report_df_v.empty and target_sheet_v:
+                report_df_v.to_excel(writer, sheet_name=target_sheet_v, startrow=10, startcol=0, header=False, index=False)
 
         # ------------------------------------------
         # D. Fill Form-IV Revised (Summary Counts)
         # ------------------------------------------
-        target_sheet_iv = next((s for s in wb.sheetnames if "Form-IV" in s), None)
         if target_sheet_iv:
-            ws_iv = wb[target_sheet_iv]
+            wb_out = openpyxl.load_workbook(output_path)
+            ws_iv = wb_out[target_sheet_iv]
             weavers_count = len(df_weavers)
             ancillary_count = len(df_ancillary)
             
-            # Row 9 values update based on counts
             ws_iv.cell(row=9, column=3).value = weavers_count
             ws_iv.cell(row=9, column=4).value = ancillary_count
             ws_iv.cell(row=9, column=6).value = weavers_count
@@ -666,12 +634,10 @@ def generate_all_reports():
             ws_iv.cell(row=9, column=10).value = ancillary_count
             ws_iv.cell(row=9, column=12).value = weavers_count
             ws_iv.cell(row=9, column=13).value = ancillary_count
-
-        output_filename = f"MASTER_Thrift_Scheme_All_Reports_{current_month_str}.xlsx"
-        output_path = os.path.join(OUTPUT_DIR, output_filename)
-        wb.save(output_path)
+            wb_out.save(output_path)
+            wb_out.close()
         
-        del df_thrift
+        del df_thrift, df_weavers, df_ancillary, df_v
         gc.collect()
 
         return send_file(output_path, as_attachment=True, download_name=output_filename)
