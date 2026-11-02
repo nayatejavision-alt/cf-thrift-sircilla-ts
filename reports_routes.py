@@ -359,6 +359,7 @@ def generate_form_v():
         rd2_col = 'RD 2' if 'RD 2' in df_v.columns else ''
         wages_col = 'MONTHLY WAGES' if 'MONTHLY WAGES' in df_v.columns else ''
         percent_wages = '8% Of Monthly Wages' if '8% Of Monthly Wages' in df_v.columns else ''
+        govt_share = 'Govt_Share' if 'Govt_Share' in df_v.columns else ''
 
         report_df = pd.DataFrame({
             'Sl. No.': range(1, len(df_v) + 1),
@@ -380,7 +381,7 @@ def generate_form_v():
             'RD A/c No.2': df_v[rd2_col].apply(format_acc) if rd2_col else '',
             'Declared wages earned per month': df_v[wages_col].fillna('') if wages_col else '',
             'Weaver contribution 8%': df_v[percent_wages].fillna('') if percent_wages else '',
-            'Govt. contribution 8%': df_v[percent_wages].fillna('') if percent_wages else ''
+            'Govt. contribution 8%': df_v[govt_share].fillna('') if govt_share else ''
         })
 
         if report_df.empty:
