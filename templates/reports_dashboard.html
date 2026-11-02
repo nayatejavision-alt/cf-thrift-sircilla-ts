@@ -170,9 +170,10 @@
         </div>
     </div>
 
-    <!-- JavaScript for AJAX Download -->
+    
+  <!-- JavaScript for AJAX Download -->
     <script>
-  async function generateReport(formType, btnElement) {
+        async function generateReport(formType, btnElement) {
             const alertBox = document.getElementById('alertBox');
             alertBox.className = "alert d-none"; 
             
@@ -187,50 +188,100 @@
             } else if (formType === 'MASTER_ALL') {
                 apiEndpoint = '/api/generate-all-reports';
             }
+
             const originalHtml = btnElement.innerHTML;
             btnElement.disabled = true;
             btnElement.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>తయారవుతోంది...`;
 
             try {
-                const response = await fetch(apiEndpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ month: selectedMonth })
-                });
-
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = `${formType}_Report.xlsx`;
+                // మాస్టర్ రిపోర్ట్ అయితే బ్యాక్‌గ్రౌండ్ జాబ్ పద్ధతిని ఫాలో అవుతుంది
+                if (formType === 'MASTER_ALL') {
+                    const response = await fetch(apiEndpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ month: selectedMonth })
+                    });
                     
-                    if (contentDisposition && contentDisposition.includes('filename=')) {
-                        const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-                        if (matches != null && matches[1]) {
-                            filename = matches[1].replace(/['"]/g, '');
-                        }
+                    const data = await response.json();
+                    if (data.status !== 'started') {
+                        throw new Error(data.message || 'జాబ్ ప్రారంభించడం సాధ్యపడలేదు.');
                     }
 
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    window.URL.revokeObjectURL(url);
+                    const jobId = data.job_id;
+                    
+                    // స్టేటస్ చెక్ చేయడానికి పోలింగ్ (Polling Mechanism)
+                    let checkInterval = setInterval(async () => {
+                        try {
+                            const statusRes = await fetch(`/api/report-job-status/${jobId}`);
+                            const statusData = await statusRes.json();
+                            
+                            // బటన్ పై లైవ్ మెసేజ్ చూపించడం
+                            if(statusData.message) {
+                                btnElement.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>${statusData.message}`;
+                            }
 
-                    alertBox.className = "alert alert-success";
-                    alertBox.innerHTML = `<i class="fa-solid fa-circle-check me-2"></i>రిపోర్ట్ విజయవంతంగా డౌన్‌లోడ్ అయింది!`;
+                            if (statusData.status === 'completed') {
+                                clearInterval(checkInterval);
+                                alertBox.className = "alert alert-success";
+                                alertBox.innerHTML = `<i class="fa-solid fa-circle-check me-2"></i>మాస్టర్ రిపోర్ట్ విజయవంతంగా తయారైంది! డౌన్‌లోడ్ అవుతోంది...`;
+                                
+                                // ఆటోమేటిక్ డౌన్‌లోడ్ ట్రిగ్గర్ చేయడం
+                                window.location.href = statusData.download_url;
+                                
+                                btnElement.disabled = false;
+                                btnElement.innerHTML = originalHtml;
+                            } else if (statusData.status === 'error') {
+                                clearInterval(checkInterval);
+                                throw new Error(statusData.message);
+                            }
+                        } catch (err) {
+                            clearInterval(checkInterval);
+                            throw err;
+                        }
+                    }, 2500); // ప్రతి 2.5 సెకండ్లకు ఒకసారి సర్వర్‌ని అడుగుతుంది
+
                 } else {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || 'లోపం సంభవించింది.');
+                    // మిగతా చిన్న రిపోర్ట్స్ (III-A, III-B, V) నేరుగా డౌన్‌లోడ్ అవుతాయి
+                    const response = await fetch(apiEndpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ month: selectedMonth })
+                    });
+
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const contentDisposition = response.headers.get('Content-Disposition');
+                        let filename = `${formType}_Report.xlsx`;
+                        
+                        if (contentDisposition && contentDisposition.includes('filename=')) {
+                            const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                            if (matches != null && matches[1]) {
+                                filename = matches[1].replace(/['"]/g, '');
+                            }
+                        }
+
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+
+                        alertBox.className = "alert alert-success";
+                        alertBox.innerHTML = `<i class="fa-solid fa-circle-check me-2"></i>రిపోర్ట్ విజయవంతంగా డౌన్‌లోడ్ అయింది!`;
+                        
+                        btnElement.disabled = false;
+                        btnElement.innerHTML = originalHtml;
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'లోపం సంభవించింది.');
+                    }
                 }
             } catch (error) {
                 alertBox.className = "alert alert-danger";
                 alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-2"></i>లోపం: ${error.message}`;
-            } finally {
                 btnElement.disabled = false;
                 btnElement.innerHTML = originalHtml;
             }
