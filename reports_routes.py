@@ -19,35 +19,43 @@ def reports_dashboard():
     return render_template('reports_dashboard.html')
 
 def format_acc(val):
-    if val is None:
+    if val is None or pd.isna(val):
         return ''
     val_str = str(val).split('.')[0].strip().strip("'")
     if val_str and val_str != 'nan' and val_str != '0':
         return f"'{val_str}"
     return ''
 
+def get_thrift_dataframe():
+    """Helper function to load thrift data efficiently"""
+    from app import get_sheets_client, SPREADSHEET_NAME
+    client = get_sheets_client()
+    sh = client.open(SPREADSHEET_NAME)
+    ws_thrift = sh.worksheet("NEW THRIFT DATA")
+    
+    # Using get_all_values() is faster and lighter than get_all_records() for large data
+    rows = ws_thrift.get_all_values()
+    if not rows or len(rows) < 2:
+        return None, sh
+    
+    df = pd.DataFrame(rows[1:], columns=rows[0])
+    return df, sh
+
 # ==========================================
 # 1. FORM III-A (Powerloom Weavers Report)
 # ==========================================
 @reports_bp.route('/api/generate-form-iiia', methods=['POST'])
 def generate_form_iiia():
+    df_thrift = None
     try:
         data = request.get_json() if request.is_json else request.form
         target_month = int(data.get('month', 1))
         
-        from app import get_sheets_client, SPREADSHEET_NAME, MONTH_MAPPING
-        client = get_sheets_client()
-        sh = client.open(SPREADSHEET_NAME)
-        
-        ws_thrift = sh.worksheet("NEW THRIFT DATA")
-        thrift_data = ws_thrift.get_all_records()
-        if not thrift_data:
+        from app import MONTH_MAPPING
+        df_thrift, sh = get_thrift_dataframe()
+        if df_thrift is None or df_thrift.empty:
             return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
             
-        df_thrift = pd.DataFrame(thrift_data)
-        del thrift_data
-        gc.collect()
-
         selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
         current_month_str = f"{selected_month_name}_{selected_year}"
         
@@ -62,7 +70,10 @@ def generate_form_iiia():
 
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
         df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy()
-        df_weavers = df_weavers.reset_index(drop=True)
+        df_weavers.reset_index(drop=True, inplace=True)
+
+        if df_weavers.empty:
+            return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి పవర్లూమ్ వీవర్ రికార్డులు కనుగొనబడలేదు!'}), 400
 
         father_col = 'Father Name' if 'Father Name' in df_weavers.columns else ''
         hno_col = 'H.NO. Residentional H.No' if 'H.NO. Residentional H.No' in df_weavers.columns else ''
@@ -124,9 +135,6 @@ def generate_form_iiia():
             'Nominee details': df_weavers['Nominee_Details']
         })
 
-        if report_df.empty:
-            return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
-
         with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
             report_df.to_excel(writer, sheet_name=target_sheet, startrow=7, startcol=0, header=False, index=False)
         
@@ -138,6 +146,8 @@ def generate_form_iiia():
     except Exception as e:
         print("ERROR IN FORM_III_A:", traceback.format_exc())
         return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
+    finally:
+        gc.collect()
 
 
 # ==========================================
@@ -149,19 +159,11 @@ def generate_form_iiib():
         data = request.get_json() if request.is_json else request.form
         target_month = int(data.get('month', 1))
         
-        from app import get_sheets_client, SPREADSHEET_NAME, MONTH_MAPPING
-        client = get_sheets_client()
-        sh = client.open(SPREADSHEET_NAME)
-        
-        ws_thrift = sh.worksheet("NEW THRIFT DATA")
-        thrift_data = ws_thrift.get_all_records()
-        if not thrift_data:
+        from app import MONTH_MAPPING
+        df_thrift, sh = get_thrift_dataframe()
+        if df_thrift is None or df_thrift.empty:
             return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
             
-        df_thrift = pd.DataFrame(thrift_data)
-        del thrift_data
-        gc.collect()
-
         selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
         current_month_str = f"{selected_month_name}_{selected_year}"
         
@@ -176,7 +178,10 @@ def generate_form_iiib():
 
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
         df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy()
-        df_ancillary = df_ancillary.reset_index(drop=True)
+        df_ancillary.reset_index(drop=True, inplace=True)
+
+        if df_ancillary.empty:
+            return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి అన్సిలరీ వర్కర్ రికార్డులు కనుగొనబడలేదు!'}), 400
 
         father_col = 'Father Name' if 'Father Name' in df_ancillary.columns else ''
         hno_col = 'H.NO. Residentional H.No' if 'H.NO. Residentional H.No' in df_ancillary.columns else ''
@@ -237,9 +242,6 @@ def generate_form_iiib():
             'Nominee details': df_ancillary['Nominee_Details']
         })
 
-        if report_df.empty:
-            return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
-
         with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
             report_df.to_excel(writer, sheet_name=target_sheet, startrow=7, startcol=0, header=False, index=False)
         
@@ -251,6 +253,8 @@ def generate_form_iiib():
     except Exception as e:
         print("ERROR IN FORM_III_B:", traceback.format_exc())
         return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
+    finally:
+        gc.collect()
 
 
 # ==========================================
@@ -262,19 +266,11 @@ def generate_form_v():
         data = request.get_json() if request.is_json else request.form
         target_month = int(data.get('month', 1))
         
-        from app import get_sheets_client, SPREADSHEET_NAME, MONTH_MAPPING
-        client = get_sheets_client()
-        sh = client.open(SPREADSHEET_NAME)
-        
-        ws_thrift = sh.worksheet("NEW THRIFT DATA")
-        thrift_data = ws_thrift.get_all_records()
-        if not thrift_data:
+        from app import MONTH_MAPPING
+        df_thrift, sh = get_thrift_dataframe()
+        if df_thrift is None or df_thrift.empty:
             return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
             
-        df_thrift = pd.DataFrame(thrift_data)
-        del thrift_data
-        gc.collect()
-
         selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
         current_month_str = f"{selected_month_name}_{selected_year}"
         
@@ -289,9 +285,9 @@ def generate_form_v():
 
         try:
             ws_trans = sh.worksheet("Transactions_Year1")
-            trans_data = ws_trans.get_all_records()
-            df_trans = pd.DataFrame(trans_data) if trans_data else pd.DataFrame()
-            del trans_data
+            trans_rows = ws_trans.get_all_values()
+            df_trans = pd.DataFrame(trans_rows[1:], columns=trans_rows[0]) if len(trans_rows) > 1 else pd.DataFrame()
+            del trans_rows
         except Exception:
             df_trans = pd.DataFrame()
 
@@ -320,7 +316,8 @@ def generate_form_v():
         if df_filtered.empty:
             df_filtered = df_thrift.copy()
 
-        df_v = df_filtered.copy().reset_index(drop=True)
+        df_v = df_filtered.copy()
+        df_v.reset_index(drop=True, inplace=True)
         del df_filtered
         gc.collect()
         
@@ -372,9 +369,6 @@ def generate_form_v():
             'Govt. contribution 8%': df_v[govt_share].fillna('') if govt_share else ''
         })
 
-        if report_df.empty:
-            return jsonify({'status': 'error', 'message': 'రిపోర్ట్ చేయడానికి ఎలాంటి రికార్డులు కనుగొనబడలేదు!'}), 400
-
         with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
             report_df.to_excel(writer, sheet_name=target_sheet, startrow=10, startcol=0, header=False, index=False)
         
@@ -386,6 +380,9 @@ def generate_form_v():
     except Exception as e:
         print("ERROR IN FORM_V:", traceback.format_exc())
         return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
+    finally:
+        gc.collect()
+
 
 # ==========================================
 # 4. MASTER REPORT (All Tabs: Form III-A, III-B, IV & V)
@@ -396,19 +393,11 @@ def generate_all_reports():
         data = request.get_json() if request.is_json else request.form
         target_month = int(data.get('month', 1))
         
-        from app import get_sheets_client, SPREADSHEET_NAME, MONTH_MAPPING
-        client = get_sheets_client()
-        sh = client.open(SPREADSHEET_NAME)
-        
-        ws_thrift = sh.worksheet("NEW THRIFT DATA")
-        thrift_data = ws_thrift.get_all_records()
-        if not thrift_data:
+        from app import MONTH_MAPPING
+        df_thrift, sh = get_thrift_dataframe()
+        if df_thrift is None or df_thrift.empty:
             return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
             
-        df_thrift = pd.DataFrame(thrift_data)
-        del thrift_data
-        gc.collect()
-
         selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
         current_month_str = f"{selected_month_name}_{selected_year}"
         
@@ -425,7 +414,6 @@ def generate_all_reports():
         target_sheet_iv = next((s for s in sheet_names if "Form-IV" in s), None)
         wb_temp.close()
 
-        # Common column mappings
         profession_col = 'Profession' if 'Profession' in df_thrift.columns else df_thrift.columns[0]
         father_col = 'Father Name' if 'Father Name' in df_thrift.columns else ''
         hno_col = 'H.NO. Residentional H.No' if 'H.NO. Residentional H.No' in df_thrift.columns else ''
@@ -445,10 +433,9 @@ def generate_all_reports():
         mobile_col = 'Contact Number' if 'Contact Number' in df_thrift.columns else ''
         wages_col = '8% Of Monthly Wages' if '8% Of Monthly Wages' in df_thrift.columns else ''
 
-        # ------------------------------------------
-        # A. Prepare FORM IIIA Revised (Powerloom Weavers)
-        # ------------------------------------------
-        df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy().reset_index(drop=True)
+        # A. Form IIIA
+        df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy()
+        df_weavers.reset_index(drop=True, inplace=True)
         report_df_iiia = pd.DataFrame()
         if not df_weavers.empty:
             df_weavers['Father_Husband_Name'] = df_weavers[father_col].fillna('') if father_col else ''
@@ -491,10 +478,9 @@ def generate_all_reports():
                 'Nominee details': df_weavers['Nominee_Details']
             })
 
-        # ------------------------------------------
-        # B. Prepare Form IIIB Revised (Ancillary Workers)
-        # ------------------------------------------
-        df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy().reset_index(drop=True)
+        # B. Form IIIB
+        df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy()
+        df_ancillary.reset_index(drop=True, inplace=True)
         report_df_iiib = pd.DataFrame()
         if not df_ancillary.empty:
             df_ancillary['Father_Husband_Name'] = df_ancillary[father_col].fillna('') if father_col else ''
@@ -536,14 +522,12 @@ def generate_all_reports():
                 'Nominee details': df_ancillary['Nominee_Details']
             })
 
-        # ------------------------------------------
-        # C. Prepare Form-V (Total Register)
-        # ------------------------------------------
+        # C. Form V
         try:
             ws_trans = sh.worksheet("Transactions_Year1")
-            trans_data = ws_trans.get_all_records()
-            df_trans = pd.DataFrame(trans_data) if trans_data else pd.DataFrame()
-            del trans_data
+            trans_rows = ws_trans.get_all_values()
+            df_trans = pd.DataFrame(trans_rows[1:], columns=trans_rows[0]) if len(trans_rows) > 1 else pd.DataFrame()
+            del trans_rows
         except Exception:
             df_trans = pd.DataFrame()
 
@@ -572,7 +556,8 @@ def generate_all_reports():
         if df_filtered.empty:
             df_filtered = df_thrift.copy()
 
-        df_v = df_filtered.copy().reset_index(drop=True)
+        df_v = df_filtered.copy()
+        df_v.reset_index(drop=True, inplace=True)
         del df_filtered
         gc.collect()
 
@@ -608,7 +593,7 @@ def generate_all_reports():
             'Govt. contribution 8%': df_v[govt_share].fillna('') if govt_share else ''
         })
 
-        # Write all sheets in a single ExcelWriter pass (Overlay mode)
+        # Write all sheets in a single ExcelWriter pass
         with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
             if not report_df_iiia.empty and target_sheet_iiia:
                 report_df_iiia.to_excel(writer, sheet_name=target_sheet_iiia, startrow=7, startcol=0, header=False, index=False)
@@ -617,23 +602,16 @@ def generate_all_reports():
             if not report_df_v.empty and target_sheet_v:
                 report_df_v.to_excel(writer, sheet_name=target_sheet_v, startrow=10, startcol=0, header=False, index=False)
 
-        # ------------------------------------------
-        # D. Fill Form-IV Revised (Summary Counts)
-        # ------------------------------------------
+        # D. Form IV
         if target_sheet_iv:
             wb_out = openpyxl.load_workbook(output_path)
             ws_iv = wb_out[target_sheet_iv]
             weavers_count = len(df_weavers)
             ancillary_count = len(df_ancillary)
             
-            ws_iv.cell(row=9, column=3).value = weavers_count
-            ws_iv.cell(row=9, column=4).value = ancillary_count
-            ws_iv.cell(row=9, column=6).value = weavers_count
-            ws_iv.cell(row=9, column=7).value = ancillary_count
-            ws_iv.cell(row=9, column=9).value = weavers_count
-            ws_iv.cell(row=9, column=10).value = ancillary_count
-            ws_iv.cell(row=9, column=12).value = weavers_count
-            ws_iv.cell(row=9, column=13).value = ancillary_count
+            for col_idx in [3, 4, 6, 7, 9, 10, 12, 13]:
+                ws_iv.cell(row=9, column=col_idx).value = weavers_count if col_idx % 2 != 0 else ancillary_count
+            
             wb_out.save(output_path)
             wb_out.close()
         
@@ -645,3 +623,5 @@ def generate_all_reports():
     except Exception as e:
         print("ERROR IN MASTER_REPORT:", traceback.format_exc())
         return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
+    finally:
+        gc.collect()
