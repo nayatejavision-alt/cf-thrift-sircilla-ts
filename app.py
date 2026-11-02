@@ -1531,6 +1531,7 @@ def bulk_upload():
     return jsonify(
         {"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"}
     )
+      
 def format_as_excel_text(val):
       if val is None:
         return ''
