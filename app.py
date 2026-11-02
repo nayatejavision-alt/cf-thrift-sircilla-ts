@@ -1239,40 +1239,51 @@ def download_excel():
     )
 
 
-@app.route('/api/bulk-upload', methods=['POST'])
+@app.route("/api/bulk-upload", methods=["POST"])
 def bulk_upload():
   try:
-    bank_user = session.get('bank_user')
+    bank_user = session.get("bank_user")
     if not bank_user:
-      return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
+      return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
 
-    if 'file' not in request.files:
-      return jsonify({'status': 'error', 'message': 'ఫైల్ ఏదీ ఎంచుకోలేదు.'})
+    if "file" not in request.files:
+      return jsonify({"status": "error", "message": "ఫైల్ ఏదీ ఎంచుకోలేదు."})
 
-    file = request.files['file']
-    if file.filename == '':
-      return jsonify({'status': 'error', 'message': 'ఫైల్ పేరు ఖాళీగా ఉంది.'})
+    file = request.files["file"]
+    if file.filename == "":
+      return jsonify({"status": "error", "message": "ఫైల్ పేరు ఖాళీగా ఉంది."})
 
     df = pd.read_excel(file)
 
     current_month = str(
-        request.form.get('month', session.get('current_month', '1'))
+        request.form.get("month", session.get("current_month", "1"))
     ).strip()
     batch_number = str(
-        request.form.get('batch', session.get('batch_number', '1'))
+        request.form.get("batch", session.get("batch_number", "1"))
     ).strip()
+
+    # --- పర్ఫెక్ట్ మాచింగ్ కోసం SNO క్లీనింగ్ ఫంక్షన్ ---
+    def clean_sno(val):
+      if val is None:
+        return ""
+      val_str = str(val).strip()
+      if not val_str or val_str.lower() == "nan":
+        return ""
+      if val_str.endswith(".0"):
+        val_str = val_str[:-2]
+      return val_str.strip()
 
     client = get_sheets_client()
     spreadsheet = client.open(SPREADSHEET_NAME)
 
-    target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
+    target_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
     master_records = target_sheet.get_all_records()
     master_headers = target_sheet.row_values(1)
     master_col_map = {
         h.strip().upper(): c_idx + 1 for c_idx, h in enumerate(master_headers)
     }
 
-    trans_sheet = spreadsheet.worksheet('Transactions_Year1')
+    trans_sheet = spreadsheet.worksheet("Transactions_Year1")
     trans_records = trans_sheet.get_all_records()
     trans_headers = trans_sheet.row_values(1)
     trans_col_map = {
@@ -1281,19 +1292,18 @@ def bulk_upload():
 
     bank_user_clean = bank_user.strip().lower()
 
+    # 1. Transactions నుండి already_covered_snos ని సరిగ్గా క్లీన్ చేసి సేకరించడం
     already_covered_snos = set()
     for t_row in trans_records:
-      t_sno = str(
-          t_row.get('BANK_SNO') or t_row.get('Bank SNO') or ''
-      ).strip()
+      t_sno = clean_sno(t_row.get("BANK_SNO") or t_row.get("Bank SNO"))
       t_month = str(
-          t_row.get('MONTH_NUMBER') or t_row.get('month_number') or ''
+          t_row.get("MONTH_NUMBER") or t_row.get("month_number") or ""
       ).strip()
       t_batch = str(
-          t_row.get('BATCH_NUMBER') or t_row.get('batch_number') or ''
+          t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or ""
       ).strip()
       t_filename = (
-          str(t_row.get('FILE NAME') or t_row.get('File Name') or '')
+          str(t_row.get("FILE NAME") or t_row.get("File Name") or "")
           .strip()
           .lower()
       )
@@ -1306,7 +1316,10 @@ def bulk_upload():
       ):
         try:
           if (
-              float(t_row.get('Govt_Share') or t_row.get('GOVT_SHARE') or 0) > 0
+              float(
+                  t_row.get("Govt_Share") or t_row.get("GOVT_SHARE") or 0
+              )
+              > 0
           ):
             already_covered_snos.add(t_sno)
         except ValueError:
@@ -1319,11 +1332,12 @@ def bulk_upload():
     trans_cell_updates = []
     new_trans_rows = []
 
+    # 2. Master Records ని క్లీన్డ్ SNO తో మ్యాప్ చేయడం
     master_row_dict = {}
     for idx, m_row in enumerate(master_records):
-      m_sno = str(m_row.get('BANK_SNO') or '').strip()
+      m_sno = clean_sno(m_row.get("BANK_SNO") or m_row.get("Bank SNO"))
       m_file = (
-          str(m_row.get('FILE NAME') or m_row.get('File Name') or '')
+          str(m_row.get("FILE NAME") or m_row.get("File Name") or "")
           .strip()
           .lower()
       )
@@ -1331,35 +1345,36 @@ def bulk_upload():
       if m_sno and m_file == bank_user_clean:
         try:
           wages_val = float(
-              m_row.get('8% Of Monthly Wages')
-              or m_row.get('MONTHLY WAGES')
+              m_row.get("8% Of Monthly Wages")
+              or m_row.get("MONTHLY WAGES")
               or 0
           )
         except (ValueError, TypeError):
           wages_val = 0.0
 
         master_row_dict[m_sno] = {
-            'row_idx': idx + 2,
-            'name': str(
-                m_row.get('Name Of Benificiary') or m_row.get('NAME') or ''
+            "row_idx": idx + 2,
+            "name": str(
+                m_row.get("Name Of Benificiary") or m_row.get("NAME") or ""
             ).strip(),
-            'acc': str(
-                m_row.get('Bank Account Number') or m_row.get('ACCOUNT') or ''
+            "acc": str(
+                m_row.get("Bank Account Number") or m_row.get("ACCOUNT") or ""
             ).strip(),
-            'wages': wages_val,
+            "wages": wages_val,
         }
 
+    # 3. Transactions Row Dict ని క్లీన్డ్ SNO తో మ్యాప్ చేయడం
     trans_row_dict = {}
     for idx, t_row in enumerate(trans_records):
-      t_sno = str(t_row.get('BANK_SNO') or t_row.get('Bank SNO') or '').strip()
+      t_sno = clean_sno(t_row.get("BANK_SNO") or t_row.get("Bank SNO"))
       t_month = str(
-          t_row.get('MONTH_NUMBER') or t_row.get('month_number') or ''
+          t_row.get("MONTH_NUMBER") or t_row.get("month_number") or ""
       ).strip()
       t_batch = str(
-          t_row.get('BATCH_NUMBER') or t_row.get('batch_number') or ''
+          t_row.get("BATCH_NUMBER") or t_row.get("batch_number") or ""
       ).strip()
       t_filename = (
-          str(t_row.get('FILE NAME') or t_row.get('File Name') or '')
+          str(t_row.get("FILE NAME") or t_row.get("File Name") or "")
           .strip()
           .lower()
       )
@@ -1372,14 +1387,19 @@ def bulk_upload():
       ):
         trans_row_dict[t_sno] = idx + 2
 
-    rd1_col = master_col_map.get('RD 1') or master_col_map.get('RD_1')
-    rd2_col = master_col_map.get('RD 2') or master_col_map.get('RD_2')
+    rd1_col = master_col_map.get("RD 1") or master_col_map.get("RD_1")
+    rd2_col = master_col_map.get("RD 2") or master_col_map.get("RD_2")
 
+    # 4. ఎక్సెల్ డేటాఫ్రేమ్ (df) లోని SNO లను క్లీన్ చేసి చెక్ చేయడం
     for _, row in df.iterrows():
-      bank_sno = str(row.get('BANK_SNO') or '').strip()
-      rd1 = str(row.get('RD ACCOUNT_1') or '').strip()
-      rd2 = str(row.get('RD ACCOUNT_2') or '').strip()
-      balance_str = str(row.get('Bank Closing Balance') or '').strip()
+      bank_sno = clean_sno(row.get("BANK_SNO"))
+      rd1 = str(row.get("RD ACCOUNT_1") or row.get("RD 1") or "").strip()
+      rd2 = str(row.get("RD ACCOUNT_2") or row.get("RD 2") or "").strip()
+      balance_str = str(
+          row.get("Bank Closing Balance")
+          or row.get("Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)")
+          or ""
+      ).strip()
 
       if not bank_sno or bank_sno not in master_row_dict:
         continue
@@ -1394,10 +1414,10 @@ def bulk_upload():
         bank_closing_balance = 0.0
 
       m_info = master_row_dict[bank_sno]
-      master_row_idx = m_info['row_idx']
-      monthly_wages = m_info['wages']
-      beneficiary_name = m_info['name']
-      beneficiary_acc = m_info['acc']
+      master_row_idx = m_info["row_idx"]
+      monthly_wages = m_info["wages"]
+      beneficiary_name = m_info["name"]
+      beneficiary_acc = m_info["acc"]
 
       if rd1_col:
         master_cell_updates.append(gspread.Cell(master_row_idx, rd1_col, rd1))
@@ -1410,19 +1430,18 @@ def bulk_upload():
       govt_share = min(due_amount, actual_paid)
       remaining_arrears = max(0.0, previous_arrears + due_amount - actual_paid)
       govt_rd_closing_bal = govt_share
-      govt_rd_status = 'MATCHED' if remaining_arrears <= 0 else 'PENDING'
+      govt_rd_status = "MATCHED" if remaining_arrears <= 0 else "PENDING"
 
-      rd1_col_name = 'RD ACCOUNT_1 (Beneficiary Contribution)'
+      rd1_col_name = "RD ACCOUNT_1 (Beneficiary Contribution)"
       balance_col_name = (
-          'Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)'
+          "Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)"
       )
-      arrears_b_name = '(B) పాత బాకీ(Previous Arrears)'
-      due_c_name = '(C) ఈ నెల డ్యూ(Due)'
-      actual_paid_d_name = '(D) Actual Paid'
-      govt_share_name = 'Govt_Share'
-      remaining_f_name = '(F) మిగిలిన బాకీ(Remaining Arrears)'
-      govt_closing_h_name = 'Govt RD Closing Bal (H)'
-      govt_status_i_name = 'Govt RD Status (I)'
+      due_c_name = "(C) ఈ నెల డ్యూ(Due)"
+      actual_paid_d_name = "(D) Actual Paid"
+      govt_share_name = "Govt_Share"
+      remaining_f_name = "(F) మిగిలిన బాకీ(Remaining Arrears)"
+      govt_closing_h_name = "Govt RD Closing Bal (H)"
+      govt_status_i_name = "Govt RD Status (I)"
 
       if bank_sno in trans_row_dict:
         t_row_idx = trans_row_dict[bank_sno]
@@ -1442,18 +1461,20 @@ def bulk_upload():
                 gspread.Cell(t_row_idx, trans_col_map[c_name], val)
             )
       else:
-        row_data_dict = {h.strip(): '' for h in trans_headers}
+        row_data_dict = {h.strip(): "" for h in trans_headers}
         for h in trans_headers:
           h_clean = h.strip()
-          if h_clean in ['MONTH_NUMBER', 'month_number']:
+          if h_clean in ["MONTH_NUMBER", "month_number"]:
             row_data_dict[h_clean] = current_month
-          elif h_clean in ['BATCH_NUMBER', 'batch_number']:
+          elif h_clean in ["BATCH_NUMBER", "batch_number"]:
             row_data_dict[h_clean] = batch_number
-          elif h_clean in ['BANK_SNO', 'Bank SNO']:
-            row_data_dict[h_clean] = bank_sno
-          elif h_clean == 'Name Of Benificiary':
+          elif h_clean in ["BANK_SNO", "Bank SNO"]:
+            row_data_dict[h_clean] = (
+                bank_sno  # Cleaned SNO ని ఇక్కడ సేవ్ చేస్తుంది
+            )
+          elif h_clean == "Name Of Benificiary":
             row_data_dict[h_clean] = beneficiary_name
-          elif h_clean == 'Bank Account Number':
+          elif h_clean == "Bank Account Number":
             row_data_dict[h_clean] = beneficiary_acc
           elif h_clean == rd1_col_name:
             row_data_dict[h_clean] = rd1
@@ -1471,33 +1492,45 @@ def bulk_upload():
             row_data_dict[h_clean] = govt_rd_closing_bal
           elif h_clean == govt_status_i_name:
             row_data_dict[h_clean] = govt_rd_status
-          elif h_clean == 'FILE NAME':
+          elif h_clean == "FILE NAME":
             row_data_dict[h_clean] = bank_user
 
         new_trans_rows.append(
-            [row_data_dict.get(h.strip(), '') for h in trans_headers]
+            [row_data_dict.get(h.strip(), "") for h in trans_headers]
         )
 
       updated_count += 1
 
+    # గూగుల్ షీట్ అప్‌డేట్స్‌ను బ్యాచ్‌లు (Chunks) గా పంపడం
+    chunk_size = 500
     if master_cell_updates:
-      target_sheet.update_cells(master_cell_updates)
+      for i in range(0, len(master_cell_updates), chunk_size):
+        target_sheet.update_cells(master_cell_updates[i : i + chunk_size])
+
     if trans_cell_updates:
-      trans_sheet.update_cells(trans_cell_updates)
+      for i in range(0, len(trans_cell_updates), chunk_size):
+        trans_sheet.update_cells(trans_cell_updates[i : i + chunk_size])
+
     if new_trans_rows:
       trans_sheet.append_rows(new_trans_rows)
 
-    message = f'మొత్తం {updated_count} లబ్ధిదారుల వివరాలు విజయవంతంగా అప్‌డేట్ చేయబడ్డాయి! 🎉'
+    message = (
+        f"మొత్తం {updated_count} లబ్ధిదారుల వివరాలు విజయవంతంగా అప్‌డేట్"
+        " చేయబడ్డాయి! 🎉"
+    )
     if skipped_beneficiaries:
-      message += f" (గమనిక: SNOs {', '.join(skipped_beneficiaries)} ఈ నెలలో ఇప్పటికే వేరే బ్యాచ్‌లో ఉన్నందున స్కిప్ చేయబడ్డాయి)."
+      message += (
+          " (గమనిక: SNOs"
+          f" {', '.join(map(str, skipped_beneficiaries))} ఈ నెలలో ఇప్పటికే"
+          " వేరే బ్యాచ్‌లో ఉన్నందున స్కిప్ చేయబడ్డాయి)."
+      )
 
-    return jsonify({'status': 'success', 'message': message})
+    return jsonify({"status": "success", "message": message})
 
   except Exception as e:
     return jsonify(
-        {'status': 'error', 'message': f'బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}'}
+        {"status": "error", "message": f"బల్క్ అప్‌డేట్‌లో లోపం: {str(e)}"}
     )
-
 def format_as_excel_text(val):
       if val is None:
         return ''
