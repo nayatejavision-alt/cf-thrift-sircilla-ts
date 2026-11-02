@@ -6,6 +6,9 @@ from datetime import datetime
 import pandas as pd
 from flask import Blueprint, jsonify, request, send_file, render_template
 import traceback
+import threading
+import time
+import uuid
 
 reports_bp = Blueprint('reports_bp', __name__)
 
@@ -13,6 +16,9 @@ TEMPLATE_DIR = 'assets/templates'
 OUTPUT_DIR = 'assets/outputs'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
+# గ్లోబల్ డిక్షనరీ జాబ్స్ యొక్క స్థితిని (Status) ట్రాక్ చేయడానికి
+JOB_STATUS = {}
+
 
 @reports_bp.route('/reports-dashboard')
 def reports_dashboard():
@@ -387,17 +393,42 @@ def generate_form_v():
 # ==========================================
 # 4. MASTER REPORT (All Tabs: Form III-A, III-B, IV & V)
 # ==========================================
+# ==========================================
+# అప్‌డేట్ చేయబడిన మాస్టర్ రిపోర్ట్ రూట్స్
+# ==========================================
 @reports_bp.route('/api/generate-all-reports', methods=['POST'])
 def generate_all_reports():
+    data = request.get_json() if request.is_json else request.form
+    target_month = int(data.get('month', 1))
+    
+    job_id = str(uuid.uuid4())
+    JOB_STATUS[job_id] = {'status': 'queued', 'message': 'జాబ్ క్యూలో ఉంది...'}
+    
+    # బ్యాక్‌గ్రౌండ్‌లో త్రెడ్ ద్వారా రన్ చేయడం (సర్వర్ క్రాష్ కాకుండా)
+    thread = threading.Thread(target=background_generate_all_reports, args=(job_id, target_month))
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({
+        'status': 'started',
+        'job_id': job_id,
+        'message': 'మాస్టర్ రిపోర్ట్ జనరేషన్ బ్యాక్‌గ్రౌండ్‌లో ప్రారంభమైంది.'
+    })
+
+
+
+
+
+def background_generate_all_reports(job_id, target_month):
     try:
-        data = request.get_json() if request.is_json else request.form
-        target_month = int(data.get('month', 1))
+        JOB_STATUS[job_id] = {'status': 'processing', 'message': 'డేటా లోడ్ అవుతోంది...'}
         
         from app import MONTH_MAPPING
         df_thrift, sh = get_thrift_dataframe()
         if df_thrift is None or df_thrift.empty:
-            return jsonify({'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}), 400
-            
+            JOB_STATUS[job_id] = {'status': 'error', 'message': 'గూగుల్ షీట్‌లో త్రిఫ్ట్ డేటా అందుబాటులో లేదు!'}
+            return
+
         selected_month_name, selected_year = MONTH_MAPPING.get(target_month, ('June', '2026'))
         current_month_str = f"{selected_month_name}_{selected_year}"
         
@@ -405,6 +436,8 @@ def generate_all_reports():
         output_filename = f"MASTER_Thrift_Scheme_All_Reports_{current_month_str}.xlsx"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         shutil.copy(template_path, output_path)
+
+        JOB_STATUS[job_id] = {'status': 'processing', 'message': 'టెంప్లేట్ షీట్లు సిద్ధం చేయబడుతున్నాయి...'}
 
         wb_temp = openpyxl.load_workbook(template_path, read_only=True)
         sheet_names = wb_temp.sheetnames
@@ -433,7 +466,8 @@ def generate_all_reports():
         mobile_col = 'Contact Number' if 'Contact Number' in df_thrift.columns else ''
         wages_col = '8% Of Monthly Wages' if '8% Of Monthly Wages' in df_thrift.columns else ''
 
-        # A. Form IIIA
+        # 1. Form IIIA Processing
+        JOB_STATUS[job_id] = {'status': 'processing', 'message': 'ఫారం III-A (పవర్లూమ్ వీవర్స్) ప్రాసెస్ చేయబడుతోంది...'}
         df_weavers = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() == 'POWER LOOM WEAVER'].copy()
         df_weavers.reset_index(drop=True, inplace=True)
         report_df_iiia = pd.DataFrame()
@@ -478,7 +512,8 @@ def generate_all_reports():
                 'Nominee details': df_weavers['Nominee_Details']
             })
 
-        # B. Form IIIB
+        # 2. Form IIIB Processing
+        JOB_STATUS[job_id] = {'status': 'processing', 'message': 'ఫారం III-B (అన్సిలరీ వర్కర్స్) ప్రాసెస్ చేయబడుతోంది...'}
         df_ancillary = df_thrift[df_thrift[profession_col].astype(str).str.strip().str.upper() != 'POWER LOOM WEAVER'].copy()
         df_ancillary.reset_index(drop=True, inplace=True)
         report_df_iiib = pd.DataFrame()
@@ -522,7 +557,8 @@ def generate_all_reports():
                 'Nominee details': df_ancillary['Nominee_Details']
             })
 
-        # C. Form V
+        # 3. Form V Processing
+        JOB_STATUS[job_id] = {'status': 'processing', 'message': 'ఫారం V (టోటల్ రిజిస్టర్) ప్రాసెస్ చేయబడుతోంది...'}
         try:
             ws_trans = sh.worksheet("Transactions_Year1")
             trans_rows = ws_trans.get_all_values()
@@ -593,7 +629,9 @@ def generate_all_reports():
             'Govt. contribution 8%': df_v[govt_share].fillna('') if govt_share else ''
         })
 
-        # Write all sheets in a single ExcelWriter pass
+        JOB_STATUS[job_id] = {'status': 'processing', 'message': 'ఎక్సెల్ ఫైల్‌లో డేటా రాయబడుతోంది...'}
+
+        # Excel లో రాయడం
         with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
             if not report_df_iiia.empty and target_sheet_iiia:
                 report_df_iiia.to_excel(writer, sheet_name=target_sheet_iiia, startrow=7, startcol=0, header=False, index=False)
@@ -602,7 +640,7 @@ def generate_all_reports():
             if not report_df_v.empty and target_sheet_v:
                 report_df_v.to_excel(writer, sheet_name=target_sheet_v, startrow=10, startcol=0, header=False, index=False)
 
-        # D. Form IV
+        # 4. Form IV Processing
         if target_sheet_iv:
             wb_out = openpyxl.load_workbook(output_path)
             ws_iv = wb_out[target_sheet_iv]
@@ -618,10 +656,29 @@ def generate_all_reports():
         del df_thrift, df_weavers, df_ancillary, df_v
         gc.collect()
 
-        return send_file(output_path, as_attachment=True, download_name=output_filename)
+        # జాబ్ విజయవంతం అయిందని మార్క్ చేయడం
+        JOB_STATUS[job_id] = {
+            'status': 'completed', 
+            'message': 'అన్ని రిపోర్ట్‌లు విజయవంతంగా తయారయ్యాయి!',
+            'download_url': f'/api/download-report/{output_filename}'
+        }
 
     except Exception as e:
-        print("ERROR IN MASTER_REPORT:", traceback.format_exc())
-        return jsonify({'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}), 500
+        print("ERROR IN BACKGROUND MASTER_REPORT:", traceback.format_exc())
+        JOB_STATUS[job_id] = {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
     finally:
         gc.collect()
+
+
+
+@reports_bp.route('/api/report-job-status/<job_id>', methods=['GET'])
+def report_job_status(job_id):
+    status_info = JOB_STATUS.get(job_id, {'status': 'not_found', 'message': 'జాబ్ కనుగొనబడలేదు.'})
+    return jsonify(status_info)
+
+@reports_bp.route('/api/download-report/<filename>', methods=['GET'])
+def download_report_file(filename):
+    file_path = os.path.join(OUTPUT_DIR, filename)
+    if os.path.exists(file_path):
+        return send_file(file_path, as_attachment=True, download_name=filename)
+    return jsonify({'status': 'error', 'message': 'ఫైల్ కనుగొనబడలేదు లేదా గడువు ముగిసింది.'}), 404
