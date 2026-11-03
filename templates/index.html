@@ -439,15 +439,27 @@
     }
 
     async function loginBank() {
-        const bankName = document.getElementById('bank-select').value;
-        const pin = document.getElementById('bank-pin').value;
-        const msgDiv = document.getElementById('login-msg');
+    const bankName = document.getElementById('bank-select').value;
+    const pin = document.getElementById('bank-pin').value;
+    const msgDiv = contextElement('login-msg'); // లేదా అనుకూలమైన div
 
-        if (!bankName || !pin) {
-            msgDiv.innerText = "దయచేసి బ్యాంక్ మరియు PIN వివరాలు నమోదు చేయండి.";
-            return;
-        }
+    if (!bankName || !pin) {
+        msgDiv.innerText = "దయచేసి బ్యాంక్ మరియు PIN వివరాలు నమోదు చేయండి.";
+        return;
+    }
 
+    // 🔄 ఇంటరాక్టివ్ లోడింగ్ మెసేజ్ & బటన్ డిసేబుల్
+    const loginBtn = document.getElementById('login-btn'); // మీ లాగిన్ బటన్‌కు ఈ ID ఇవ్వండి
+    loginBtn.disabled = true;
+    loginBtn.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        /svg>
+        లాగిన్ అవుతోంది, దయచేసి వేచి ఉండండి...
+    `;
+
+    try {
         const res = await fetch('/api/login', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -456,13 +468,46 @@
         const response = await res.json();
 
         if (response.status === 'success') {
-            msgDiv.innerText = "లాగిన్ విజయవంతమైంది !";
-            checkUserLoginStatus();
+            msgDiv.className = "mt-2 text-xs text-emerald-600 font-semibold";
+            msgDiv.innerText = "🎉 లాగిన్ విజయవంతమైంది! డేటా లోడ్ అవుతోంది...";
+            setTimeout(() => {
+                checkUserLoginStatus();
+            }, 1000);
         } else {
+            msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
             msgDiv.innerText = response.message;
+            resetLoginButton(loginBtn);
         }
+    } catch (error) {
+        console.error("Login Error:", error);
+        msgDiv.innerText = "సర్వర్ లోపం సంభవించింది.";
+        resetLoginButton(loginBtn);
     }
+}
 
+function showTableLoadingState() {
+    const tbodyPending = document.getElementById('bank-table-body-pending');
+    if (tbodyPending) {
+        tbodyPending.innerHTML = `
+            <tr>
+                <td colspan="8" class="p-6 text-center text-blue-600 font-medium">
+                    <div class="flex justify-center items-center gap-2">
+                        <svg class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>బ్యాంకు డేటా లోడ్ అవుతోంది, దయచేసి వేచి ఉండండి... 📊</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function resetLoginButton(btn) {
+    btn.disabled = false;
+    btn.innerHTML = "లాగిన్ అవ్వండి";
+}
     async function logoutBank() {
         await fetch('/api/logout', { method: 'POST' });
         
