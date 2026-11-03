@@ -1550,6 +1550,62 @@ def format_as_excel_text(val):
       return ''
 
 
+@app.route('/process', methods=['POST'])
+def process_join():
+    join_type = request.form.get('join_type')
+    
+    try:
+        if join_type == 'single_file':
+            file = request.files['file_single']
+            sheet1 = request.form.get('sheet1')
+            col1 = request.form.get('col1')
+            sheet2 = request.form.get('sheet2')
+            col2 = request.form.get('col2')
+            
+            df1 = pd.read_excel(file, sheet_name=sheet1)
+            df2 = pd.read_excel(file, sheet_name=sheet2)
+            
+        elif join_type == 'two_files':
+            file1 = request.files['file1']
+            sheet1 = request.form.get('sheet1_f1')
+            col1 = request.form.get('col1_f1')
+            
+            file2 = request.files['file2']
+            sheet2 = request.form.get('sheet2_f2')
+            col2 = request.form.get('col2_f2')
+            
+            df1 = pd.read_excel(file1, sheet_name=sheet1)
+            df2 = pd.read_excel(file2, sheet_name=sheet2)
+        else:
+            return "Invalid join type selected", 400
+
+        # కాలమ్ పేర్లను ట్రిమ్ చేయడం
+        df1.columns = [str(c).strip() for c in df1.columns]
+        df2.columns = [str(c).strip() for c in df2.columns]
+        
+        # కీ ని క్లీన్ చేయడానికి ఫంక్షన్
+        def clean_acc(val):
+            if pd.isna(val):
+                return ""
+            return str(val).replace("'", "").strip()
+        
+        df1['Clean_Key'] = df1[col1].apply(clean_acc)
+        df2['Clean_Key'] = df2[col2].apply(clean_acc)
+        
+        # లెఫ్ట్ జాయిన్ (Left Join) చేయడం
+        merged_df = pd.merge(df1, df2, on='Clean_Key', how='left', suffixes=('_left', '_right'))
+        merged_df = merged_df.drop(columns=['Clean_Key'])
+        
+        output_file = "Merged_RD_Accounts_Output.xlsx"
+        merged_df.to_excel(output_file, index=False)
+        
+        return send_file(output_file, as_attachment=True, download_name=output_file)
+        
+    except Exception as e:
+        return f"Error processing files: {str(e)}"
+
+
+
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
   session.pop('bank_user', None)
