@@ -19,6 +19,7 @@ from flask import (
     request,
     send_file,
     session,
+    current_app,
 )
 from google.oauth2 import service_account
 from flask_cors import CORS
