@@ -139,41 +139,6 @@ def home():
 # GMAIL DRAFT GENERATOR ROUTES
 # ==========================================
 
-
-@app.route('/draft-generator')
-def draft_generator_page():
-  banks = get_bank_list_from_sheet()
-  return render_template('draft_generator.html', banks=banks)
-
-
-@app.route('/api/get-bank-doc-details', methods=['GET'])
-def get_bank_doc_details():
-  """ఫ్రంట్ ఎండ్ నుండి బ్యాంక్ పేరు బట్టి PREPARE_DOC_RD_TRANSACTIONS నుండి డిఫాల్ట్ విలువలు పంపడానికి"""
-  try:
-    bank_name = request.args.get('bank_name', '').strip()
-    client = get_sheets_client()
-    sh = client.open(SPREADSHEET_NAME)
-    ws_doc = sh.worksheet('PREPARE_DOC_RD_TRANSACTIONS')
-    records = ws_doc.get_all_records()
-
-    default_data = {
-        'Cheque_No': '',
-        'Cheque_Date': '',
-        #'Cheque_Amount': '',
-    }
-    for row in records:
-      if str(row.get('FILE_NAME', '')).strip().lower() == bank_name.lower():
-        default_data = {
-            'Cheque_No': row.get('Cheque_No', ''),
-            'Cheque_Date': row.get('Cheque_Date', ''),
-            #'Cheque_Amount': row.get('Cheque_Amount', ''),
-        }
-        break
-    return jsonify({'status': 'success', 'data': default_data})
-  except Exception as e:
-    return jsonify({'status': 'error', 'message': str(e)})
-
-
 # ==========================================
 # GMAIL DRAFT GENERATOR ROUTES (THREADED)
 # ==========================================
