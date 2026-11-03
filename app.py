@@ -1556,43 +1556,53 @@ def process_join():
     
     try:
         if join_type == 'single_file':
+            if 'file_single' not in request.files:
+                return "దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.", 400
             file = request.files['file_single']
-            sheet1 = request.form.get('sheet1')
-            col1 = request.form.get('col1')
-            sheet2 = request.form.get('sheet2')
-            col2 = request.form.get('col2')
+            sheet1 = request.form.get('sheet1', '').strip()
+            col1 = request.form.get('col1', '').strip()
+            sheet2 = request.form.get('sheet2', '').strip()
+            col2 = request.form.get('col2', '').strip()
             
-            df1 = pd.read_excel(file, sheet_name=sheet1)
-            df2 = pd.read_excel(file, sheet_name=sheet2)
+            df1 = pd.read_excel(file, sheet_name=sheet1 if sheet1 else 0)
+            df2 = pd.read_excel(file, sheet_name=sheet2 if sheet2 else 1)
             
         elif join_type == 'two_files':
+            if 'file1' not in request.files or 'file2' not in request.files:
+                return "దయచేసి రెండు ఫైల్స్ అప్‌లోడ్ చేయండి.", 400
             file1 = request.files['file1']
-            sheet1 = request.form.get('sheet1_f1')
-            col1 = request.form.get('col1_f1')
+            sheet1_f1 = request.form.get('sheet1_f1', '').strip()
+            col1 = request.form.get('col1_f1', '').strip()
             
             file2 = request.files['file2']
-            sheet2 = request.form.get('sheet2_f2')
-            col2 = request.form.get('col2_f2')
+            sheet2_f2 = request.form.get('sheet2_f2', '').strip()
+            col2 = request.form.get('col2_f2', '').strip()
             
-            df1 = pd.read_excel(file1, sheet_name=sheet1)
-            df2 = pd.read_excel(file2, sheet_name=sheet2)
+            df1 = pd.read_excel(file1, sheet_name=sheet1_f1 if sheet1_f1 else 0)
+            df2 = pd.read_excel(file2, sheet_name=sheet2_f2 if sheet2_f2 else 0)
         else:
-            return "Invalid join type selected", 400
+            return "సరైన జాయిన్ ఆప్షన్ ఎంచుకోండి.", 400
 
         # కాలమ్ పేర్లను ట్రిమ్ చేయడం
         df1.columns = [str(c).strip() for c in df1.columns]
         df2.columns = [str(c).strip() for c in df2.columns]
         
+        if col1 not in df1.columns or col2 not in df2.columns:
+            return f"లోపం: '{col1}' లేదా '{col2}' కాలమ్స్ ఎక్సెల్ ఫైల్‌లో కనుగొనబడలేదు!", 400
+        
         # కీ ని క్లీన్ చేయడానికి ఫంక్షన్
         def clean_acc(val):
             if pd.isna(val):
                 return ""
-            return str(val).replace("'", "").strip()
+            val_str = str(val).strip()
+            if val_str.endswith(".0"):
+                val_str = val_str[:-2]
+            return val_str.replace("'", "").strip()
         
         df1['Clean_Key'] = df1[col1].apply(clean_acc)
         df2['Clean_Key'] = df2[col2].apply(clean_acc)
         
-        # లెఫ్ట్ జాయిన్ (Left Join) చేయడం
+        # Left Join చేయడం
         merged_df = pd.merge(df1, df2, on='Clean_Key', how='left', suffixes=('_left', '_right'))
         merged_df = merged_df.drop(columns=['Clean_Key'])
         
@@ -1602,8 +1612,7 @@ def process_join():
         return send_file(output_file, as_attachment=True, download_name=output_file)
         
     except Exception as e:
-        return f"Error processing files: {str(e)}"
-
+        return f"ఫైల్ ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
 
 
 @app.route('/api/logout', methods=['POST'])
