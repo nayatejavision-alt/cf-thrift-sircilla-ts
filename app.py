@@ -382,7 +382,7 @@ def background_draft_task(data, app_context):
                 bank_doc_info.get('Bank_Name', selected_bank)
             ),
             '{{Location}}': str(bank_doc_info.get('Location', 'Sircilla')),
-            '{{Current_Date}}': time.strftime('%d/%m/%Y'),
+            '{{Current_Date}}': cheque_date,
             '{{Total_Count_Of_Records}}': str(
                 bank_doc_info.get('Total_Count_Of_Records', len(bank_month_df))
             ),
