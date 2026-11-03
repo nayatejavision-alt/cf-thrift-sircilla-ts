@@ -2,133 +2,300 @@
 <html lang="te">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Thrift Scheme Gmail Draft Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.net/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f7f6; padding: 50px; }
-        .container { max-width: 500px; background: white; padding: 30px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); margin: auto; }
-        h2 { color: #333; text-align: center; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
-        select, button { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
-        button { background-color: #28a745; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        button:hover { background-color: #218838; }
-        .message { margin-top: 20px; text-align: center; font-weight: bold; }
+        body {
+            background: linear-gradient(135deg, #eef2f3 0%, #8e9eab 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            padding: 35px;
+            width: 100%;
+            max-width: 650px;
+        }
+        .header-title {
+            color: #1a2a3a;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.95rem;
+        }
+        .form-control, .form-select {
+            border-radius: 8px;
+            padding: 10px 14px;
+            border: 1px solid #ced4da;
+            transition: all 0.2s ease;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+        }
+        .btn-generate {
+            background: linear-gradient(45deg, #0d6efd, #0b5ed7);
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+        }
+        .btn-generate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(13, 110, 253, 0.3);
+        }
+        /* Step Tracker Box */
+        .progress-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 20px;
+            border: 1px solid #e9ecef;
+            display: none;
+        }
+        .step-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .step-item:last-child { margin-bottom: 0; }
+        .step-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 0.75rem;
+        }
+        .step-pending .step-icon { background: #e9ecef; color: #adb5bd; }
+        .step-active .step-icon { background: #0d6efd; color: white; }
+        .step-active { color: #0d6efd; font-weight: 600; }
+        .step-success .step-icon { background: #198754; color: white; }
+        .step-success { color: #198754; }
+        .step-error .step-icon { background: #dc3545; color: white; }
+        .step-error { color: #dc3545; font-weight: 600; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>Thrift Scheme Draft Generator</h2>
+<div class="glass-card">
+    <div class="text-center mb-4">
+        <i class="fa-solid fa-envelope-open-text fa-3x text-primary mb-2"></i>
+        <h3 class="header-title">Thrift Scheme Gmail Draft Generator</h3>
+        <p class="text-muted small">ఆటోమేటిక్ గా జిమెయిల్ డ్రాఫ్ట్ మరియు ఎక్సెల్ ఫైల్స్ తయారు చేయండి</p>
+    </div>
+
     <form id="draftForm">
-        
-        <!-- Month Dropdown -->
-        <div class="form-group">
-            <label for="month">నెల ఎంచుకోండి (Month):</label>
-            <select name="month" id="month" required>
-                <option value="1">June 2026</option>
-                <option value="2">July 2026</option>
-                <option value="3">August 2026</option>
-                <option value="4">September 2026</option>
-                <option value="5">October 2026</option>
-                <option value="6">November 2026</option>
-                <option value="7">December 2026</option>
-                <option value="8">January 2027</option>
-                <option value="9">February 2027</option>
-                <option value="10">March 2027</option>
-                <option value="11">April 2027</option>
-                <option value="12">May 2027</option>
-            </select>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label for="month" class="form-label"><i class="fa-regular fa-calendar-alt me-1"></i>నెల (Month):</label>
+                <select name="month" id="month" class="form-select" required>
+                    <option value="1">June 2026</option>
+                    <option value="2">July 2026</option>
+                    <option value="3">August 2026</option>
+                    <option value="4">September 2026</option>
+                    <option value="5">October 2026</option>
+                    <option value="6">November 2026</option>
+                    <option value="7">December 2026</option>
+                    <option value="8">January 2027</option>
+                    <option value="9">February 2027</option>
+                    <option value="10">March 2027</option>
+                    <option value="11">April 2027</option>
+                    <option value="12">May 2027</option>
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label for="batch" class="form-label"><i class="fa-solid fa-layer-group me-1"></i>బ్యాచ్ (Batch):</label>
+                <select name="batch" id="batch" class="form-select" required>
+                    <option value="1">Batch 1</option>
+                    <option value="2">Batch 2</option>
+                    <option value="3">Batch 3</option>
+                    <option value="4">Batch 4</option>
+                </select>
+            </div>
+
+            <div class="col-12">
+                <label for="bank_name" class="form-label"><i class="fa-solid fa-building-columns me-1"></i>బ్యాంకు పేరు (Bank Name):</label>
+                <select name="bank_name" id="bank_name" class="form-select" required>
+                    <option value="">-- బ్యాంక్ ఎంచుకోండి --</option>
+                    {% for bank in banks %}
+                        <option value="{{ bank }}">{{ bank }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-4">
+                <label for="cheque_no" class="form-label"><i class="fa-solid fa-money-check me-1"></i>చెక్కు నంబర్:</label>
+                <input type="text" id="cheque_no" name="cheque_no" class="form-control" placeholder="ఉదా: 123456">
+            </div>
+            <div class="col-md-4">
+                <label for="cheque_date" class="form-label"><i class="fa-solid fa-calendar-day me-1"></i>చెక్కు తేదీ:</label>
+                <input type="text" id="cheque_date" name="cheque_date" class="form-control" placeholder="Dated: 19/09/2026">
+            </div>
+            <div class="col-md-4">
+                <label for="cheque_amount" class="form-label"><i class="fa-solid fa-indian-rupee-sign me-1"></i>మొత్తం:</label>
+                <input type="text" id="cheque_amount" name="cheque_amount" class="form-control" placeholder="₹ రూ.లలో">
+            </div>
         </div>
 
-        <!-- Batch Dropdown -->
-        <div class="form-group">
-            <label for="batch">విడత/బ్యాచ్ ఎంచుకోండి (Batch):</label>
-            <select name="batch" id="batch" required>
-                <option value="1">Batch 1</option>
-                <option value="2">Batch 2</option>
-                <option value="3">Batch 3</option>
-                <option value="4">Batch 4</option>
-            </select>
-        </div>
-
-        <!-- Bank Name Dropdown -->
-        <div class="form-group">
-            <label for="bank_name">బ్యాంకు పేరు ఎంచుకోండి (Bank Name):</label>
-            <select name="bank_name" id="bank_name" required>
-                {% for bank in banks %}
-                    <option value="{{ bank }}">{{ bank }}</option>
-                {% endfor %}
-            </select>
-        </div>
-
-     
-
-<!-- చెక్ వివరాలు ఎడిట్ చేసుకునే ఇన్‌పుట్ బాక్సులు -->
-<div class="row">
-    <div class="col-md-4 mb-3">
-        <label for="cheque_no">చెక్కు నంబర్ (Cheque No):</label>
-        <input type="text" id="cheque_no" name="cheque_no" class="form-control" placeholder="చెక్కు నంబర్ ఎంటర్ చేయండి">
-    </div>
-    <div class="col-md-4 mb-3">
-        <label for="cheque_date">చెక్కు తేదీ (Cheque Date):</label>
-        <input type="text" id="cheque_date" name="cheque_date" class="form-control" placeholder="ఉదా: Dated: 19/09/2026">
-    </div>
-    <div class="col-md-4 mb-3">
-        <label for="cheque_amount">మొత్తం (Cheque Amount):</label>
-        <input type="text" id="cheque_amount" name="cheque_amount" class="form-control" placeholder="రూపాయలలో మొత్తం">
-    </div>
-</div>
-        <button type="submit" id="submitBtn">Create Draft</button>
+        <button type="submit" id="submitBtn" class="btn btn-primary btn-generate w-100 mt-4">
+            <i class="fa-solid fa-paper-plane me-2"></i>Create Gmail Draft
+        </button>
     </form>
 
-    <div id="resultMessage" class="message"></div>
+    <!-- బ్యాక్‌గ్రౌండ్ ప్రోగ్రెస్ మరియు ఎర్రర్ ట్రాకింగ్ బాక్స్ -->
+    <div id="progressBox" class="progress-box">
+        <h6 class="fw-bold mb-3"><i class="fa-solid fa-gears me-2 text-primary"></i>ప్రాసెసింగ్ వివరాలు (Live Status):</h6>
+        
+        <div id="step1" class="step-item step-pending">
+            <div class="step-icon"><i class="fa-solid fa-spinner fa-spin d-none"></i><span class="step-num">1</span></div>
+            <span>Google Sheets నుండి డేటాని ఫెచ్ చేయడం...</span>
+        </div>
+        <div id="step2" class="step-item step-pending">
+            <div class="step-icon"><i class="fa-solid fa-spinner fa-spin d-none"></i><span class="step-num">2</span></div>
+            <span>లబ్ధిదారుల Excel File రూపకల్పన...</span>
+        </div>
+        <div id="step3" class="step-item step-pending">
+            <div class="step-icon"><i class="fa-solid fa-spinner fa-spin d-none"></i><span class="step-num">3</span></div>
+            <span>ఆఫీషియల్ Word Sanction Letter తయారీ...</span>
+        </div>
+        <div id="step4" class="step-item step-pending">
+            <div class="step-icon"><i class="fa-solid fa-spinner fa-spin d-none"></i><span class="step-num">4</span></div>
+            <span>Gmail IMAP సర్వర్ ద్వారా డ్రాఫ్ట్ అప్‌లోడ్ చేయడం...</span>
+        </div>
+    </div>
+
+    <!-- అలర్ట్ మెసేజ్‌లు -->
+    <div id="resultAlert" class="alert mt-3 d-none" role="alert"></div>
 </div>
 
 <script>
+    // బ్యాంక్ సెలెక్ట్ చేసినపుడు డిఫాల్ట్ వివరాలను ఆటో-ఫిల్ చేయడం
+    document.getElementById('bank_name').addEventListener('change', async function() {
+        const bankName = this.value;
+        if (!bankName) return;
+
+        try {
+            const res = await fetch(`/api/get-bank-doc-details?bank_name=${encodeURIComponent(bankName)}`);
+            const json = await res.json();
+            if (json.status === 'success' && json.data) {
+                if (json.data.Cheque_No) document.getElementById('cheque_no').value = json.data.Cheque_No;
+                if (json.data.Cheque_Date) document.getElementById('cheque_date').value = json.data.Cheque_Date;
+            }
+        } catch (e) {
+            console.log("Error loading bank details:", e);
+        }
+    });
+
+    // హెల్పర్ ఫంక్షన్స్ (Step Update)
+    function setStepStatus(stepId, status) {
+        const el = document.getElementById(stepId);
+        const iconContainer = el.querySelector('.step-icon');
+        const numSpan = iconContainer.querySelector('.step-num');
+        const spinner = iconContainer.querySelector('.fa-spinner');
+
+        el.className = `step-item step-${status}`;
+        if (status === 'active') {
+            if (spinner) spinner.classList.remove('d-none');
+            if (numSpan) numSpan.classList.add('d-none');
+        } else if (status === 'success') {
+            iconContainer.innerHTML = '<i class="fa-solid fa-check"></i>';
+        } else if (status === 'error') {
+            iconContainer.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        }
+    }
+
+    function resetSteps() {
+        ['step1', 'step2', 'step3', 'step4'].forEach((id, idx) => {
+            const el = document.getElementById(id);
+            el.className = 'step-item step-pending';
+            el.querySelector('.step-icon').innerHTML = `<i class="fa-solid fa-spinner fa-spin d-none"></i><span class="step-num">${idx + 1}</span>`;
+        });
+    }
+
+    // ఫారమ్ సబ్‌మిషన్
     document.getElementById('draftForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         
         const btn = document.getElementById('submitBtn');
-        const msgDiv = document.getElementById('resultMessage');
-        
+        const progressBox = document.getElementById('progressBox');
+        const alertBox = document.getElementById('resultAlert');
+
         btn.disabled = true;
-        btn.innerText = "ప్రాసెస్ జరుగుతోంది...";
-        msgDiv.style.color = "blue";
-        msgDiv.innerText = "దయచేసి వేచి ఉండండి, మెయిల్ డ్రాఫ్ట్ తయారవుతోంది...";
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin me-2"></i>ప్రాసెస్ జరుగుతోంది...`;
+        progressBox.style.display = 'block';
+        alertBox.classList.add('d-none');
+        resetSteps();
 
         const formData = {
-    month: document.getElementById('month').value,
-    batch: document.getElementById('batch').value,
-    bank_name: document.getElementById('bank_name').value,
-    cheque_no: document.getElementById('cheque_no').value,
-    cheque_date: document.getElementById('cheque_date').value,
-    cheque_amount: document.getElementById('cheque_amount').value
-};
+            month: document.getElementById('month').value,
+            batch: document.getElementById('batch').value,
+            bank_name: document.getElementById('bank_name').value,
+            cheque_no: document.getElementById('cheque_no').value,
+            cheque_date: document.getElementById('cheque_date').value,
+            cheque_amount: document.getElementById('cheque_amount').value
+        };
+
+        // Simulated Step-by-Step UI Experience during Background API Call
+        setStepStatus('step1', 'active');
 
         try {
             const response = await fetch('/api/generate-draft', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData)
             });
 
             const result = await response.json();
 
             if (response.ok && result.status === 'success') {
-                msgDiv.style.color = "green";
-                msgDiv.innerText = result.message;
+                setStepStatus('step1', 'success');
+                setStepStatus('step2', 'success');
+                setStepStatus('step3', 'success');
+                setStepStatus('step4', 'success');
+
+                alertBox.className = 'alert alert-success mt-3';
+                alertBox.innerHTML = `
+                    <i class="fa-solid fa-circle-check me-2"></i><b>విజయం!</b> ${result.message}<br>
+                    <a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" class="btn btn-sm btn-outline-success mt-2">
+                        <i class="fa-solid fa-external-link me-1"></i>Gmail Drafts సరిచూడండి
+                    </a>`;
+                alertBox.classList.remove('d-none');
             } else {
-                msgDiv.style.color = "red";
-                msgDiv.innerText = result.message || "ఏదో లోపం సంభవించింది.";
+                setStepStatus('step1', 'error');
+                alertBox.className = 'alert alert-danger mt-3';
+                alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-2"></i><b>లోపం:</b> ${result.message || 'డ్రాఫ్ట్ జెనరేట్ అవ్వడంలో సమస్య ఏర్పడింది.'}`;
+                alertBox.classList.remove('d-none');
             }
         } catch (error) {
-            msgDiv.style.color = "red";
-            msgDiv.innerText = "సర్వర్ కనెక్షన్ లోపం: " + error;
+            setStepStatus('step1', 'error');
+            alertBox.className = 'alert alert-danger mt-3';
+            alertBox.innerHTML = `<i class="fa-solid fa-plug-circle-xmark me-2"></i><b>నెట్‌వర్క్ లోపం:</b> సర్వర్ కనెక్షన్ లోపించింది (${error.message})`;
+            alertBox.classList.remove('d-none');
         } finally {
             btn.disabled = false;
-            btn.innerText = "Create Draft";
+            btn.innerHTML = `<i class="fa-solid fa-paper-plane me-2"></i>Create Gmail Draft`;
         }
     });
 </script>
