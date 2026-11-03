@@ -4,189 +4,195 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>త్రిఫ్టు పథకము - పోర్టల్</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .header-banner { background: linear-gradient(135deg, #1e3c72, #2a5298); color: white; padding: 20px 0; }
-        .card-custom { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: none; }
-    </style>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js for Fast Reactive UI -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body>
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="appData()">
 
     <!-- Header -->
-    <div class="header-banner text-center mb-4 position-relative">
-        <div style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); display: none;" id="header-support-badge">
-            <div class="bg-white text-dark px-3 py-1 rounded-pill shadow-sm border text-start">
-                <small class="text-muted d-block" style="font-size: 10px; line-height: 1.1;">🛠️ సాంకేతిక సహాయం (Support):</small>
-                <strong class="text-primary" style="font-size: 12px;">Gajula Srikanth, CF| 📞 +91-9700389438</strong>
+    <header class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white shadow-md py-4 px-6 relative">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            
+            <!-- సాంకేతిక సహాయం (Support Badge) -->
+            <div id="header-support-badge" class="hidden bg-white text-slate-900 px-4 py-1.5 rounded-full shadow-sm border border-slate-200 text-left">
+                <span class="text-[10px] text-slate-500 block leading-tight">🛠️ సాంకేతిక సహాయం (Support):</span>
+                <strong class="text-blue-700 text-xs">Gajula Srikanth, CF | 📞 +91-9700389438</strong>
+            </div>
+
+            <!-- Title -->
+            <div class="text-center">
+                <h1 class="text-xl md:text-2xl font-bold tracking-wide">🏛️ త్రిఫ్టు పథకము లబ్ధిదారుల పోర్టల్</h1>
+                <p class="text-xs md:text-sm text-blue-200">చేనేత మరియు జౌళి శాఖ</p>
+            </div>
+            
+            <!-- Logout Button -->
+            <div id="header-logout-btn" class="hidden">
+                <button @click="logoutBank()" class="bg-white/10 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded transition shadow-sm border border-white/20">
+                    🚪 లాగౌట్ (Logout)
+                </button>
             </div>
         </div>
+    </header>
 
-        <h2>🏛️ త్రిఫ్టు పథకము లబ్ధిదారుల పోర్టల్</h2>
-        <p class="mb-0">చేనేత మరియు జౌళి శాఖ</p>
-        
-        <div id="header-logout-btn" style="display: none; position: absolute; right: 20px; top: 50%; transform: translateY(-50%);">
-            <button class="btn btn-light btn-sm text-danger fw-bold shadow-sm" onclick="logoutBank()">
-                🚪 లాగౌట్ (Logout)
-            </button>
-        </div>
-    </div>
-
-    <div class="container-fluid px-4">
-        <div class="row">
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             <!-- సైడ్ ప్యానెల్: బ్యాంక్ లాగిన్ -->
-            <div class="col-md-3 mb-4" id="left-sidebar-panel">
-                <div class="card card-custom p-3 bg-white">
-                    <h4 class="text-primary border-bottom pb-2">🔒 బ్యాంక్ లాగిన్</h4>
+            <div id="left-sidebar-panel" class="lg:col-span-3">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 sticky top-6">
+                    <h2 class="text-base font-bold text-blue-900 border-b pb-2 mb-4">🔒 బ్యాంక్ లాగిన్</h2>
                     
                     <div id="login-section">
                         <div class="mb-3">
-                            <label class="form-label font-weight-bold">బ్యాంక్ ఎంచుకోండి:</label>
-                            <select id="bank-select" class="form-select">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">బ్యాంక్ ఎంచుకోండి:</label>
+                            <select id="bank-select" class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
                                 <option value="">-- సెలెక్ట్ చేయండి --</option>
                                 {% for bank in banks %}
                                 <option value="{{ bank }}">{{ bank }}</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label">PIN / పాస్‌వర్డ్:</label>
-                            <input type="password" id="bank-pin" class="form-control" placeholder="4 అంకెల PIN">
+                        <div class="mb-4">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">PIN / పాస్‌వర్డ్:</label>
+                            <input type="password" id="bank-pin" class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="4 అంకెల PIN">
                         </div>
-                        <button class="btn btn-primary w-100" onclick="loginBank()">లాగిన్ అవ్వండి</button>
-                        <div id="login-msg" class="mt-2 text-danger"></div>
+                        <button onclick="loginBank()" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-lg transition shadow-sm">
+                            లాగిన్ అవ్వండి
+                        </button>
+                        <div id="login-msg" class="mt-2 text-xs text-red-600 font-medium text-center"></div>
                     </div>
 
-                    <div id="bank-dashboard-info" style="display: none;">
-                        <div class="alert alert-success p-2">
-                            <small>లాగిన్ అయిన వారు:</small><br>
-                            <strong id="logged-bank-name"></strong>
+                    <div id="bank-dashboard-info" class="hidden">
+                        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3 text-center">
+                            <span class="text-xs text-slate-500 block">లాగిన్ అయిన వారు:</span>
+                            <strong id="logged-bank-name" class="text-emerald-800 text-sm"></strong>
                         </div>
-                        <button class="btn btn-outline-danger btn-sm w-100" onclick="logoutBank()">లాగౌట్ (Logout)</button>
+                        <button onclick="logoutBank()" class="w-full border border-red-500 text-red-600 hover:bg-red-50 text-xs font-semibold py-2 rounded-lg transition">
+                            లాగౌట్ (Logout)
+                        </button>
                     </div>
                 </div>
             </div>
 
             <!-- మెయిన్ ప్యానెల్ -->
-            <div class="col-md-9" id="main-content-panel">
+            <div id="main-content-panel" class="lg:col-span-9 space-y-6">
                 
                 <!-- 1. ఆధార్ సెర్చ్ కార్డ్ -->
-                <div class="card card-custom p-4 bg-white mb-4">
-                    <h4 class="text-secondary border-bottom pb-2">🔍 లబ్ధిదారుడి శోధన (Aadhaar Search)</h4>
-                    <div class="input-group my-3">
-                        <input type="text" id="search-aadhaar" class="form-control form-control-lg" placeholder="ఆధార్ సంఖ్య ఎంటర్ చేయండి...">
-                        <button class="btn btn-success btn-lg" onclick="searchBeneficiary()">వెతకండి</button>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                    <h3 class="text-sm font-bold text-slate-700 border-b pb-2 mb-3">🔍 లబ్ధిదారుడి శోధన (Aadhaar Search)</h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="search-aadhaar" class="flex-1 text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="ఆధార్ సంఖ్య ఎంటర్ చేయండి...">
+                        <button onclick="searchBeneficiary()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition shadow-sm">
+                            వెతకండి
+                        </button>
                     </div>
-                    <div id="search-results"></div>
+                    <div id="search-results" class="mt-3"></div>
                 </div>
 
                 <!-- 2. బ్యాంక్ ప్రత్యేక డాష్‌బోర్డ్ -->
-                <div id="bank-data-section" class="card card-custom p-4 bg-white" style="display: none;">
+                <div id="bank-data-section" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hidden space-y-5">
                     
-                    <!-- డైనమిక్ మంత్ మరియు బ్యాచ్ సెలెక్షన్ బార్ -->
-                    <div class="row align-items-center mb-4 p-3 bg-light rounded border">
-                        <div class="col-md-5">
-                            <h4 class="text-success mb-0">📊 లబ్ధిదారుల జాబితా</h4>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold mb-1" style="font-size: 12px;">నెల ఎంచుకోండి (Month):</label>
-                            <select id="filter-month" class="form-select form-select-sm" onchange="reloadBankData()">
-                                <option value="1">నెల 1 (Month 1)</option>
-                                <option value="2">నెల 2 (Month 2)</option>
-                                <option value="3">నెల 3 (Month 3)</option>
-                                <option value="4">నెల 4 (Month 4)</option>
-                                <option value="5">నెల 5 (Month 5)</option>
-                                <option value="6">నెల 6 (Month 6)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold mb-1" style="font-size: 12px;">బ్యాచ్ ఎంచుకోండి (Batch):</label>
-                            <select id="filter-batch" class="form-select form-select-sm" onchange="reloadBankData()">
-                                <option value="1">బ్యాచ్ 1 (Batch 1)</option>
-                                <option value="2">బ్యాచ్ 2 (Batch 2)</option>
-                                <option value="3">బ్యాచ్ 3 (Batch 3)</option>
-                            </select>
+                    <!-- డైరెక్ట్ మంత్ & బ్యాచ్ సెలెక్షన్ బార్ -->
+                    <div class="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <h3 class="text-base font-bold text-emerald-700 m-0">📊 లబ్ధిదారుల జాబితా</h3>
+                        <div class="flex flex-wrap gap-3 w-full md:w-auto">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 mb-1">నెల ఎంచుకోండి (Month):</label>
+                                <select id="filter-month" onchange="reloadBankData()" class="text-xs border border-slate-300 rounded-lg p-1.5 bg-white">
+                                    <option value="1">నెల 1 (Month 1)</option>
+                                    <option value="2">నెల 2 (Month 2)</option>
+                                    <option value="3">నెల 3 (Month 3)</option>
+                                    <option value="4">నెల 4 (Month 4)</option>
+                                    <option value="5">నెల 5 (Month 5)</option>
+                                    <option value="6">నెల 6 (Month 6)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 mb-1">బ్యాచ్ ఎంచుకోండి (Batch):</label>
+                                <select id="filter-batch" onchange="reloadBankData()" class="text-xs border border-slate-300 rounded-lg p-1.5 bg-white">
+                                    <option value="1">బ్యాచ్ 1 (Batch 1)</option>
+                                    <option value="2">బ్యాచ్ 2 (Batch 2)</option>
+                                    <option value="3">బ్యాచ్ 3 (Batch 3)</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
                     <!-- కౌంట్ స్టేటస్ బాక్సులు -->
-                    <div class="row my-3">
-                        <div class="col-md-4">
-                            <div class="card bg-light p-2 text-center border">
-                                <span class="text-muted" style="font-size: 13px;">మొత్తం లబ్ధిదారులు (Total)</span>
-                                <h4 id="total-count" class="text-primary mb-0">0</h4>
-                            </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-blue-50/50 border border-blue-100 rounded-xl p-3 text-center">
+                            <span class="text-xs text-slate-500 block">మొత్తం లబ్ధిదారులు (Total)</span>
+                            <h4 id="total-count" class="text-lg font-bold text-blue-600 mt-1">0</h4>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card bg-warning-subtle p-2 text-center border">
-                                <span class="text-muted" style="font-size: 13px;">పెండింగ్‌లో ఉన్నవి (Pending)</span>
-                                <h4 id="pending-count" class="text-danger mb-0">0</h4>
-                            </div>
+                        <div class="bg-amber-50/50 border border-amber-100 rounded-xl p-3 text-center">
+                            <span class="text-xs text-slate-500 block">పెండింగ్‌లో ఉన్నవి (Pending)</span>
+                            <h4 id="pending-count" class="text-lg font-bold text-red-600 mt-1">0</h4>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card bg-success-subtle p-2 text-center border">
-                                <span class="text-muted" style="font-size: 13px;">పూర్తయినవి (Completed)</span>
-                                <h4 id="completed-count" class="text-success mb-0">0</h4>
-                            </div>
+                        <div class="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3 text-center">
+                            <span class="text-xs text-slate-500 block">పూర్తయినవి (Completed)</span>
+                            <h4 id="completed-count" class="text-lg font-bold text-emerald-600 mt-1">0</h4>
                         </div>
                     </div>
                     
                     <!-- ఫైల్ అప్‌లోడ్ సెక్షన్ -->
-                    <div class="card my-3 p-3 bg-light border">
-                        <h6 class="text-secondary">📤 డేటా ఫైల్ అప్‌లోడ్ చేయండి (Bulk Upload)</h6>
-                        <div class="input-group input-group-sm my-1">
-                            <input type="file" id="bank-upload-file" class="form-control" accept=".csv, .xlsx, .xls">
-                            <button class="btn btn-primary btn-sm" onclick="uploadBankFile()">అప్‌లోడ్</button>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                        <h4 class="text-xs font-bold text-slate-700 mb-2">📤 డేటా ఫైల్ అప్‌లోడ్ చేయండి (Bulk Upload)</h4>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <input type="file" id="bank-upload-file" accept=".csv, .xlsx, .xls" class="flex-1 text-xs border border-slate-300 rounded-lg file:mr-4 file:py-1.5 file:px-3 file:rounded-l-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 bg-white">
+                            <button onclick="uploadBankFile()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition">అప్‌లోడ్</button>
                         </div>
-                        <div id="upload-msg" class="mt-1 font-weight-bold" style="font-size: 13px;"></div>
+                        <div id="upload-msg" class="mt-2 text-xs font-medium"></div>
                     </div>
 
                     <!-- ఎక్సెల్ డౌన్‌లోడ్ బటన్ -->
-                    <div class="mb-3">
-                        <button class="btn btn-sm btn-success" onclick="downloadExcelFile()">📥 డేటా డౌన్‌లోడ్ (Excel)</button>
+                    <div>
+                        <button onclick="downloadExcelFile()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-sm inline-flex items-center gap-1.5">
+                            📥 డేటా డౌన్‌లోడ్ (Excel)
+                        </button>
                     </div>
 
                     <!-- పెండింగ్ సెక్షన్ -->
-                    <div class="mt-3">
-                        <h5 class="text-danger">⏳ ఇంకా ఎంట్రీ చేయవలసినవి (Pending Entries)</h5>
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover table-bordered">
-                                <thead class="table-dark" style="font-size: 13px;">
+                    <div class="space-y-2">
+                        <h4 class="text-sm font-bold text-red-600">⏳ ఇంకా ఎంట్రీ చేయవలసినవి (Pending Entries)</h4>
+                        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead class="bg-slate-800 text-white">
                                     <tr>
-                                        <th>క్రమ సంఖ్య</th>
-                                        <th>లబ్ధిదారుడి పేరు</th>
-                                        <th>ఖాతా సంఖ్య</th>
-                                        <th>RD ఖాతా సంఖ్య-1</th>
-                                        <th>RD ఖాతా సంఖ్య-2</th>
-                                        <th>బ్యాంక్ క్లోజింగ్ బ్యాలెన్స్</th>
-                                        <th>స్టేటస్ (Status)</th>
-                                        <th>FILE NAME</th>
+                                        <th class="p-2.5">క్రమ సంఖ్య</th>
+                                        <th class="p-2.5">లబ్ధిదారుడి పేరు</th>
+                                        <th class="p-2.5">ఖాతా సంఖ్య</th>
+                                        <th class="p-2.5">RD ఖాతా సంఖ్య-1</th>
+                                        <th class="p-2.5">RD ఖాతా సంఖ్య-2</th>
+                                        <th class="p-2.5">బ్యాంక్ క్లోజింగ్ బ్యాలెన్స్</th>
+                                        <th class="p-2.5">స్టేటస్ (Status)</th>
+                                        <th class="p-2.5">FILE NAME</th>
                                     </tr>
                                 </thead>
-                                <tbody id="bank-table-body-pending" style="font-size: 13px;"></tbody>
+                                <tbody id="bank-table-body-pending" class="divide-y divide-slate-200 bg-white"></tbody>
                             </table>
                         </div>
                     </div>
 
-                    <!-- పూర్తయిన సెక్షన్ (ఇప్పుడు యూజర్లు ఇక్కడ కూడా ఎడిట్ చేసి సవరించుకోవచ్చు) -->
-                    <div class="mt-5">
-                        <h5 class="text-success">✅ ఇప్పటికే ఎంట్రీ పూర్తయినవి (Completed Entries - Editable)</h5>
-                        <div class="table-responsive">
-                            <table class="table table-hover table-bordered">
-                                <thead class="table-success text-dark" style="font-size: 13px;">
+                    <!-- పూర్తయిన సెక్షన్ -->
+                    <div class="space-y-2 pt-4">
+                        <h4 class="text-sm font-bold text-emerald-600">✅ ఇప్పటికే ఎంట్రీ పూర్తయినవి (Completed Entries - Editable)</h4>
+                        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead class="bg-emerald-700 text-white">
                                     <tr>
-                                        <th>క్రమ సంఖ్య</th>
-                                        <th>లబ్ధిదారుడి పేరు</th>
-                                        <th>ఖాతా సంఖ్య</th>
-                                        <th>RD ఖాతా సంఖ్య-1</th>
-                                        <th>RD ఖాతా సంఖ్య-2</th>
-                                        <th>బ్యాంక్ క్లోజింగ్ బ్యాలెన్స్</th>
-                                        <th>స్టేటస్ (Status)</th>
-                                        <th>FILE NAME</th>
+                                        <th class="p-2.5">క్రమ సంఖ్య</th>
+                                        <th class="p-2.5">లబ్ధిదారుడి పేరు</th>
+                                        <th class="p-2.5">ఖాతా సంఖ్య</th>
+                                        <th class="p-2.5">RD ఖాతా సంఖ్య-1</th>
+                                        <th class="p-2.5">RD ఖాతా సంఖ్య-2</th>
+                                        <th class="p-2.5">బ్యాంక్ క్లోజింగ్ బ్యాలెన్స్</th>
+                                        <th class="p-2.5">స్టేటస్ (Status)</th>
+                                        <th class="p-2.5">FILE NAME</th>
                                     </tr>
                                 </thead>
-                                <tbody id="bank-table-body-completed" style="font-size: 13px;"></tbody>
+                                <tbody id="bank-table-body-completed" class="divide-y divide-slate-200 bg-white"></tbody>
                             </table>
                         </div>
                     </div>
@@ -194,9 +200,33 @@
                 </div>
             </div>
         </div>
-    </div>
+    </main>
+
+    <footer class="max-w-7xl mx-auto text-center py-6 mt-8 border-t border-slate-200 text-xs text-slate-500 space-y-3 px-4">
+        <div>
+            <span>చేనేత మరియు జౌళి శాఖ - త్రిఫ్టు పథకం పోర్టల్</span>
+            <span class="mx-2">|</span>
+            <a href="/cf/login" class="text-emerald-700 hover:underline font-semibold">👨‍💼 CF లాగిన్</a>
+            <span class="mx-2">|</span>
+            <a href="/admin/login" class="text-slate-600 hover:underline font-semibold">🛡️ అడ్మిన్ లాగిన్</a>
+        </div>
+        <div>
+            <a href="/draft-generator" class="inline-block bg-blue-900 hover:bg-blue-800 text-white font-bold px-4 py-2 rounded-lg shadow-sm transition">
+                📧 Gmail Draft & Official Letter Generator (డ్రాఫ్ట్ జనరేటర్)
+            </a>
+        </div>
+        <div>
+            <a href="#" id="audit-link" onclick="goToAuditDashboard(event)" class="inline-block border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold px-4 py-2 rounded-lg transition">
+                🔍 ఈ బ్యాంకు ఆడిట్ & మిస్సమ్యాచ్ పోర్టల్ చూడండి
+            </a>
+        </div>
+    </footer>
 
     <script>
+    function appData() {
+        return {}
+    }
+
     window.addEventListener("DOMContentLoaded", function() {
         checkUserLoginStatus();
     });
@@ -216,23 +246,29 @@
             const headerLogoutBtn = document.getElementById('header-logout-btn');
 
             if (data.status === "success") {
-                if (leftPanel) leftPanel.style.display = 'none';
-                if (mainPanel) mainPanel.className = "col-md-12";
+                if (leftPanel) leftPanel.classList.add('hidden');
+                if (mainPanel) {
+                    mainPanel.classList.remove('lg:col-span-9');
+                    mainPanel.classList.add('lg:col-span-12');
+                }
 
                 const headerSupportBadge = document.getElementById('header-support-badge');
-                if (headerSupportBadge) headerSupportBadge.style.display = 'block';
-                if (headerLogoutBtn) headerLogoutBtn.style.display = 'block';
+                if (headerSupportBadge) headerSupportBadge.classList.remove('hidden');
+                if (headerLogoutBtn) headerLogoutBtn.classList.remove('hidden');
 
                 document.getElementById('logged-bank-name').innerText = data.bank;
                 renderBankTable(data.data);
             } else {
-                if (leftPanel) leftPanel.style.display = 'block';
-                if (mainPanel) mainPanel.className = "col-md-9";
-                if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
+                if (leftPanel) leftPanel.classList.remove('hidden');
+                if (mainPanel) {
+                    mainPanel.classList.remove('lg:col-span-12');
+                    mainPanel.classList.add('lg:col-span-9');
+                }
+                if (headerLogoutBtn) headerLogoutBtn.classList.add('hidden');
 
-                document.getElementById('bank-data-section').style.display = 'none';
+                document.getElementById('bank-data-section').classList.add('hidden');
                 const headerSupportBadge = document.getElementById('header-support-badge');
-                if (headerSupportBadge) headerSupportBadge.style.display = 'none';
+                if (headerSupportBadge) headerSupportBadge.classList.add('hidden');
             }
         })
         .catch(error => {
@@ -246,7 +282,7 @@
 
     function renderBankTable(records) {
         const bankDataSection = document.getElementById('bank-data-section');
-        bankDataSection.style.display = 'block';
+        bankDataSection.classList.remove('hidden');
 
         const tbodyPending = document.getElementById('bank-table-body-pending');
         const tbodyCompleted = document.getElementById('bank-table-body-completed');
@@ -264,38 +300,38 @@
                 let isCompleted = row['is_completed'];
 
                 let rowContent = `
-                    <td>${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
-                    <td>${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
-                    <td>
-                        <input type="text" id="rd1_${bankSno}" value="${rd1Val}" data-old="${rd1Val}" class="form-control form-control-sm" style="width: 130px;" maxlength="20" placeholder="RD-1">
+                    <td class="p-2.5 font-medium text-slate-700">${row['Name Of Benificiary'] || row['NAME'] || 'N/A'}</td>
+                    <td class="p-2.5 font-mono text-slate-600">${row['Bank Account Number'] || row['ACCOUNT'] || 'N/A'}</td>
+                    <td class="p-2.5">
+                        <input type="text" id="rd1_${bankSno}" value="${rd1Val}" data-old="${rd1Val}" class="w-32 text-xs border border-slate-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:outline-none" maxlength="20" placeholder="RD-1">
                     </td>
-                    <td>
-                        <input type="text" id="rd2_${bankSno}" value="${rd2Val}" data-old="${rd2Val}" class="form-control form-control-sm" style="width: 130px;" maxlength="20" placeholder="RD-2">
+                    <td class="p-2.5">
+                        <input type="text" id="rd2_${bankSno}" value="${rd2Val}" data-old="${rd2Val}" class="w-32 text-xs border border-slate-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:outline-none" maxlength="20" placeholder="RD-2">
                     </td>
-                    <td>
-                        <input type="text" id="balance_${bankSno}" value="${balanceVal}" data-old="${balanceVal}" class="form-control form-control-sm" style="width: 130px;" maxlength="20" placeholder="బ్యాలెన్స్">
+                    <td class="p-2.5">
+                        <input type="text" id="balance_${bankSno}" value="${balanceVal}" data-old="${balanceVal}" class="w-32 text-xs border border-slate-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:outline-none" maxlength="20" placeholder="బ్యాలెన్స్">
                     </td>
                 `;
 
                 if (!isCompleted) {
-                    pendingHtml += `<tr>
-                        <td>${pCount++}</td>
+                    pendingHtml += `<tr class="hover:bg-slate-50/80">
+                        <td class="p-2.5 font-semibold text-slate-600">${pCount++}</td>
                         ${rowContent}
-                        <td>
-                            <button class="btn btn-sm btn-success px-2 py-0 fw-bold" onclick="manualSaveRd('${bankSno}')" title="సేవ్ చేయండి">💾 సేవ్</button>
-                            <span id="status_${bankSno}" class="d-block text-muted mt-1" style="font-size: 10px;">పెండింగ్</span>
+                        <td class="p-2.5">
+                            <button onclick="manualSaveRd('${bankSno}')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 rounded shadow-sm transition">💾 సేవ్</button>
+                            <span id="status_${bankSno}" class="block text-[10px] text-slate-400 mt-1">పెండింగ్</span>
                         </td>
-                        <td>${row['FILE NAME'] || 'N/A'}</td>
+                        <td class="p-2.5 text-slate-500">${row['FILE NAME'] || 'N/A'}</td>
                     </tr>`;
                 } else {
-                    completedHtml += `<tr class="table-success">
-                        <td>${cCount++}</td>
+                    completedHtml += `<tr class="bg-emerald-50/40 hover:bg-emerald-50/80">
+                        <td class="p-2.5 font-semibold text-emerald-800">${cCount++}</td>
                         ${rowContent}
-                        <td>
-                            <button class="btn btn-sm btn-warning px-2 py-0 fw-bold text-dark" onclick="manualSaveRd('${bankSno}')" title="సవరించు">💾 సవరించు</button>
-                            <span id="status_${bankSno}" class="d-block text-success fw-bold mt-1" style="font-size: 10px;">పూర్తయింది ✅</span>
+                        <td class="p-2.5">
+                            <button onclick="manualSaveRd('${bankSno}')" class="bg-amber-500 hover:bg-amber-600 text-slate-900 text-[11px] font-bold px-2.5 py-1 rounded shadow-sm transition">💾 సవరించు</button>
+                            <span id="status_${bankSno}" class="block text-[10px] font-bold text-emerald-600 mt-1">పూర్తయింది ✅</span>
                         </td>
-                        <td>${row['FILE NAME'] || 'N/A'}</td>
+                        <td class="p-2.5 text-slate-500">${row['FILE NAME'] || 'N/A'}</td>
                     </tr>`;
                 }
             });
@@ -304,73 +340,74 @@
             document.getElementById('pending-count').innerText = pCount - 1;
             document.getElementById('completed-count').innerText = cCount - 1;
 
-            if (tbodyPending) tbodyPending.innerHTML = pendingHtml !== "" ? pendingHtml : "<tr><td colspan='8' class='text-center text-success'>అన్ని ఎంట్రీలు పూర్తయ్యాయి! 🎉</td></tr>";
-            if (tbodyCompleted) tbodyCompleted.innerHTML = completedHtml !== "" ? completedHtml : "<tr><td colspan='8' class='text-center text-muted'>ఇదివరకు పూర్తయిన ఎంట్రీలు ఏవీ లేవు.</td></tr>";
+            if (tbodyPending) tbodyPending.innerHTML = pendingHtml !== "" ? pendingHtml : `<tr><td colspan='8' class='p-4 text-center text-emerald-600 font-semibold'>అన్ని ఎంట్రీలు పూర్తయ్యాయి! 🎉</td></tr>`;
+            if (tbodyCompleted) tbodyCompleted.innerHTML = completedHtml !== "" ? completedHtml : `<tr><td colspan='8' class='p-4 text-center text-slate-400'>ఇదివరకు పూర్తయిన ఎంట్రీలు ఏవీ లేవు.</td></tr>`;
         }
     }
 
     async function manualSaveRd(bankSno) {
-    const rd1Elem = document.getElementById(`rd1_${bankSno}`);
-    const rd2Elem = document.getElementById(`rd2_${bankSno}`);
-    const balanceElem = document.getElementById(`balance_${bankSno}`);
-    
-    if (!rd1Elem) return;
-
-    const rd1Input = rd1Elem.value.trim();
-    const rd2Input = rd2Elem.value.trim();
-    const balanceInput = balanceElem ? balanceElem.value.trim() : ""; // బ్యాలెన్స్ ఎలిమెంట్ నుండి విలువ తీసుకోవడం
-    
-    const currentMonth = document.getElementById('filter-month').value;
-    const currentBatch = document.getElementById('filter-batch').value;
-
-    const statusSpan = document.getElementById(`status_${bankSno}`);
-    if (statusSpan) {
-        statusSpan.className = "text-info fw-bold";
-        statusSpan.innerText = "సేవ్ అవుతోంది...";
-    }
-
-    try {
-        const res = await fetch('/api/update-rd-accounts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                bank_sno: bankSno, 
-                rd1: rd1Input, 
-                rd2: rd2Input, 
-                bank_closing_balance: balanceInput, // <--- ఈ లైన్ ఉండటం చాలా ముఖ్యం!
-                month: currentMonth,
-                batch: currentBatch
-            })
-        });
-
-        const result = await res.json();
+        const rd1Elem = document.getElementById(`rd1_${bankSno}`);
+        const rd2Elem = document.getElementById(`rd2_${bankSno}`);
+        const balanceElem = document.getElementById(`balance_${bankSno}`);
         
-        if (result.status === 'success') {
-            if (statusSpan) {
-                statusSpan.className = "text-success fw-bold";
-                statusSpan.innerText = "Saved ✅";
-            }
-            setTimeout(() => {
-                checkUserLoginStatus(); 
-            }, 1000);
-        } else {
-            if (statusSpan) {
-                statusSpan.className = "text-danger";
-                statusSpan.innerText = "ఫెయిల్ ❌";
-            }
-        }
-    } catch (error) {
-        console.error("Save Error:", error);
+        if (!rd1Elem) return;
+
+        const rd1Input = rd1Elem.value.trim();
+        const rd2Input = rd2Elem.value.trim();
+        const balanceInput = balanceElem ? balanceElem.value.trim() : "";
+        
+        const currentMonth = document.getElementById('filter-month').value;
+        const currentBatch = document.getElementById('filter-batch').value;
+
+        const statusSpan = document.getElementById(`status_${bankSno}`);
         if (statusSpan) {
-            statusSpan.className = "text-danger";
-            statusSpan.innerText = "లోపం ❌";
+            statusSpan.className = "block text-[10px] font-bold text-blue-600 mt-1";
+            statusSpan.innerText = "సేవ్ అవుతోంది...";
+        }
+
+        try {
+            const res = await fetch('/api/update-rd-accounts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    bank_sno: bankSno, 
+                    rd1: rd1Input, 
+                    rd2: rd2Input, 
+                    bank_closing_balance: balanceInput,
+                    month: currentMonth,
+                    batch: currentBatch
+                })
+            });
+
+            const result = await res.json();
+            
+            if (result.status === 'success') {
+                if (statusSpan) {
+                    statusSpan.className = "block text-[10px] font-bold text-emerald-600 mt-1";
+                    statusSpan.innerText = "Saved ✅";
+                }
+                setTimeout(() => {
+                    checkUserLoginStatus(); 
+                }, 1000);
+            } else {
+                if (statusSpan) {
+                    statusSpan.className = "block text-[10px] font-bold text-red-600 mt-1";
+                    statusSpan.innerText = "ఫెయిల్ ❌";
+                }
+            }
+        } catch (error) {
+            console.error("Save Error:", error);
+            if (statusSpan) {
+                statusSpan.className = "block text-[10px] font-bold text-red-600 mt-1";
+                statusSpan.innerText = "లోపం ❌";
+            }
         }
     }
-}
+
     async function searchBeneficiary() {
         const aadhaar = document.getElementById('search-aadhaar').value;
         const resultsDiv = document.getElementById('search-results');
-        resultsDiv.innerHTML = "<p class='text-info'>వెతుకుతున్నాం...</p>";
+        resultsDiv.innerHTML = "<p class='text-xs text-blue-600 font-medium'>వెతుకుతున్నాం...</p>";
 
         const res = await fetch('/api/search', {
             method: 'POST',
@@ -381,16 +418,23 @@
 
         if (response.success) {
             let row = response.data;
-            resultsDiv.innerHTML = `<table class="table table-bordered mt-2">
-                <tr class="table-info"><th>పేరు</th><th>ఆధార్</th><th>బ్యాంక్</th></tr>
-                <tr>
-                    <td>${row.name}</td>
-                    <td>${row.masked_aadhar}</td>
-                    <td>${row.bank_name}</td>
-                </tr>
-            </table>`;
+            resultsDiv.innerHTML = `
+                <div class="overflow-x-auto border border-blue-100 rounded-lg mt-2">
+                    <table class="w-full text-left text-xs">
+                        <tr class="bg-blue-50 text-blue-900 font-semibold">
+                            <th class="p-2">పేరు</th>
+                            <th class="p-2">ఆధార్</th>
+                            <th class="p-2">బ్యాంక్</th>
+                        </tr>
+                        <tr class="bg-white">
+                            <td class="p-2">${row.name}</td>
+                            <td class="p-2 font-mono">${row.masked_aadhar}</td>
+                            <td class="p-2">${row.bank_name}</td>
+                        </tr>
+                    </table>
+                </div>`;
         } else {
-            resultsDiv.innerHTML = `<p class='text-danger'>${response.message}</p>`;
+            resultsDiv.innerHTML = `<p class='text-xs text-red-600 font-medium'>${response.message}</p>`;
         }
     }
 
@@ -426,11 +470,14 @@
         const mainPanel = document.getElementById('main-content-panel');
         const headerLogoutBtn = document.getElementById('header-logout-btn');
         
-        if (leftPanel) leftPanel.style.display = 'block';
-        if (mainPanel) mainPanel.className = "col-md-9";
-        if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
+        if (leftPanel) leftPanel.classList.remove('hidden');
+        if (mainPanel) {
+            mainPanel.classList.remove('lg:col-span-12');
+            mainPanel.classList.add('lg:col-span-9');
+        }
+        if (headerLogoutBtn) headerLogoutBtn.classList.add('hidden');
         
-        document.getElementById('bank-data-section').style.display = 'none';
+        document.getElementById('bank-data-section').classList.add('hidden');
         document.getElementById('bank-pin').value = '';
         document.getElementById('bank-select').value = '';
         
@@ -442,7 +489,7 @@
         const msgDiv = document.getElementById('upload-msg');
 
         if (fileInput.files.length === 0) {
-            msgDiv.className = "mt-1 text-danger";
+            msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
             msgDiv.innerText = "దయచేసి ముందుగా ఎక్సెల్ ఫైల్‌ను ఎంచుకోండి.";
             return;
         }
@@ -453,7 +500,7 @@
         formData.append("month", document.getElementById('filter-month').value);
         formData.append("batch", document.getElementById('filter-batch').value);
 
-        msgDiv.className = "mt-1 text-info";
+        msgDiv.className = "mt-2 text-xs text-blue-600 font-semibold";
         msgDiv.innerText = "బల్క్ అప్‌లోడ్ జరుగుతోంది, దయచేసి వేచి ఉండండి...";
 
         try {
@@ -465,19 +512,19 @@
             const result = await response.json();
 
             if (result.status === "success") {
-                msgDiv.className = "mt-1 text-success";
+                msgDiv.className = "mt-2 text-xs text-emerald-600 font-semibold";
                 msgDiv.innerText = result.message;
                 fileInput.value = ""; 
                 setTimeout(() => {
                     checkUserLoginStatus();
                 }, 1500);
             } else {
-                msgDiv.className = "mt-1 text-danger";
+                msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
                 msgDiv.innerText = result.message;
             }
         } catch (error) {
             console.error("Bulk Upload Error:", error);
-            msgDiv.className = "mt-1 text-danger";
+            msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
             msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌డేట్ కాలేదు.";
         }
     }
@@ -500,26 +547,5 @@
         window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(selectedBank)}`;
     }
     </script>
-
-   <footer class="text-center mt-5 mb-4">
-        <div class="text-muted" style="font-size: 14px;">
-            <span>చేనేత మరియు జౌళి శాఖ - త్రిఫ్టు పథకం పోర్టల్</span>
-            <span class="mx-2">|</span>
-            <a href="/cf/login" class="text-decoration-none text-success fw-semibold me-2">👨‍💼 CF లాగిన్ (CF Portal)</a>
-            <span class="mx-2">|</span>
-            <a href="/admin/login" class="text-decoration-none text-secondary fw-semibold ms-2">🛡️ అడ్మిన్ లాగిన్ (Admin Portal)</a>
-            
-            <!-- 🆕 Gmail Draft Generator లింక్ / బటన్ -->
-            <div class="mt-3">
-                <a href="/draft-generator" class="btn btn-primary w-100 fw-bold shadow-sm" style="background-color: #1e3c72; border: none;">
-                    📧 Gmail Draft & Official Letter Generator (డ్రాఫ్ట్ జనరేటర్)
-                </a>
-            </div>
-
-            <div class="mt-3">
-                <a href="#" id="audit-link" class="btn btn-outline-secondary w-100 fw-bold" onclick="goToAuditDashboard(event)">🔍 ఈ బ్యాంకు ఆడిట్ & మిస్సమ్యాచ్ పోర్టల్ చూడండి</a>
-            </div>
-        </div>
-    </footer>
 </body>
 </html>
