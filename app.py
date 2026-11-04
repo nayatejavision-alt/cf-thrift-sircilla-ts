@@ -1618,143 +1618,162 @@ def process_join():
     except Exception as e:
         return f"ఫైల్ ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
 
+
 @app.route('/process-reconcile', methods=['POST'])
 def process_reconcile():
-    try:
-        # ఫ్రంట్ ఎండ్ నుండి వచ్చే ఫైల్ మరియు ఇన్‌పుట్‌లను తీసుకోవడం
-        file = request.files['reconcile_file']
-        sheet_name = request.form.get('rec_sheet_name', '').strip()
-        rd_col = request.form.get('rec_rd_col', 'Rd').strip()
-        ben_col = request.form.get('rec_ben_col', 'Ben').strip()
-        amt_col = request.form.get('rec_amt_col', 'Amount').strip()
-        
-        # ఎక్సెల్ ఫైల్ చదవడం
-        df = pd.read_excel(file, sheet_name=sheet_name if sheet_name else 0)
-        
-        # కాలమ్ పేర్లను ట్రిమ్ చేయడం
-        df.columns = [str(c).strip() for c in df.columns]
-        
-        # ఇచ్చిన కాలమ్స్ ఆధారంగా డేటాను క్లీన్ చేయడం
-        df_clean = df[[rd_col, ben_col, amt_col]].dropna(subset=[rd_col, ben_col]).copy()
-        df_clean['Ben_clean'] = df_clean[ben_col].astype(str).str.strip()
-        
-        # RD ఖాతా నంబర్‌ను టెక్స్ట్ (String) ఫార్మాట్‌లో మార్చడం
-        def format_rd(val):
-            try:
-                return str(int(float(val)))
-            except:
-                return str(val).strip()
-                
-        df_clean['Rd_formatted'] = df_clean[rd_col].apply(format_rd)
-        
-        # ఒకే లబ్ధిదారుని పేరుతో ఉన్న అన్ని అకౌంట్లను అమర్చడం
-        unique_bens = []
-        seen = set()
-        for ben in df_clean['Ben_clean']:
-            if ben not in seen:
-                seen.add(ben)
-                unique_bens.append(ben)
-                
-        max_rds = df_clean.groupby('Ben_clean')['Rd_formatted'].count().max()
-        
-        rows_data = []
-        for idx, ben in enumerate(unique_bens, 1):
-            ben_rows = df_clean[df_clean['Ben_clean'] == ben]
-            row_dict = {"S.No": idx, "Name Of Beneficiary": ben}
-            
-            rds = ben_rows['Rd_formatted'].tolist()
-            amounts = ben_rows[amt_col].tolist()
-            
-            for i in range(len(rds)):
-                acc_num = i + 1
-                row_dict[f"RD Account {acc_num}"] = f"'{rds[i]}"
-                row_dict[f"Closing Balance {acc_num}"] = amounts[i] if pd.notnull(amounts[i]) else 0.0
-                
-            rows_data.append(row_dict)
-            
-        df_result = pd.DataFrame(rows_data)
-        
-        # కాలమ్స్ ఆర్డర్ సర్దుబాటు చేయడం
-        all_cols = ["S.No", "Name Of Beneficiary"]
-        for i in range(1, max_rds + 1):
-            all_cols.append(f"RD Account {i}")
-            all_cols.append(f"Closing Balance {i}")
-            
-        df_result = df_result.reindex(columns=all_cols)
-        
-        # openpyxl ద్వారా ప్రొఫెషనల్ డిజైన్‌తో ఎక్సెల్ ఫైల్ సృష్టించడం
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Reconciled RD Accounts"
-        
-        # Title Header
-        max_col_letter = get_column_letter(len(all_cols))
-        ws.merge_cells(f"A1:{max_col_letter}1")
-        title_cell = ws["A1"]
-        title_cell.value = "BANK - RECURRING DEPOSIT ACCOUNTS STATEMENT"
-        title_cell.font = Font(name="Calibri", size=13, bold=True, color="FFFFFF")
-        title_cell.fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-        title_cell.alignment = Alignment(horizontal="center", vertical="center")
-        ws.row_dimensions[1].height = 32
-        
-        # Table Headers
-        headers = list(df_result.columns)
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=3, column=col_num, value=header)
-            cell.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            
-        ws.row_dimensions[3].height = 25
-        
-        thin_border = Border(
-            left=Side(style='thin', color='D9D9D9'),
-            right=Side(style='thin', color='D9D9D9'),
-            top=Side(style='thin', color='D9D9D9'),
-            bottom=Side(style='thin', color='D9D9D9')
+  try:
+    # ఫ్రంట్ ఎండ్ నుండి వచ్చే ఫైల్ మరియు ఇన్‌పుట్‌లను తీసుకోవడం
+    file = request.files['reconcile_file']
+    sheet_name = request.form.get('rec_sheet_name', '').strip()
+    rd_col = request.form.get('rec_rd_col', 'Rd').strip()
+    ben_col = request.form.get('rec_ben_col', 'Ben').strip()
+    amt_col = request.form.get('rec_amt_col', 'Amount').strip()
+
+    # ఎక్సెల్ ఫైల్ చదవడం
+    df = pd.read_excel(file, sheet_name=sheet_name if sheet_name else 0)
+
+    # కాలమ్ పేర్లను ట్రిమ్ చేయడం
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # ఇచ్చిన కాలమ్స్ ఆధారంగా డేటాను క్లీన్ చేయడం
+    df_clean = df[[rd_col, ben_col, amt_col]].dropna(
+        subset=[rd_col, ben_col]
+    ).copy()
+    df_clean['Ben_clean'] = df_clean[ben_col].astype(str).str.strip()
+
+    # RD ఖాతా నంబర్‌ను టెక్స్ట్ (String) ఫార్మాట్‌లో మార్చడం
+    def format_rd(val):
+      try:
+        return str(int(float(val)))
+      except:
+        return str(val).strip()
+
+    df_clean['Rd_formatted'] = df_clean[rd_col].apply(format_rd)
+
+    # ఒకే లబ్ధిదారుని పేరుతో ఉన్న అన్ని అకౌంట్లను అమర్చడం
+    unique_bens = []
+    seen = set()
+    for ben in df_clean['Ben_clean']:
+      if ben not in seen:
+        seen.add(ben)
+        unique_bens.append(ben)
+
+    max_rds = df_clean.groupby('Ben_clean')['Rd_formatted'].count().max()
+
+    rows_data = []
+    for idx, ben in enumerate(unique_bens, 1):
+      ben_rows = df_clean[df_clean['Ben_clean'] == ben]
+      row_dict = {'S.No': idx, 'Name Of Beneficiary': ben}
+
+      rds = ben_rows['Rd_formatted'].tolist()
+      amounts = ben_rows[amt_col].tolist()
+
+      for i in range(len(rds)):
+        acc_num = i + 1
+        row_dict[f'RD Account {acc_num}'] = f"'{rds[i]}"
+        row_dict[f'Closing Balance {acc_num}'] = (
+            amounts[i] if pd.notnull(amounts[i]) else 0.0
         )
-        zebra_fill = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")
-        
-        # డేటా రాయడం
-        for row_idx, row in df_result.iterrows():
-            row_num = row_idx + 4
-            current_row_data = row.tolist()
-            
-            for col_num, val in enumerate(current_row_data, 1):
-                cell = ws.cell(row=row_num, column=col_num)
-                cell.value = "" if (pd.isna(val) or val is None) else val
-                cell.font = Font(name="Calibri", size=10)
-                cell.border = thin_border
-                
-                if row_idx % 2 == 1:
-                    cell.fill = zebra_fill
-                    
-                header_name = headers[col_num - 1]
-                if header_name == "S.No":
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                elif header_name == "Name Of Beneficiary":
-                    cell.alignment = Alignment(horizontal="left", vertical="center")
-                elif "RD Account" in header_name:
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.number_format = '@'
-                elif "Closing Balance" in header_name:
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
-                    if isinstance(val, (int, float)):
-                        cell.number_format = '#,##0.00'
-                        
-            ws.row_dimensions[row_num].height = 20
-            
-        # Column Widths
-        ws.column_dimensions["A"].width = 8
-        ws.column_dimensions["B"].width = 32
-        
-        output_filename = "RD_Accounts_Reconciled_Output.xlsx"
-        wb.save(output_filename)
-        
-        return send_file(output_filename, as_attachment=True, download_name=output_filename)
-        
-    except Exception as e:
-        return f"Error processing reconciliation file: {str(e)}", 400
+
+      rows_data.append(row_dict)
+
+    df_result = pd.DataFrame(rows_data)
+
+    # కాలమ్స్ ఆర్డర్ సర్దుబాటు చేయడం
+    all_cols = ['S.No', 'Name Of Beneficiary']
+    for i in range(1, max_rds + 1):
+      all_cols.append(f'RD Account {i}')
+      all_cols.append(f'Closing Balance {i}')
+
+    df_result = df_result.reindex(columns=all_cols)
+
+    # openpyxl ద్వారా ప్రొఫెషనల్ డిజైన్‌తో ఎక్సెల్ ఫైల్ సృష్టించడం
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Reconciled RD Accounts'
+    ws.views.sheetView[0].showGridLines = True
+
+    # Title Header
+    max_col_letter = get_column_letter(len(all_cols))
+    ws.merge_cells(f'A1:{max_col_letter}1')
+    title_cell = ws['A1']
+    title_cell.value = (
+        'DEPARTMENT OF HANDLOOMS & TEXTILE - THRIFT SCHEME RD ACCOUNTS STATEMENT'
+    )
+    title_cell.font = Font(name='Calibri', size=13, bold=True, color='FFFFFF')
+    title_cell.fill = PatternFill(
+        start_color='1F4E79', end_color='1F4E79', fill_type='solid'
+    )
+    title_cell.alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 32
+
+    # Table Headers
+    headers = list(df_result.columns)
+    for col_num, header in enumerate(headers, 1):
+      cell = ws.cell(row=3, column=col_num, value=header)
+      cell.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
+      cell.fill = PatternFill(
+          start_color='2F5597', end_color='2F5597', fill_type='solid'
+      )
+      cell.alignment = Alignment(
+          horizontal='center', vertical='center', wrap_text=True
+      )
+
+    ws.row_dimensions[3].height = 25
+
+    thin_border = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9'),
+    )
+    zebra_fill = PatternFill(
+        start_color='F9FBFD', end_color='F9FBFD', fill_type='solid'
+    )
+
+    # డేటా రాయడం
+    for row_idx, row in df_result.iterrows():
+      row_num = row_idx + 4
+      current_row_data = row.tolist()
+
+      for col_num, val in enumerate(current_row_data, 1):
+        cell = ws.cell(row=row_num, column=col_num)
+        cell.value = '' if (pd.isna(val) or val is None) else val
+        cell.font = Font(name='Calibri', size=10)
+        cell.border = thin_border
+
+        if row_idx % 2 == 1:
+          cell.fill = zebra_fill
+
+        header_name = headers[col_num - 1]
+        if header_name == 'S.No':
+          cell.alignment = Alignment(horizontal='center', vertical='center')
+        elif header_name == 'Name Of Beneficiary':
+          cell.alignment = Alignment(horizontal='left', vertical='center')
+        elif 'RD Account' in header_name:
+          cell.alignment = Alignment(horizontal='center', vertical='center')
+          cell.number_format = '@'
+        elif 'Closing Balance' in header_name:
+          cell.alignment = Alignment(horizontal='right', vertical='center')
+          if isinstance(val, (int, float)):
+            cell.number_format = '#,##0.00'
+
+      ws.row_dimensions[row_num].height = 20
+
+    # Column Widths
+    ws.column_dimensions['A'].width = 8
+    ws.column_dimensions['B'].width = 32
+
+    output_filename = 'RD_Accounts_Reconciled_Output.xlsx'
+    wb.save(output_filename)
+
+    return send_file(
+        output_filename, as_attachment=True, download_name=output_filename
+    )
+
+  except Exception as e:
+    return f'Error processing reconciliation file: {str(e)}', 400
+
 
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
