@@ -9,7 +9,10 @@ import imaplib
 import json
 import os
 import time
+import pandas as pd
 import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter  
 from admin_routes import admin_bp
 from cf_routes import cf_bp
 from flask import (
