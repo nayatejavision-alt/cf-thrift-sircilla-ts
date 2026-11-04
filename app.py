@@ -1670,7 +1670,7 @@ def process_reconcile():
 
       for i in range(len(rds)):
         acc_num = i + 1
-        row_dict[f'RD Account {acc_num}'] = f"'{rds[i]}"
+        row_dict[f'RD Account {acc_num}'] = str(rds[i])
         row_dict[f'Closing Balance {acc_num}'] = (
             amounts[i] if pd.notnull(amounts[i]) else 0.0
         )
@@ -1679,11 +1679,14 @@ def process_reconcile():
 
     df_result = pd.DataFrame(rows_data)
 
-    # కాలమ్స్ ఆర్డర్ సర్దుబాటు చేయడం
+    # కాలమ్స్ ఆర్డర్ సర్దుబాటు చేయడం (Total RDs మరియు Total Closing Balance తో సహా)
     all_cols = ['S.No', 'Name Of Beneficiary']
     for i in range(1, max_rds + 1):
       all_cols.append(f'RD Account {i}')
       all_cols.append(f'Closing Balance {i}')
+
+    all_cols.append('Total RDs')
+    all_cols.append('Total Closing Balance (₹)')
 
     df_result = df_result.reindex(columns=all_cols)
 
@@ -1693,6 +1696,20 @@ def process_reconcile():
     ws.title = 'Reconciled RD Accounts'
     ws.views.sheetView[0].showGridLines = True
 
+    # Styling Colors
+    HEADER_FILL = PatternFill(
+        start_color='1B365D', end_color='1B365D', fill_type='solid'
+    )
+    SUBHEADER_FILL = PatternFill(
+        start_color='2C4D75', end_color='2C4D75', fill_type='solid'
+    )
+    HIGHLIGHT_FILL = PatternFill(
+        start_color='134E5E', end_color='134E5E', fill_type='solid'
+    )
+    ZEBRA_FILL = PatternFill(
+        start_color='F4F7FA', end_color='F4F7FA', fill_type='solid'
+    )
+
     # Title Header
     max_col_letter = get_column_letter(len(all_cols))
     ws.merge_cells(f'A1:{max_col_letter}1')
@@ -1700,26 +1717,24 @@ def process_reconcile():
     title_cell.value = (
         'DEPARTMENT OF HANDLOOMS & TEXTILE - THRIFT SCHEME RD ACCOUNTS STATEMENT'
     )
-    title_cell.font = Font(name='Calibri', size=13, bold=True, color='FFFFFF')
-    title_cell.fill = PatternFill(
-        start_color='1F4E79', end_color='1F4E79', fill_type='solid'
-    )
+    title_cell.font = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
+    title_cell.fill = HEADER_FILL
     title_cell.alignment = Alignment(horizontal='center', vertical='center')
-    ws.row_dimensions[1].height = 32
+    ws.row_dimensions[1].height = 35
 
     # Table Headers
-    headers = list(df_result.columns)
-    for col_num, header in enumerate(headers, 1):
-      cell = ws.cell(row=3, column=col_num, value=header)
+    ws.row_dimensions[2].height = 28
+    for col_idx, h_text in enumerate(all_cols, 1):
+      cell = ws.cell(row=2, column=col_idx, value=h_text)
       cell.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
-      cell.fill = PatternFill(
-          start_color='2F5597', end_color='2F5597', fill_type='solid'
+      cell.fill = (
+          HIGHLIGHT_FILL
+          if col_idx >= len(all_cols) - 1
+          else SUBHEADER_FILL
       )
       cell.alignment = Alignment(
           horizontal='center', vertical='center', wrap_text=True
       )
-
-    ws.row_dimensions[3].height = 25
 
     thin_border = Border(
         left=Side(style='thin', color='D9D9D9'),
@@ -1727,53 +1742,114 @@ def process_reconcile():
         top=Side(style='thin', color='D9D9D9'),
         bottom=Side(style='thin', color='D9D9D9'),
     )
-    zebra_fill = PatternFill(
-        start_color='F9FBFD', end_color='F9FBFD', fill_type='solid'
-    )
 
-    # డేటా రాయడం
-    for row_idx, row in df_result.iterrows():
-      row_num = row_idx + 4
-      current_row_data = row.tolist()
-
-      for col_num, val in enumerate(current_row_data, 1):
-        cell = ws.cell(row=row_num, column=col_num)
-        cell.value = '' if (pd.isna(val) or val is None) else val
-        cell.font = Font(name='Calibri', size=10)
-        cell.border = thin_border
-
-        if row_idx % 2 == 1:
-          cell.fill = zebra_fill
-
-        header_name = headers[col_num - 1]
-        if header_name == 'S.No':
-          cell.alignment = Alignment(horizontal='center', vertical='center')
-        elif header_name == 'Name Of Beneficiary':
-          cell.alignment = Alignment(horizontal='left', vertical='center')
-        elif 'RD Account' in header_name:
-          cell.alignment = Alignment(horizontal='center', vertical='center')
-          cell.number_format = '@'
-        elif 'Closing Balance' in header_name:
-          cell.alignment = Alignment(horizontal='right', vertical='center')
-          if isinstance(val, (int, float)):
-            cell.number_format = '#,##0.00'
-
+    # Writing Data Rows dynamically
+    for r_idx, row in df_result.iterrows():
+      row_num = r_idx + 3
       ws.row_dimensions[row_num].height = 20
 
-    # Column Widths
-    ws.column_dimensions['A'].width = 8
-    ws.column_dimensions['B'].width = 32
+      ws.cell(row=row_num, column=1, value=r_idx + 1).alignment = Alignment(
+          horizontal='center', vertical='center'
+      )
+      ws.cell(
+          row=row_num, column=2, value=row['Name Of Beneficiary']
+      ).alignment = Alignment(horizontal='left', vertical='center')
 
-    output_filename = 'RD_Accounts_Reconciled_Output.xlsx'
+      for i in range(1, max_rds + 1):
+        rd_val = row.get(f'RD Account {i}', '')
+        bal_val = row.get(f'Closing Balance {i}', 0.0)
+
+        c_rd = ws.cell(
+            row=row_num,
+            column=2 * i + 1,
+            value=str(rd_val) if pd.notnull(rd_val) and str(rd_val) != '' else '-',
+        )
+        c_rd.alignment = Alignment(horizontal='center', vertical='center')
+        c_rd.number_format = '@'
+
+        c_bal = ws.cell(
+            row=row_num,
+            column=2 * i + 2,
+            value=bal_val if pd.notnull(bal_val) else 0.0,
+        )
+        c_bal.alignment = Alignment(horizontal='right', vertical='center')
+        c_bal.number_format = '₹#,##0.00'
+
+      # Formulas for Total RDs & Total Balance
+      tot_rd_col = len(all_cols) - 1
+      tot_bal_col = len(all_cols)
+
+      rd_cols_letters = [
+          get_column_letter(2 * i + 1) for i in range(1, max_rds + 1)
+      ]
+      bal_cols_letters = [
+          get_column_letter(2 * i + 2) for i in range(1, max_rds + 1)
+      ]
+
+      rd_range_str = ','.join([f'{col}{row_num}' for col in rd_cols_letters])
+      rd_range_range = (
+          f'{rd_cols_letters[0]}{row_num}:{rd_cols_letters[-1]}{row_num}'
+      )
+
+      c_tot_rd = ws.cell(row=row_num, column=tot_rd_col)
+      c_tot_rd.value = (
+          f'=COUNTA({rd_range_str})-COUNTIF({rd_range_range}, "-")'
+      )
+      c_tot_rd.alignment = Alignment(horizontal='center', vertical='center')
+      c_tot_rd.font = Font(name='Calibri', size=10, bold=True)
+
+      c_tot_bal = ws.cell(row=row_num, column=tot_bal_col)
+      c_tot_bal.value = '=' + '+'.join(
+          [f'{col}{row_num}' for col in bal_cols_letters]
+      )
+      c_tot_bal.number_format = '₹#,##0.00'
+      c_tot_bal.alignment = Alignment(horizontal='right', vertical='center')
+      c_tot_bal.font = Font(name='Calibri', size=10, bold=True)
+
+      # Zebra Striping & Borders
+      for col_c in range(1, len(all_cols) + 1):
+        c_item = ws.cell(row=row_num, column=col_c)
+        c_item.border = thin_border
+        if r_idx % 2 == 1:
+          c_item.fill = ZEBRA_FILL
+
+    # Total Row at Bottom
+    total_row = len(df_result) + 3
+    ws.merge_cells(
+        start_row=total_row, start_column=1, end_row=total_row, end_column=2
+    )
+    ws.cell(
+        total_row, 1, value='GRAND TOTAL / మొత్తం వివరాలు'
+    ).alignment = Alignment(horizontal='center', vertical='center')
+    ws.cell(total_row, 1).font = Font(name='Calibri', size=10, bold=True)
+
+    for c in range(3, len(all_cols) + 1):
+      col_ltr = get_column_letter(c)
+      cell_tot = ws.cell(total_row, c)
+      if c == tot_rd_col:
+        cell_tot.value = f'=SUM({col_ltr}3:{col_ltr}{total_row-1})'
+        cell_tot.font = Font(name='Calibri', size=10, bold=True)
+      elif c == tot_bal_col:
+        cell_tot.value = f'=SUM({col_ltr}3:{col_ltr}{total_row-1})'
+        cell_tot.number_format = '₹#,##0.00'
+        cell_tot.font = Font(name='Calibri', size=10, bold=True)
+      elif c % 2 == 0:
+        cell_tot.value = f'=SUM({col_ltr}3:{col_ltr}{total_row-1})'
+        cell_tot.number_format = '₹#,##0.00'
+      else:
+        cell_tot.value = '-'
+
+    ws.freeze_panes = 'C3'
+
+    # Save and return send_file
+    output_filename = 'RD_Accounts_Reconciled_Enhanced.xlsx'
     wb.save(output_filename)
-
     return send_file(
         output_filename, as_attachment=True, download_name=output_filename
     )
 
   except Exception as e:
     return f'Error processing reconciliation file: {str(e)}', 400
-
 
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
