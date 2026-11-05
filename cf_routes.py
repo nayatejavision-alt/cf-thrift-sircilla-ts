@@ -187,7 +187,7 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
         
     # --- Sheet 2: Missing ---
     ws2 = wb.create_sheet(title='Missing_or_Zero_List')
-    ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Status'],'NAME OF CF')
+    ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Status','NAME OF CF'])
     for col_num in range(1, 10):
         ws2.cell(row=1, column=col_num).font = header_font
         ws2.cell(row=1, column=col_num).fill = red_fill
