@@ -82,7 +82,7 @@ def admin_dashboard():
 
 
             # కంప్లీట్ అయిన రికార్డులను యూనివర్శల్‌గా ఫిల్టర్ చేయడం
-            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Month_No']].drop_duplicates()
+            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Month_No','Batch_No']].drop_duplicates()
             completed_trans['Is_Completed'] = True
             
             # మాస్టర్ డేటాతో మెర్జ్ చేయడం (Merge Master with Transactions)
