@@ -274,7 +274,7 @@ def export_admin_excel():
         r += 1
         start_b_row = r
         for _, row in batch_df.iterrows():
-            ws.cell(row=r, column=1, value=str(row['Batch_No']))
+            ws.cell(row=r, column=1, value=str(row[t_batch_col]))
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
             ws.cell(row=r, column=4, value=int(row['pending'])).number_format = '#,##0'
