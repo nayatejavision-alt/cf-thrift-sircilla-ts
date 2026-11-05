@@ -195,7 +195,7 @@ def export_admin_excel():
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
             
             if t_month_col:
-                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col]].drop_duplicates()
+                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col, t_batch_col]].drop_duplicates()
                 #completed_trans.rename(columns={t_month_col: 'Month_No'}, inplace=True)
             else:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
