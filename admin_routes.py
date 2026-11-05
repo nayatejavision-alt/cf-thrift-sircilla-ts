@@ -55,6 +55,7 @@ def admin_download_report():
         completed_set = set()
         for row in trans_records:
             t_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            t_batch = str(row.get("BATCH_NUMBER") or row.get("BATCH NO") or "").strip()
             t_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
             t_month = str(row.get("MONTH_NUMBER") or row.get("month_number") or "").strip()
             try:
@@ -62,8 +63,10 @@ def admin_download_report():
             except ValueError:
                 govt_share = 0.0
                 
-            if t_month == '1' and govt_share > 0:
+            if t_month == '1' and t_batch == '1' and govt_share > 0:
                 completed_set.add(t_rd1)
+
+                        
                 
         # బ్యాంక్ వారీగా సమ్మరీ కట్టడం
         bank_summary = {}
@@ -129,6 +132,7 @@ def admin_dashboard():
         completed_set = set()
         for row in trans_records:
             t_sno = str(row.get("BANK_SNO") or row.get("Bank SNO") or "").strip()
+            t_batch = str(row.get("BATCH_NUMBER") or row.get("BATCH NO") or "").strip()
             t_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
             t_month = str(row.get("MONTH_NUMBER") or row.get("month_number") or "").strip()
             try:
@@ -136,7 +140,7 @@ def admin_dashboard():
             except ValueError:
                 govt_share = 0.0
                 
-            if t_month == '1' and govt_share > 0:
+            if t_month == '1' and t_batch == '1' and govt_share > 0:
                 completed_set.add(t_rd1)
                 
         completed_count = len(completed_set)
