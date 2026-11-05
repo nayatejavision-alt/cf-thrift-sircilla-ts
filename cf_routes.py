@@ -169,6 +169,17 @@ def cf_download_report_by_bank():
 
 # కామన్ ఎక్సెల్ జనరేషన్ హెల్పర్ ఫంక్షన్
 def generate_excel_response(group_df, cf_name, current_month, report_type):
+    
+   #account_cols = ['Bank Account Number', 'RD 1']  # మీ షీట్‌లోని అకౌంట్ కాలమ్ పేర్లు ఇక్కడ ఇవ్వండి
+    #for col in account_cols:
+    #    if col in group_df.columns:        # నంబర్ చివర వచ్చే .0 లను తొలగించి, ముందుగా ' చేర్చడానికి
+    #        group_df[col] = "'" + group_df[col].astype(str).str.replace(r'\.0$', '', regex=True)
+
+    account_columns = ['Bank Account Number', 'RD 1']
+    for col in account_columns:
+        if col in group_df.columns:        # ముందుగా వాల్యూస్‌ని స్ట్రింగ్‌గా మార్చి, వాటి ముందు "'" కలుపుతాము
+            group_df[col] = "'" + group_df[col].astype(str)
+            
     df_active = group_df[group_df['Govt_Share'] > 0].copy()
     df_missing = group_df[group_df['Govt_Share'] == 0].copy()
     
