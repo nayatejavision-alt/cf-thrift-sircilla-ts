@@ -182,7 +182,7 @@ def export_admin_excel():
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
-        df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip() if batch_col_m in df_master.columns else '1'
+        #df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip() if batch_col_m in df_master.columns else '1'
 
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         
