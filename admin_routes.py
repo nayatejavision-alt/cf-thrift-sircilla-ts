@@ -176,20 +176,22 @@ def export_admin_excel():
         df_master = pd.DataFrame(master_sheet.get_all_records())
         df_trans = pd.DataFrame(trans_sheet.get_all_records())
         
+        if df_master.empty:
+            return "డేటా అందుబాటులో లేదు."
+
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
-        rd_col = 'RD 1' if 'RD 1' in df_master.columns else 'RD 1'
+        rd_col = 'RD 1' if 'RD 1' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
         
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
+        t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else None)
         
         if not df_trans.empty and t_rd_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
             
-            # df_trans లో ఉన్న Batch_No ని తీసుకోవడం
-            t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else None)
             if t_batch_col:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_batch_col]].drop_duplicates()
                 completed_trans.rename(columns={t_batch_col: 'Batch_No'}, inplace=True)
@@ -208,19 +210,26 @@ def export_admin_excel():
         df_merged['Batch_No'] = df_merged['Batch_No'].fillna('1').astype(str)
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
-        # Batch Aggregates
+        # 1. Batch Aggregates
         batch_df = df_merged.groupby('Batch_No').agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
         batch_df['pending'] = batch_df['total'] - batch_df['completed']
 
-        # Bank Aggregates
+        # 2. Bank Aggregates
         bank_df = df_merged.groupby('Bank_Name').agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
         bank_df['pending'] = bank_df['total'] - bank_df['completed']
+
+        # 3. Batch + Bank Detailed Matrix
+        batch_bank_df = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        batch_bank_df['pending'] = batch_bank_df['total'] - batch_bank_df['completed']
 
         # Openpyxl Excel Workbook creation with Styling
         wb = openpyxl.Workbook()
@@ -242,17 +251,18 @@ def export_admin_excel():
         ws['A1'] = "TS Powerloom Weavers Thrift Fund Scheme - Summary Report"
         ws['A1'].font = f_title
 
-        # Write Batch Summary Table
-        ws['A3'] = "1. Batch-wise Summary"
-        ws['A3'].font = f_sec
+        r = 3
+        # --- Table 1: Batch-wise Summary ---
+        ws.cell(row=r, column=1, value="1. Batch-wise Summary").font = f_sec
+        r += 1
         b_headers = ["Batch No", "Total", "Completed", "Pending", "Completion Rate"]
-        
         for col_idx, h in enumerate(b_headers, 1):
-            cell = ws.cell(row=4, column=col_idx, value=h)
+            cell = ws.cell(row=r, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
             cell.alignment = Alignment(horizontal="center")
-
-        r = 5
+        
+        r += 1
+        start_b_row = r
         for _, row in batch_df.iterrows():
             ws.cell(row=r, column=1, value=str(row['Batch_No']))
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
@@ -264,18 +274,68 @@ def export_admin_excel():
 
         # Total Row Batch
         ws.cell(row=r, column=1, value="Total").font = f_bold
-        ws.cell(row=r, column=2, value=f"=SUM(B5:B{r-1})").font = f_bold
-        ws.cell(row=r, column=3, value=f"=SUM(C5:C{r-1})").font = f_bold
-        ws.cell(row=r, column=4, value=f"=SUM(D5:D{r-1})").font = f_bold
+        ws.cell(row=r, column=2, value=f"=SUM(B{start_b_row}:B{r-1})").font = f_bold
+        ws.cell(row=r, column=3, value=f"=SUM(C{start_b_row}:C{r-1})").font = f_bold
+        ws.cell(row=r, column=4, value=f"=SUM(D{start_b_row}:D{r-1})").font = f_bold
         ws.cell(row=r, column=5, value=f"=C{r}/B{r}").font = f_bold
-        for c in range(1, 6):
-            ws.cell(row=r, column=c).fill = fill_sub
+        for c in range(1, 6): ws.cell(row=r, column=c).fill = fill_sub
+        
+        r += 3
+
+        # --- Table 2: Bank-wise Summary ---
+        ws.cell(row=r, column=1, value="2. Bank-wise Summary").font = f_sec
+        r += 1
+        bank_headers = ["Bank Name", "Total", "Completed", "Pending", "Completion Rate"]
+        for col_idx, h in enumerate(bank_headers, 1):
+            cell = ws.cell(row=r, column=col_idx, value=h)
+            cell.font, cell.fill = f_hdr, fill_navy
+            cell.alignment = Alignment(horizontal="center")
+        
+        r += 1
+        start_bank_row = r
+        for _, row in bank_df.iterrows():
+            ws.cell(row=r, column=1, value=str(row['Bank_Name']))
+            ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
+            ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
+            ws.cell(row=r, column=4, value=f"=B{r}-C{r}").number_format = '#,##0'
+            ws.cell(row=r, column=5, value=f"=C{r}/B{r}").number_format = '0.0%'
+            for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
+            r += 1
+
+        # Total Row Bank
+        ws.cell(row=r, column=1, value="Total").font = f_bold
+        ws.cell(row=r, column=2, value=f"=SUM(B{start_bank_row}:B{r-1})").font = f_bold
+        ws.cell(row=r, column=3, value=f"=SUM(C{start_bank_row}:C{r-1})").font = f_bold
+        ws.cell(row=r, column=4, value=f"=SUM(D{start_bank_row}:D{r-1})").font = f_bold
+        ws.cell(row=r, column=5, value=f"=C{r}/B{r}").font = f_bold
+        for c in range(1, 6): ws.cell(row=r, column=c).fill = fill_sub
+
+        r += 3
+
+        # --- Table 3: Batch + Bank Detailed Matrix ---
+        ws.cell(row=r, column=1, value="3. Batch & Bank Detailed Breakdown").font = f_sec
+        r += 1
+        matrix_headers = ["Batch No", "Bank Name", "Total", "Completed", "Pending"]
+        for col_idx, h in enumerate(matrix_headers, 1):
+            cell = ws.cell(row=r, column=col_idx, value=h)
+            cell.font, cell.fill = f_hdr, fill_navy
+            cell.alignment = Alignment(horizontal="center")
+        
+        r += 1
+        for _, row in batch_bank_df.iterrows():
+            ws.cell(row=r, column=1, value=str(row['Batch_No']))
+            ws.cell(row=r, column=2, value=str(row['Bank_Name']))
+            ws.cell(row=r, column=3, value=int(row['total'])).number_format = '#,##0'
+            ws.cell(row=r, column=4, value=int(row['completed'])).number_format = '#,##0'
+            ws.cell(row=r, column=5, value=f"=C{r}-D{r}").number_format = '#,##0'
+            for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
+            r += 1
 
         # Auto column width adjustment
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
 
         # Save to buffer and download response
         output = io.BytesIO()
