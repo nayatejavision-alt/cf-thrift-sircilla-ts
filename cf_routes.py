@@ -26,19 +26,36 @@ CF_BANK_MAPPING = {
     "MARKANDEYULU": ["BOINPARI UNION BANK", "NIMMAPALLY"]
 }
 
+# 🔑 CF పాస్‌వర్డ్స్ మ్యాపింగ్ (సెక్యూర్ లాగిన్ కోసం)
+CF_PASSWORDS = {
+    "NARESH": "naresh@2026",
+    "SATHISH": "sathish@2026",
+    "NAVEEN": "naveen@2026",
+    "SRIKANTH": "srikanth@2026",
+    "DEVADAS": "devadas@2026",
+    "NAGARJUNA": "nagarjuna@2026",
+    "KANAKARAJU": "kanakaraju@2026",
+    "KAMAL": "kamal@2026",
+    "MARKANDEYULU": "markandeyulu@2026"
+}
+
 # 1. CF లాగిన్ / నేమ్ సెలెక్షన్ పేజీ
 @cf_bp.route('/cf/login', methods=['GET', 'POST'])
 def cf_login():
     if request.method == 'POST':
         data = request.get_json() if request.is_json else request.form
         cf_name = str(data.get('cf_name', '')).strip().upper()
+        cf_password = str(data.get('cf_password', '')).strip()
         
-        if cf_name:
+        if not cf_name or not cf_password:
+            return jsonify({"status": "error", "message": "దయచేసి పేరు మరియు పాస్‌వర్డ్ రెండు ఎంటర్ చేయండి!"})
+            
+        if cf_name in CF_PASSWORDS and CF_PASSWORDS[cf_name] == cf_password:
             session['cf_logged_in'] = True
             session['cf_name'] = cf_name
             return jsonify({"status": "success", "message": "లాగిన్ విజయవంతమైంది!"})
         else:
-            return jsonify({"status": "error", "message": "దయచేసి CF పేరును ఎంచుకోండి!"})
+            return jsonify({"status": "error", "message": "తప్పు పేరు లేదా పాస్‌వర్డ్ ఇవ్వబడింది!"})
             
     return render_template('cf_login.html')
 
@@ -92,7 +109,6 @@ def cf_download_report_by_name():
     except Exception as e:
         return f"రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}"
 
-
 # 4. విధానం 2: కేటాయించిన బ్యాంకుల (Allotted Bank) ప్రకారం రిపోర్ట్ డౌన్‌లోడ్ రౌట్
 @cf_bp.route('/cf/download-report-allotted-bank', methods=['POST'])
 def cf_download_report_by_bank():
@@ -120,7 +136,6 @@ def cf_download_report_by_bank():
         df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
         df_trans_month['RD1_Clean'] = df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)'].astype(str).str.strip()
         
-        # 💡 ఇక్కడ గమనించండి: మాస్టర్ షీట్ (df_thrift) లోని బ్యాంక్ కాలమ్ పేరును గుర్తించి మర్జ్ చేస్తున్నాం
         bank_col = 'FILE NAME' if 'FILE NAME' in df_thrift.columns else ('File Name' if 'File Name' in df_thrift.columns else 'Bank Name')
         
         df_cross = pd.merge(
@@ -133,16 +148,11 @@ def cf_download_report_by_bank():
         df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
         allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
 
-        
         def match_bank(row):
             b_name = str(row.get(bank_col, '')).strip().upper()
-            
-            # ఒకవేళ షీట్‌లో బ్యాంక్ పేరు ఖాళీగా ఉంటే వెంటనే బయటికి పంపేయాలి
             if not b_name or b_name == 'NAN' or b_name == 'NONE':
                 return False
-                
             for allowed in allowed_banks:
-                # కేవలం పూర్తి పేరు సరిపోలితే లేదా allowed బ్యాంకు పేరు షీట్ పేరులో పూర్తిగా ఉంటేనే
                 if allowed == b_name:
                     return True
             return False
@@ -157,7 +167,7 @@ def cf_download_report_by_bank():
     except Exception as e:
         return f"రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}"
 
-# 💡 కామన్ ఎక్సెల్ జనరేషన్ హెల్పర్ ఫంక్షన్ (కోడ్ రిపీటేషన్ తగ్గించడానికి)
+# కామన్ ఎక్సెల్ జనరేషన్ హెల్పర్ ఫంక్షన్
 def generate_excel_response(group_df, cf_name, current_month, report_type):
     df_active = group_df[group_df['Govt_Share'] > 0].copy()
     df_missing = group_df[group_df['Govt_Share'] == 0].copy()
@@ -186,7 +196,7 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
         ])
         
     # --- Sheet 2: Missing ---
-    ws2 = wb.create_sheet(title='Missing_or_Zero_List')
+    ws2 = wb.create_sheet(title='Missing_or_Zero_List' )
     ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Status','NAME OF CF'])
     for col_num in range(1, 10):
         ws2.cell(row=1, column=col_num).font = header_font
