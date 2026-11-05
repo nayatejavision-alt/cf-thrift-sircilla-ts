@@ -187,13 +187,15 @@ def export_admin_excel():
         
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else None)
+        t_month_col = 'MONTH_NUMBER' if 'MONTH_NUMBER' in df_trans.columns else ('MONTH NUMBER' if 'MONTH NUMBER' in df_trans.columns else None)
+        
         
         if not df_trans.empty and t_rd_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
             
-            if t_batch_col:
-                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_batch_col]].drop_duplicates()
+            if t_month_col:
+                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col]].drop_duplicates()
                 completed_trans.rename(columns={t_batch_col: 'Batch_No'}, inplace=True)
             else:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
@@ -207,7 +209,9 @@ def export_admin_excel():
             df_merged['Batch_No'] = '1'
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
-        df_merged['Batch_No'] = df_merged['Batch_No'].fillna('1').astype(str)
+        # బ్యాచ్ నంబర్లలో పాయింట్లు రాకుండా స్ట్రింగ్ రూపంలో క్లీన్ చేయడం
+        df_merged['Batch_No'] = df_merged['Batch_No'].fillna('1').astype(str).str.replace('.0', '', regex=False)
+        df_merged['MONTH_NUMBER'] = df_merged['MONTH_NUMBER'].fillna('1').astype(str).str.replace('.0', '', regex=False)
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
         # 1. Batch Aggregates
@@ -237,7 +241,7 @@ def export_admin_excel():
         ws.title = "Thrift Summary"
         ws.views.sheetView[0].showGridLines = True
 
-        # Styles
+        # Styles (డిజైన్ కోసం ఫాంట్లు మరియు కలర్స్)
         f_title = Font(name="Calibri", size=15, bold=True, color="1F4E79")
         f_sec = Font(name="Calibri", size=12, bold=True, color="1F4E79")
         f_hdr = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -267,7 +271,7 @@ def export_admin_excel():
             ws.cell(row=r, column=1, value=str(row['Batch_No']))
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
-            ws.cell(row=r, column=4, value=f"=B{r}-C{r}").number_format = '#,##0'
+            ws.cell(row=r, column=4, value=int(row['pending'])).number_format = '#,##0'
             ws.cell(row=r, column=5, value=f"=C{r}/B{r}").number_format = '0.0%'
             for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
             r += 1
@@ -297,7 +301,7 @@ def export_admin_excel():
             ws.cell(row=r, column=1, value=str(row['Bank_Name']))
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
-            ws.cell(row=r, column=4, value=f"=B{r}-C{r}").number_format = '#,##0'
+            ws.cell(row=r, column=4, value=int(row['pending'])).number_format = '#,##0'
             ws.cell(row=r, column=5, value=f"=C{r}/B{r}").number_format = '0.0%'
             for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
             r += 1
@@ -327,11 +331,11 @@ def export_admin_excel():
             ws.cell(row=r, column=2, value=str(row['Bank_Name']))
             ws.cell(row=r, column=3, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=4, value=int(row['completed'])).number_format = '#,##0'
-            ws.cell(row=r, column=5, value=f"=C{r}-D{r}").number_format = '#,##0'
+            ws.cell(row=r, column=5, value=int(row['pending'])).number_format = '#,##0'
             for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
             r += 1
 
-        # Auto column width adjustment
+        # Auto column width adjustment (కాలమ్స్ అన్నీ సరిపడా వెడల్పు ఉండేలా)
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col[0].column)
