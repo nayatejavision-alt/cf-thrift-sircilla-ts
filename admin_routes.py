@@ -62,7 +62,7 @@ def admin_dashboard():
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
-        # df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip().replace('', '1')
+        # df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip().replace('', '0')
 
         # 2. ట్రాన్సాక్షన్ డేటాను ప్రాసెస్ చేయడం
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else ('RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None)
@@ -199,24 +199,24 @@ def export_admin_excel():
                 #completed_trans.rename(columns={t_month_col: 'Month_No'}, inplace=True)
             else:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
-                completed_trans[t_month_col] = '1'
+                completed_trans[t_month_col] = '0'
 
             completed_trans['Is_Completed'] = True
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
-            df_merged[t_month_col] = '1'
+            df_merged[t_month_col] = '0'
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
         # బ్యాచ్ నంబర్లలో పాయింట్లు రాకుండా స్ట్రింగ్ రూపంలో క్లీన్ చేయడం
-        df_merged[t_batch_col] = df_merged[t_batch_col].fillna('1').astype(str).str.replace('.0', '', regex=False)
+        df_merged[t_batch_col] = df_merged[t_batch_col].fillna('0').astype(str).str.replace('.0', '', regex=False)
         
         # MONTH_NUMBER కాలమ్ సురక్షితంగా హ్యాండిల్ చేయడం
         if 'MONTH_NUMBER' in df_merged.columns:
-            df_merged[t_month_col] = df_merged[t_month_col].fillna('1').astype(str).str.replace('.0', '', regex=False)
+            df_merged[t_month_col] = df_merged[t_month_col].fillna('0').astype(str).str.replace('.0', '', regex=False)
         else:
-            df_merged[t_month_col] = '1'
+            df_merged[t_month_col] = '0'
         
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
