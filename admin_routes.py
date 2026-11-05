@@ -178,25 +178,34 @@ def export_admin_excel():
         
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
         rd_col = 'RD 1' if 'RD 1' in df_master.columns else 'RD 1'
-        batch_col_m = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_master.columns else ('BATCH NO' if 'BATCH NO' in df_master.columns else 'Batch')
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
-        #df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip() if batch_col_m in df_master.columns else '1'
-
+        
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         
         if not df_trans.empty and t_rd_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
-            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
+            
+            # df_trans లో ఉన్న Batch_No ని తీసుకోవడం
+            t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else None)
+            if t_batch_col:
+                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_batch_col]].drop_duplicates()
+                completed_trans.rename(columns={t_batch_col: 'Batch_No'}, inplace=True)
+            else:
+                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
+                completed_trans['Batch_No'] = '1'
+
             completed_trans['Is_Completed'] = True
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
+            df_merged['Batch_No'] = '1'
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
+        df_merged['Batch_No'] = df_merged['Batch_No'].fillna('1').astype(str)
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
         # Batch Aggregates
@@ -237,7 +246,7 @@ def export_admin_excel():
         ws['A3'] = "1. Batch-wise Summary"
         ws['A3'].font = f_sec
         b_headers = ["Batch No", "Total", "Completed", "Pending", "Completion Rate"]
-        ws.append([]) # row 4 empty
+        
         for col_idx, h in enumerate(b_headers, 1):
             cell = ws.cell(row=4, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
