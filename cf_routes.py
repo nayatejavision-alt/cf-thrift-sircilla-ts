@@ -143,7 +143,7 @@ def cf_download_report_by_bank():
                 
             for allowed in allowed_banks:
                 # కేవలం పూర్తి పేరు సరిపోలితే లేదా allowed బ్యాంకు పేరు షీట్ పేరులో పూర్తిగా ఉంటేనే
-                if allowed == b_name or allowed in b_name:
+                if allowed == b_name:
                     return True
             return False
 
@@ -172,8 +172,8 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
     # --- Sheet 1: Active ---
     ws1 = wb.active
     ws1.title = 'Sent_To_Bank_List'
-    ws1.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Govt Share Amount', 'Status'])
-    for col_num in range(1, 10):
+    ws1.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Govt Share Amount', 'Status','NAME OF CF'])
+    for col_num in range(1, 11):
         ws1.cell(row=1, column=col_num).font = header_font
         ws1.cell(row=1, column=col_num).fill = blue_fill
         
@@ -181,13 +181,14 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
         ws1.append([
             r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Aadhar Number', ''),
             r.get('Bank Account Number', ''), r.get('RD 1', ''), r.get('Contact Number',''),r.get('FILE NAME',''), r.get('Govt_Share', 0),
-            f"{MONTH_MAP[current_month]} Govt_Share Released"
+            f"{MONTH_MAP[current_month]} Govt_Share Released",
+            r.get('NAME OF CF','')
         ])
         
     # --- Sheet 2: Missing ---
     ws2 = wb.create_sheet(title='Missing_or_Zero_List')
-    ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Status'])
-    for col_num in range(1, 9):
+    ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1','Contact Number','FILE NAME', 'Status'],'NAME OF CF')
+    for col_num in range(1, 10):
         ws2.cell(row=1, column=col_num).font = header_font
         ws2.cell(row=1, column=col_num).fill = red_fill
         
@@ -195,7 +196,8 @@ def generate_excel_response(group_df, cf_name, current_month, report_type):
         ws2.append([
             r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Aadhar Number', ''),
             r.get('Bank Account Number', ''), r.get('RD 1', ''),r.get('Contact Number',''),r.get('FILE NAME',''),
-            f"Zero or missing transactions for {MONTH_MAP[current_month]}"
+            f"Zero or missing transactions for {MONTH_MAP[current_month]}",
+            r.get('NAME OF CF','')
         ])
         
     # --- Sheet 3: All ---
