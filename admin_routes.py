@@ -196,31 +196,32 @@ def export_admin_excel():
             
             if t_month_col:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col]].drop_duplicates()
-                completed_trans.rename(columns={t_batch_col: 'Batch_No'}, inplace=True)
+                #completed_trans.rename(columns={t_month_col: 'Month_No'}, inplace=True)
             else:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
-                completed_trans['Batch_No'] = '1'
+                completed_trans[t_month_col] = '1'
 
             completed_trans['Is_Completed'] = True
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
-            df_merged['Batch_No'] = '1'
+            df_merged[t_month_col] = '1'
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
         # బ్యాచ్ నంబర్లలో పాయింట్లు రాకుండా స్ట్రింగ్ రూపంలో క్లీన్ చేయడం
-        df_merged['Batch_No'] = df_merged['Batch_No'].fillna('1').astype(str).str.replace('.0', '', regex=False)
+        df_merged[t_batch_col] = df_merged[t_batch_col].fillna('1').astype(str).str.replace('.0', '', regex=False)
+        
         # MONTH_NUMBER కాలమ్ సురక్షితంగా హ్యాండిల్ చేయడం
         if 'MONTH_NUMBER' in df_merged.columns:
-            df_merged['MONTH_NUMBER'] = df_merged['MONTH_NUMBER'].fillna('1').astype(str).str.replace('.0', '', regex=False)
+            df_merged[t_month_col] = df_merged[t_month_col].fillna('1').astype(str).str.replace('.0', '', regex=False)
         else:
-            df_merged['MONTH_NUMBER'] = '1'
+            df_merged[t_month_col] = '1'
         
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
         # 1. Batch Aggregates
-        batch_df = df_merged.groupby('Batch_No').agg(
+        batch_df = df_merged.groupby(t_batch_col).agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
@@ -234,7 +235,7 @@ def export_admin_excel():
         bank_df['pending'] = bank_df['total'] - bank_df['completed']
 
         # 3. Batch + Bank Detailed Matrix
-        batch_bank_df = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
+        batch_bank_df = df_merged.groupby([t_batch_col, 'Bank_Name']).agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
@@ -332,7 +333,7 @@ def export_admin_excel():
         
         r += 1
         for _, row in batch_bank_df.iterrows():
-            ws.cell(row=r, column=1, value=str(row['Batch_No']))
+            ws.cell(row=r, column=1, value=str(row[t_batch_col]))
             ws.cell(row=r, column=2, value=str(row['Bank_Name']))
             ws.cell(row=r, column=3, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=4, value=int(row['completed'])).number_format = '#,##0'
