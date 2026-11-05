@@ -1,7 +1,6 @@
 from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify, make_response
-import csv
+import pandas as pd
 import io
-
 
 admin_bp = Blueprint('admin_bp', __name__, template_folder='templates')
 
@@ -43,73 +42,100 @@ def admin_dashboard():
         master_records = master_sheet.get_all_records()
         trans_records = trans_sheet.get_all_records()
         
-        # 1. కంప్లీటెడ్ ట్రాన్సాక్షన్స్ గుర్తించడం (సూచిక: (RD_ACCOUNT, BATCH_NUMBER))
-        completed_batch_set = set()
-        for row in trans_records:
-            t_batch = str(row.get("BATCH_NUMBER") or row.get("BATCH NO") or "").strip()
-            t_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
-            try:
-                govt_share = float(row.get("Govt_Share") or 0)
-            except ValueError:
-                govt_share = 0.0
-                
-            if govt_share > 0:
-                completed_batch_set.add((t_rd1, t_batch))
-                
-        total_beneficiaries = len(master_records)
+        # 1. డేటాను Pandas DataFrames లోకి లోడ్ చేయడం
+        df_master = pd.DataFrame(master_records)
+        df_trans = pd.DataFrame(trans_records)
         
-        # 2. డైనమిక్ బ్యాచ్ సమ్మరీ (Batch-wise Summary)
+        if df_master.empty:
+            return render_template('admin_dashboard.html', total=0, completed=0, pending=0, 
+                                   batch_summary={}, bank_summary={}, batch_bank_summary={}, 
+                                   completed_batches_count=0, total_batches_count=0)
+
+        # కాలమ్ పేర్లను గుర్తించి స్టాండర్డైజ్ చేయడం
+        bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
+        rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
+        batch_col_m = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_master.columns else ('BATCH NO' if 'BATCH NO' in df_master.columns else 'Batch')
+        
+        df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
+        df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
+        df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip().replace('', '1')
+
+        # 2. ట్రాన్సాక్షన్ డేటాను ప్రాసెస్ చేయడం
+        t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else ('RD 1' if 'RD 1' in df_trans.columns else None)
+        t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else 'Batch')
+        
+        if not df_trans.empty and t_rd_col and t_batch_col:
+            df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
+            df_trans['Batch_No'] = df_trans[t_batch_col].astype(str).str.strip()
+            
+            if 'Govt_Share' in df_trans.columns:
+                df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
+            else:
+                df_trans['Govt_Share'] = 0
+
+            # కంప్లీట్ అయిన రికార్డులను యూనివర్శల్‌గా ఫిల్టర్ చేయడం
+            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Batch_No']].drop_duplicates()
+            completed_trans['Is_Completed'] = True
+            
+            # మాస్టర్ డేటాతో మెర్జ్ చేయడం (Merge Master with Transactions)
+            df_merged = pd.merge(df_master, completed_trans, on=['RD_Account', 'Batch_No'], how='left')
+        else:
+            df_merged = df_master.copy()
+            df_merged['Is_Completed'] = False
+
+        df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
+        df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
+
+        total_beneficiaries = len(df_merged)
+        total_completed_all = int(df_merged['Status_Val'].sum())
+        total_pending_all = total_beneficiaries - total_completed_all
+
+        # 3. Pandas Groupby ద్వారా బ్యాచ్ వారీగా సమ్మరీ
+        batch_grouped = df_merged.groupby('Batch_No').agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        batch_grouped['pending'] = batch_grouped['total'] - batch_grouped['completed']
+        
         batch_summary = {}
-        # 3. బ్యాంక్ వారీగా సమ్మరీ (Bank-wise Summary)
+        for _, row in batch_grouped.iterrows():
+            batch_summary[str(row['Batch_No'])] = {
+                "total": int(row['total']),
+                "completed": int(row['completed']),
+                "pending": int(row['pending'])
+            }
+
+        # 4. Pandas Groupby ద్వారా బ్యాంక్ వారీగా సమ్మరీ
+        bank_grouped = df_merged.groupby('Bank_Name').agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        bank_grouped['pending'] = bank_grouped['total'] - bank_grouped['completed']
+        
         bank_summary = {}
-        # 4. బ్యాచ్ & బ్యాంక్ కంబైన్డ్ సమ్మరీ (Batch + Bank Matrix)
+        for _, row in bank_grouped.iterrows():
+            bank_summary[str(row['Bank_Name'])] = {
+                "total": int(row['total']),
+                "completed": int(row['completed']),
+                "pending": int(row['pending'])
+            }
+
+        # 5. Pandas Groupby ద్వారా బ్యాచ్ + బ్యాంక్ మ్యాట్రిక్స్ సమ్మరీ
+        batch_bank_grouped = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        batch_bank_grouped['pending'] = batch_bank_grouped['total'] - batch_bank_grouped['completed']
+
         batch_bank_summary = {}
+        for _, row in batch_bank_grouped.iterrows():
+            key = (str(row['Batch_No']), str(row['Bank_Name']))
+            batch_bank_summary[key] = {
+                "total": int(row['total']),
+                "completed": int(row['completed']),
+                "pending": int(row['pending'])
+            }
 
-        total_completed_all = 0
-        total_pending_all = 0
-
-        for row in master_records:
-            bank_name = str(row.get("FILE NAME") or row.get("File Name") or "Other").strip()
-            bank_rd1 = str(row.get("RD ACCOUNT_1 (Beneficiary Contribution)") or row.get("RD 1") or "").strip()
-            batch_no = str(row.get("BATCH_NUMBER") or row.get("BATCH NO") or "1").strip()
-            
-            # చెక్: ఈ RD మరియు ఈ బ్యాచ్ నెంబర్‌తో ట్రాన్సాక్షన్ పూర్తయిందా?
-            is_completed = (bank_rd1, batch_no) in completed_batch_set
-            
-            if is_completed:
-                total_completed_all += 1
-            else:
-                total_pending_all += 1
-
-            # Batch Summary ని డైనమిక్‌గా బిల్డ్ చేయడం
-            if batch_no not in batch_summary:
-                batch_summary[batch_no] = {"total": 0, "completed": 0, "pending": 0}
-            batch_summary[batch_no]["total"] += 1
-            if is_completed:
-                batch_summary[batch_no]["completed"] += 1
-            else:
-                batch_summary[batch_no]["pending"] += 1
-
-            # Bank Summary బిల్డ్ చేయడం
-            if bank_name not in bank_summary:
-                bank_summary[bank_name] = {"total": 0, "completed": 0, "pending": 0}
-            bank_summary[bank_name]["total"] += 1
-            if is_completed:
-                bank_summary[bank_name]["completed"] += 1
-            else:
-                bank_summary[bank_name]["pending"] += 1
-
-            # Batch + Bank Combined Summary
-            key = (batch_no, bank_name)
-            if key not in batch_bank_summary:
-                batch_bank_summary[key] = {"total": 0, "completed": 0, "pending": 0}
-            batch_bank_summary[key]["total"] += 1
-            if is_completed:
-                batch_bank_summary[key]["completed"] += 1
-            else:
-                batch_bank_summary[key]["pending"] += 1
-
-        # బ్యాచ్ కంప్లీషన్ లెక్కించడం (ఒక బ్యాచ్ లో పెండింగ్ లేకపోతే అది పూర్తిగా Completed Batch అవుతుంది)
         completed_batches_count = sum(1 for b, stats in batch_summary.items() if stats["pending"] == 0 and stats["total"] > 0)
         total_batches_count = len(batch_summary)
 
@@ -124,5 +150,5 @@ def admin_dashboard():
                                total_batches_count=total_batches_count)
                                
     except Exception as e:
-        print(f"Admin Dashboard Error: {repr(e)}")
+        print(f"Admin Dashboard Error with Pandas: {repr(e)}")
         return f"లోపం సంభవించింది: {str(e)}"
