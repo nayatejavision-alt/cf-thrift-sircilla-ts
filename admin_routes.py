@@ -211,7 +211,12 @@ def export_admin_excel():
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
         # బ్యాచ్ నంబర్లలో పాయింట్లు రాకుండా స్ట్రింగ్ రూపంలో క్లీన్ చేయడం
         df_merged['Batch_No'] = df_merged['Batch_No'].fillna('1').astype(str).str.replace('.0', '', regex=False)
-        df_merged['MONTH_NUMBER'] = df_merged['MONTH_NUMBER'].fillna('1').astype(str).str.replace('.0', '', regex=False)
+        # MONTH_NUMBER కాలమ్ సురక్షితంగా హ్యాండిల్ చేయడం
+        if 'MONTH_NUMBER' in df_merged.columns:
+            df_merged['MONTH_NUMBER'] = df_merged['MONTH_NUMBER'].fillna('1').astype(str).str.replace('.0', '', regex=False)
+        else:
+            df_merged['MONTH_NUMBER'] = '1'
+        
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
         # 1. Batch Aggregates
