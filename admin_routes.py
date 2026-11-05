@@ -1,6 +1,10 @@
-from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify, make_response
+from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify, make_response, send_file
 import pandas as pd
 import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 
 admin_bp = Blueprint('admin_bp', __name__, template_folder='templates')
 
@@ -152,3 +156,124 @@ def admin_dashboard():
     except Exception as e:
         print(f"Admin Dashboard Error with Pandas: {repr(e)}")
         return f"లోపం సంభవించింది: {str(e)}"
+
+
+
+
+@admin_bp.route('/admin/export_excel')
+def export_admin_excel():
+    if not session.get('admin_logged_in'):
+        return redirect(url_for('admin_bp.admin_login'))
+
+    try:
+        from app import get_sheets_client, SPREADSHEET_NAME
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        
+        master_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
+        trans_sheet = spreadsheet.worksheet("Transactions_Year1")
+        
+        df_master = pd.DataFrame(master_sheet.get_all_records())
+        df_trans = pd.DataFrame(trans_sheet.get_all_records())
+        
+        bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
+        rd_col = 'RD 1' if 'RD 1' in df_master.columns else 'RD 1'
+        batch_col_m = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_master.columns else ('BATCH NO' if 'BATCH NO' in df_master.columns else 'Batch')
+        
+        df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
+        df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
+        df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip() if batch_col_m in df_master.columns else '1'
+
+        t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
+        
+        if not df_trans.empty and t_rd_col:
+            df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
+            df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
+            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
+            completed_trans['Is_Completed'] = True
+            df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
+        else:
+            df_merged = df_master.copy()
+            df_merged['Is_Completed'] = False
+
+        df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
+        df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
+
+        # Batch Aggregates
+        batch_df = df_merged.groupby('Batch_No').agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        batch_df['pending'] = batch_df['total'] - batch_df['completed']
+
+        # Bank Aggregates
+        bank_df = df_merged.groupby('Bank_Name').agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        bank_df['pending'] = bank_df['total'] - bank_df['completed']
+
+        # Openpyxl Excel Workbook creation with Styling
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Thrift Summary"
+        ws.views.sheetView[0].showGridLines = True
+
+        # Styles
+        f_title = Font(name="Calibri", size=15, bold=True, color="1F4E79")
+        f_sec = Font(name="Calibri", size=12, bold=True, color="1F4E79")
+        f_hdr = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        f_bold = Font(name="Calibri", size=11, bold=True)
+        fill_navy = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        fill_sub = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        border_thin = Border(left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
+                             top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9'))
+
+        # Heading
+        ws['A1'] = "TS Powerloom Weavers Thrift Fund Scheme - Summary Report"
+        ws['A1'].font = f_title
+
+        # Write Batch Summary Table
+        ws['A3'] = "1. Batch-wise Summary"
+        ws['A3'].font = f_sec
+        b_headers = ["Batch No", "Total", "Completed", "Pending", "Completion Rate"]
+        ws.append([]) # row 4 empty
+        for col_idx, h in enumerate(b_headers, 1):
+            cell = ws.cell(row=4, column=col_idx, value=h)
+            cell.font, cell.fill = f_hdr, fill_navy
+            cell.alignment = Alignment(horizontal="center")
+
+        r = 5
+        for _, row in batch_df.iterrows():
+            ws.cell(row=r, column=1, value=str(row['Batch_No']))
+            ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
+            ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
+            ws.cell(row=r, column=4, value=f"=B{r}-C{r}").number_format = '#,##0'
+            ws.cell(row=r, column=5, value=f"=C{r}/B{r}").number_format = '0.0%'
+            for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
+            r += 1
+
+        # Total Row Batch
+        ws.cell(row=r, column=1, value="Total").font = f_bold
+        ws.cell(row=r, column=2, value=f"=SUM(B5:B{r-1})").font = f_bold
+        ws.cell(row=r, column=3, value=f"=SUM(C5:C{r-1})").font = f_bold
+        ws.cell(row=r, column=4, value=f"=SUM(D5:D{r-1})").font = f_bold
+        ws.cell(row=r, column=5, value=f"=C{r}/B{r}").font = f_bold
+        for c in range(1, 6):
+            ws.cell(row=r, column=c).fill = fill_sub
+
+        # Auto column width adjustment
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+        # Save to buffer and download response
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        return send_file(output, download_name="Thrift_Admin_Summary.xlsx", as_attachment=True, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    except Exception as e:
+        return f"Excel ఎగుమతిలో లోపం సంభవించింది: {str(e)}"
