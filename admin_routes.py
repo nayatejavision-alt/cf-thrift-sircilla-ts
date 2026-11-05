@@ -87,6 +87,8 @@ def admin_dashboard():
             
             # మాస్టర్ డేటాతో మెర్జ్ చేయడం (Merge Master with Transactions)
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
+            #df_merged = pd.merge(df_master, completed_trans, left_on = 'RD 1', right_on='RD ACCOUNT_1 (Beneficiary Contribution)',  how='left')
+            
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
@@ -207,6 +209,7 @@ def export_admin_excel():
 
             completed_trans['Is_Completed'] = True
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
+            #df_merged = pd.merge(df_master, completed_trans, left_on = 'RD 1', right_on='RD ACCOUNT_1 (Beneficiary Contribution)',  how='left')
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
