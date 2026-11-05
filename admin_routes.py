@@ -78,7 +78,7 @@ def admin_dashboard():
             completed_trans['Is_Completed'] = True
             
             # మాస్టర్ డేటాతో మెర్జ్ చేయడం (Merge Master with Transactions)
-            df_merged = pd.merge(df_master, completed_trans, on=['RD_Account', 'Batch_No'], how='left')
+            df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
