@@ -53,15 +53,15 @@ def admin_dashboard():
 
         # కాలమ్ పేర్లను గుర్తించి స్టాండర్డైజ్ చేయడం
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
-        rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
+        rd_col = 'RD 1' if 'RD 1' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
         batch_col_m = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_master.columns else ('BATCH NO' if 'BATCH NO' in df_master.columns else 'Batch')
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
-        df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip().replace('', '1')
+        # df_master['Batch_No'] = df_master[batch_col_m].astype(str).str.strip().replace('', '1')
 
         # 2. ట్రాన్సాక్షన్ డేటాను ప్రాసెస్ చేయడం
-        t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else ('RD 1' if 'RD 1' in df_trans.columns else None)
+        t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else ('RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None)
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else 'Batch')
         
         if not df_trans.empty and t_rd_col and t_batch_col:
