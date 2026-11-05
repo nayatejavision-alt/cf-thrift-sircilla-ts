@@ -67,18 +67,22 @@ def admin_dashboard():
         # 2. ట్రాన్సాక్షన్ డేటాను ప్రాసెస్ చేయడం
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else ('RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None)
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else 'Batch')
+        t_month_col = 'MONTH_NUMBER' if 'MONTH_NUMBER' in df_trans.columns else 'Month'
         
         if not df_trans.empty and t_rd_col and t_batch_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
             df_trans['Batch_No'] = df_trans[t_batch_col].astype(str).str.strip()
+            df_trans['Month_No'] = df_trans[t_month_col].astype(str).str.strip()
             
             if 'Govt_Share' in df_trans.columns:
                 df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
             else:
                 df_trans['Govt_Share'] = 0
 
+
+
             # కంప్లీట్ అయిన రికార్డులను యూనివర్శల్‌గా ఫిల్టర్ చేయడం
-            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Batch_No']].drop_duplicates()
+            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Month_No']].drop_duplicates()
             completed_trans['Is_Completed'] = True
             
             # మాస్టర్ డేటాతో మెర్జ్ చేయడం (Merge Master with Transactions)
