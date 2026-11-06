@@ -154,39 +154,58 @@
             </div>
         </div>
 
-        <!-- 3. Batch + Bank Detailed Matrix Table -->
-        <div class="card border-0 shadow-sm rounded-4 mb-4">
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-0 fw-bold text-dark">📊 బ్యాచ్ + బ్యాంక్ వారీ వివరాలు (Batch & Bank Detailed Breakdown)</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-bordered align-middle mb-0 text-center">
-                        <thead class="table-light">
-                            <tr>
-                                <th>బ్యాచ్ (Batch)</th>
-                                <th>బ్యాంక్ పేరు (Bank)</th>
-                                <th>మొత్తం (Total)</th>
-                                <th>పూర్తయినవి (Completed)</th>
-                                <th>పెండింగ్ (Pending)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for (batch_no, bank_name), stats in batch_bank_summary.items() %}
-                            <tr>
-                                <td><span class="badge bg-secondary">Batch {{ batch_no }}</span></td>
-                                <td class="text-start ps-3">{{ bank_name }}</td>
-                                <td>{{ stats.total }}</td>
-                                <td class="text-success fw-bold">{{ stats.completed }}</td>
-                                <td class="text-danger fw-bold">{{ stats.pending }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+        <!-- 3. Batch + Bank Detailed Matrix Table (With Sub-Totals) -->
+<div class="card border-0 shadow-sm rounded-4 mb-4">
+    <div class="card-header bg-white py-3">
+        <h5 class="mb-0 fw-bold text-dark">📊 బ్యాచ్ + బ్యాంక్ వారీ వివరాలు (Batch & Bank Detailed Breakdown)</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle mb-0 text-center">
+                <thead class="table-dark">
+                    <tr>
+                        <th>బ్యాచ్ (Batch)</th>
+                        <th>బ్యాంక్ పేరు (Bank)</th>
+                        <th>మొత్తం (Total)</th>
+                        <th>పూర్తయినవి (Completed)</th>
+                        <th>పెండింగ్ (Pending)</th>
+                        <th>పురోగతి (%)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch_no, batch_data in batch_wise_matrix.items() %}
+                        <!-- బ్యాంకుల వివరాలు -->
+                        {% for item in batch_data.banks %}
+                        <tr>
+                            <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
+                            <td class="text-start ps-4 fw-semibold text-primary">{{ item.Bank_Name }}</td>
+                            <td>{{ item.total }}</td>
+                            <td class="text-success fw-bold">{{ item.completed }}</td>
+                            <td class="text-danger fw-bold">{{ item.pending }}</td>
+                            <td>
+                                {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
+                                {{ "%.1f"|format(pct) }}%
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        
+                        <!-- బ్యాచ్ సబ్-టోటల్ రో (Sub-Total Row) -->
+                        <tr class="table-primary fw-bold">
+                            <td colspan="2" class="text-end pe-4">Batch {{ batch_no }} సబ్-టోటల్ (Sub-Total)</td>
+                            <td>{{ batch_data.sub_total.total }}</td>
+                            <td class="text-success">{{ batch_data.sub_total.completed }}</td>
+                            <td class="text-danger">{{ batch_data.sub_total.pending }}</td>
+                            <td>
+                                {% set sub_pct = (batch_data.sub_total.completed / batch_data.sub_total.total * 100) if batch_data.sub_total.total > 0 else 0 %}
+                                {{ "%.1f"|format(sub_pct) }}%
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-
+    </div>
+</div>
     </div>
 
     <script>
