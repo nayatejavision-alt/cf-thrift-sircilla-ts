@@ -359,8 +359,17 @@ def background_draft_task(data, app_context):
               if 'Contact Number' in pending_df.columns
               else ''
           )
+          p_export_df['Nominee Name'] = pending_df[
+              'Nominee Name'
+          ].apply(format_as_excel_text)
+          p_export_df['Relation'] = pending_df[
+              'Relation'
+          ].apply(format_as_excel_text)
+          p_export_df['Nominee DOB'] = pending_df[
+              'Nominee DOB'
+          ].apply(format_as_excel_text)
           p_export_df['Status'] = pending_df['BANK_REMARKS_CLEAN'].apply(
-              lambda x: 'Beneficiary Died (మరణించినవారు)' if 'DIED' in str(x) else 'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
+              lambda x: 'Beneficiary Expired' if 'DIED' in str(x) else 'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
           )
           p_export_df.to_excel(
               writer, sheet_name='Pending_RD1_List', index=False
@@ -429,7 +438,7 @@ def background_draft_task(data, app_context):
         pending_notice_html = f"""
             <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
                 <p style="margin:0; font-weight: bold;">⚠️ Pending / Excluded Accounts Notice:</p>
-                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are pending, unassigned, or marked as expired/died.</p>
+                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are pending, unassigned, or marked as expired.</p>
             </div>
             """
 
@@ -437,9 +446,9 @@ def background_draft_task(data, app_context):
         <br>
         <p style="font-size: 13px; color: #555; line-height: 1.4;">
             <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
-            1. <b>The Lead District Manager (LDM), Union Bank of India, Sircilla</b> — తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.<br>
-            2. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
-            3. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
+            
+            1. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
+            2. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
         </p>
         """
 
@@ -473,7 +482,7 @@ def background_draft_task(data, app_context):
       message = MIMEMultipart()
       message['To'] = bank_email
       message['Cc'] = ', '.join([
-          'ldmsircilla@unionbankofindia.bank.in',
+          
           'ubin0827444@unionbankofindia.bank.in',
           'rajannahandtex@gmail.com',
       ])
