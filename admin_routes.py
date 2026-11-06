@@ -137,6 +137,18 @@ def admin_dashboard():
             completed=('Status_Val', 'sum')
         ).reset_index()
         batch_bank_grouped['pending'] = batch_bank_grouped['total'] - batch_bank_grouped['completed']
+        
+        # బ్యాచ్ వారీగా బ్యాంక్ డేటాను గ్రూప్ చేయడం (Template లో Sub-totals సులభంగా వేయడానికి)
+        batch_wise_matrix = {}
+        for batch_no, group in batch_bank_grouped.groupby('Batch_No'):
+            batch_wise_matrix[str(batch_no)] = {
+                'banks': group.to_dict(orient='records'),
+                'sub_total': {
+                    'total': int(group['total'].sum()),
+                    'completed': int(group['completed'].sum()),
+                    'pending': int(group['pending'].sum())
+                }
+            }
 
         batch_bank_summary = {}
         for _, row in batch_bank_grouped.iterrows():
@@ -333,13 +345,40 @@ def export_admin_excel():
         # --- Table 3: Batch + Bank Detailed Matrix ---
         ws.cell(row=r, column=1, value="3. Batch & Bank Detailed Breakdown").font = f_sec
         r += 1
-        matrix_headers = ["Batch No", "Bank Name", "Total", "Completed", "Pending"]
+        matrix_headers = ["Batch No", "Bank Name", "Total", "Completed", "Pending", "Completion Rate"]
         for col_idx, h in enumerate(matrix_headers, 1):
             cell = ws.cell(row=r, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
             cell.alignment = Alignment(horizontal="center")
         
         r += 1
+        for batch_no, group in batch_bank_grouped.groupby(t_batch_col):
+            start_grp_row = r
+            for _, row in group.iterrows():
+                ws.cell(row=r, column=1, value=f"Batch {batch_no}")
+                ws.cell(row=r, column=2, value=str(row['Bank_Name']))
+                ws.cell(row=r, column=3, value=int(row['total'])).number_format = '#,##0'
+                ws.cell(row=r, column=4, value=int(row['completed'])).number_format = '#,##0'
+                ws.cell(row=r, column=5, value=int(row['pending'])).number_format = '#,##0'
+                ws.cell(row=r, column=6, value=f"=D{r}/C{r}").number_format = '0.0%'
+                for c in range(1, 7): ws.cell(row=r, column=c).border = border_thin
+                r += 1
+            
+               # బ్యాచ్ సబ్-టోటల్ రో (Sub-Total Row)
+            ws.cell(row=r, column=1, value=f"Total Batch {batch_no}").font = f_bold
+            ws.cell(row=r, column=2, value="-").alignment = Alignment(horizontal="center")
+            ws.cell(row=r, column=3, value=f"=SUM(C{start_grp_row}:C{r-1})").font = f_bold
+            ws.cell(row=r, column=4, value=f"=SUM(D{start_grp_row}:D{r-1})").font = f_bold
+            ws.cell(row=r, column=5, value=f"=SUM(E{start_grp_row}:E{r-1})").font = f_bold
+            ws.cell(row=r, column=6, value=f"=D{r}/C{r}").font = f_bold
+            for c in range(1, 7):
+                ws.cell(row=r, column=c).fill = fill_sub
+                ws.cell(row=r, column=c).border = border_thin
+            r += 1   
+                                           
+              
+               
+            
         for _, row in batch_bank_df.iterrows():
             ws.cell(row=r, column=1, value=str(row[t_batch_col]))
             ws.cell(row=r, column=2, value=str(row['Bank_Name']))
