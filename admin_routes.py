@@ -46,7 +46,6 @@ def admin_dashboard():
         master_records = master_sheet.get_all_records()
         trans_records = trans_sheet.get_all_records()
         
-        # 1. డేటాను Pandas DataFrames లోకి లోడ్ చేయడం
         df_master = pd.DataFrame(master_records)
         df_trans = pd.DataFrame(trans_records)
         
@@ -55,15 +54,12 @@ def admin_dashboard():
                                    batch_summary={}, bank_summary={}, batch_bank_summary={}, batch_wise_matrix={},
                                    completed_batches_count=0, total_batches_count=0)
 
-        # కాలమ్ పేర్లను గుర్తించి స్టాండర్డైజ్ చేయడం
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
         rd_col = 'RD 1' if 'RD 1' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
-        batch_col_m = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_master.columns else ('BATCH NO' if 'BATCH NO' in df_master.columns else 'Batch')
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
 
-        # 2. ట్రాన్సాక్షన్ డేటాను ప్రాసెస్ చేయడం
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else 'Batch')
         t_month_col = 'MONTH_NUMBER' if 'MONTH_NUMBER' in df_trans.columns else 'Month'
@@ -78,11 +74,9 @@ def admin_dashboard():
             else:
                 df_trans['Govt_Share'] = 0
 
-            # కంప్లీట్ అయిన రికార్డులను యూనివర్శల్‌గా ఫిల్టర్ చేయడం
             completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Month_No','Batch_No']].drop_duplicates()
             completed_trans['Is_Completed'] = True
             
-            # మాస్టర్ డేటాతో మెర్జ్ చేయడం
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
             df_merged['Batch_No'] = df_merged['Batch_No'].fillna('0')
         else:
@@ -96,7 +90,6 @@ def admin_dashboard():
         total_completed_all = int(df_merged['Status_Val'].sum())
         total_pending_all = total_beneficiaries - total_completed_all
 
-        # 3. Pandas Groupby ద్వారా బ్యాచ్ వారీగా సమ్మరీ
         batch_grouped = df_merged.groupby('Batch_No').agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
@@ -111,7 +104,6 @@ def admin_dashboard():
                 "pending": int(row['pending'])
             }
 
-        # 4. Pandas Groupby ద్వారా బ్యాంక్ వారీగా సమ్మరీ
         bank_grouped = df_merged.groupby('Bank_Name').agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
@@ -126,14 +118,12 @@ def admin_dashboard():
                 "pending": int(row['pending'])
             }
 
-        # 5. Pandas Groupby ద్వారా బ్యాచ్ + బ్యాంక్ మ్యాట్రిక్స్ సమ్మరీ
         batch_bank_grouped = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
         batch_bank_grouped['pending'] = batch_bank_grouped['total'] - batch_bank_grouped['completed']
         
-        # బ్యాచ్ వారీగా బ్యాంక్ డేటాను గ్రూప్ చేయడం (Template లో Sub-totals సులభంగా వేయడానికి)
         batch_wise_matrix = {}
         for batch_no, group in batch_bank_grouped.groupby('Batch_No'):
             batch_wise_matrix[str(batch_no)] = {
@@ -157,7 +147,6 @@ def admin_dashboard():
         completed_batches_count = sum(1 for b, stats in batch_summary.items() if stats["pending"] == 0 and stats["total"] > 0)
         total_batches_count = len(batch_summary)
 
-        # ఇక్కడ batch_wise_matrix ని template కి సరిగ్గా పాస్ చేస్తున్నాము
         return render_template('admin_dashboard.html', 
                                total=total_beneficiaries, 
                                completed=total_completed_all, 
@@ -207,33 +196,32 @@ def export_admin_excel():
         
         if not df_trans.empty and t_rd_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
+            df_trans['Batch_No'] = df_trans[t_batch_col].astype(str).str.strip() if t_batch_col else '0'
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
             
             if t_month_col:
-                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col, t_batch_col]].drop_duplicates()
+                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col, 'Batch_No']].drop_duplicates()
             else:
-                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account']].drop_duplicates()
-                completed_trans[t_month_col] = '0'
+                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Batch_No']].drop_duplicates()
 
             completed_trans['Is_Completed'] = True
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
+            df_merged['Batch_No'] = df_merged['Batch_No'].fillna('0')
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
-            df_merged[t_month_col] = '0'
+            df_merged['Batch_No'] = '0'
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
-        df_merged[t_batch_col] = df_merged[t_batch_col].fillna('0').astype(str).str.replace('.0', '', regex=False)
+        df_merged['Batch_No'] = df_merged['Batch_No'].astype(str).str.replace('.0', '', regex=False)
         
-        if 'MONTH_NUMBER' in df_merged.columns:
+        if 'MONTH_NUMBER' in df_merged.columns and t_month_col:
             df_merged[t_month_col] = df_merged[t_month_col].fillna('0').astype(str).str.replace('.0', '', regex=False)
-        else:
-            df_merged[t_month_col] = '0'
         
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
         # 1. Batch Aggregates
-        batch_df = df_merged.groupby(t_batch_col).agg(
+        batch_df = df_merged.groupby('Batch_No').agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
@@ -247,7 +235,7 @@ def export_admin_excel():
         bank_df['pending'] = bank_df['total'] - bank_df['completed']
 
         # 3. Batch + Bank Detailed Matrix
-        batch_bank_df = df_merged.groupby([t_batch_col, 'Bank_Name']).agg(
+        batch_bank_df = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
         ).reset_index()
@@ -284,7 +272,7 @@ def export_admin_excel():
         r += 1
         start_b_row = r
         for _, row in batch_df.iterrows():
-            ws.cell(row=r, column=1, value=str(row[t_batch_col]))
+            ws.cell(row=r, column=1, value=str(row['Batch_No']))
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
             ws.cell(row=r, column=4, value=int(row['pending'])).number_format = '#,##0'
@@ -340,7 +328,7 @@ def export_admin_excel():
             cell.alignment = Alignment(horizontal="center")
         
         r += 1
-        for batch_no, group in batch_bank_grouped.groupby(t_batch_col):
+        for batch_no, group in batch_bank_df.groupby('Batch_No'):
             start_grp_row = r
             for _, row in group.iterrows():
                 ws.cell(row=r, column=1, value=f"Batch {batch_no}")
@@ -376,4 +364,4 @@ def export_admin_excel():
         return send_file(output, download_name="Thrift_Admin_Summary.xlsx", as_attachment=True, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     except Exception as e:
-        return f"Excel ఎగుమతిలో లోపం సంభవించింది: چه {str(e)}"
+        return f"Excel ఎగుమతిలో లోపం సంభవించింది: {str(e)}"
