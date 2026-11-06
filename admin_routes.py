@@ -87,6 +87,7 @@ def admin_dashboard():
             
             # మాస్టర్ డేటాతో మెర్జ్ చేయడం (Merge Master with Transactions)
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
+            df_merged['Batch_No'] = df_merged['Batch_No'].fillna('0')
             #df_merged = pd.merge(df_master, completed_trans, left_on = 'RD 1', right_on='RD ACCOUNT_1 (Beneficiary Contribution)',  how='left')
             
         else:
