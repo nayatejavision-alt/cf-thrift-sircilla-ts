@@ -227,25 +227,24 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for cf_name, cf_data in cf_bank_matrix.items() %}
-                                {% set rows = cf_data.items() %}
-                                {% for item in rows %}
-                                <tr>
-                                    {% if loop.first %}
-                                    <td rowspan="{{ rows|length + 1 }}" class="fw-bold bg-light align-middle text-primary">{{ cf_name }}</td>
-                                    {% endif %}
-                                    <td class="text-start ps-3 fw-semibold">{{ item.Bank_Name }}</td>
-                                    <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
-                                    <td>{{ item.total }}</td>
-                                    <td class="text-success fw-bold">{{ item.completed }}</td>
-                                    <td class="text-danger fw-bold">{{ item.pending }}</td>
-                                    <td>
-                                        {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
-                                        {{ "%.1f"|format(pct) }}%
-                                    </td>
-                                </tr>
-                                {% endfor %}
-
+{% for cf_name, rows in cf_bank_matrix.items() %}
+    {% for item in rows %}
+    <tr>
+        {% if loop.first %}
+        <td rowspan="{{ rows|length }}" class="fw-bold bg-light align-middle text-primary">{{ cf_name }}</td>
+        {% endif %}
+        <td class="text-start ps-3 fw-semibold">{{ item.Bank_Name }}</td>
+        <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
+        <td>{{ item.total }}</td>
+        <td class="text-success fw-bold">{{ item.completed }}</td>
+        <td class="text-danger fw-bold">{{ item.pending }}</td>
+        <td>
+            {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
+            {{ "%.1f"|format(pct) }}%
+        </td>
+    </tr>
+    {% endfor %}
+{% endfor %}
                                 <!-- CF సబ్-టోటల్ రో (Sub-Total Row) -->
                                 <tr class="table-success fw-bold">
                                     <td colspan="2" class="text-end pe-3">{{ cf_name }} మొత్తము (Sub-Total)</td>
