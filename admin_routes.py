@@ -162,7 +162,7 @@ def admin_dashboard():
         cf_bank_matrix = {}
         for cf_name, group in cf_bank_batch_grouped.groupby('CF_Name'):
             cf_bank_matrix[str(cf_name)] = {
-                'items': group.to_dict(orient='records'),
+                'rows': group.to_dict(orient='records'),
                 'sub_total': {
                     'total': int(group['total'].sum()),
                     'completed': int(group['completed'].sum()),
