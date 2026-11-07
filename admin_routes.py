@@ -200,9 +200,11 @@ def export_admin_excel():
             return "డేటా అందుబాటులో లేదు."
 
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
+        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_master.columns else ('Name Of CF' if 'Name Of CF' in df_master.columns else df_master.columns[34])
         rd_col = 'RD 1' if 'RD 1' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
+        df_master['CF_Name'] = df_master[cf_col].astype(str).str.strip().replace('', 'Unknown CF')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
         
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
@@ -229,10 +231,6 @@ def export_admin_excel():
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
         df_merged['Batch_No'] = df_merged['Batch_No'].astype(str).str.replace('.0', '', regex=False)
-        
-        if 'MONTH_NUMBER' in df_merged.columns and t_month_col:
-            df_merged[t_month_col] = df_merged[t_month_col].fillna('0').astype(str).str.replace('.0', '', regex=False)
-        
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
         # 1. Batch Aggregates
@@ -255,6 +253,13 @@ def export_admin_excel():
             completed=('Status_Val', 'sum')
         ).reset_index()
         batch_bank_df['pending'] = batch_bank_df['total'] - batch_bank_df['completed']
+
+        # 4. CF + Bank + Batch Detailed Matrix
+        cf_bank_batch_df = df_merged.groupby(['CF_Name', 'Bank_Name', 'Batch_No']).agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        cf_bank_batch_df['pending'] = cf_bank_batch_df['total'] - cf_bank_batch_df['completed']
 
         # Openpyxl Excel Workbook creation with Styling
         wb = openpyxl.Workbook()
@@ -355,7 +360,6 @@ def export_admin_excel():
                 for c in range(1, 7): ws.cell(row=r, column=c).border = border_thin
                 r += 1
             
-            # బ్యాచ్ సబ్-టోటల్ రో (Sub-Total Row)
             ws.cell(row=r, column=1, value=f"Total Batch {batch_no}").font = f_bold
             ws.cell(row=r, column=2, value="-").alignment = Alignment(horizontal="center")
             ws.cell(row=r, column=3, value=f"=SUM(C{start_grp_row}:C{r-1})").font = f_bold
@@ -364,6 +368,29 @@ def export_admin_excel():
             ws.cell(row=r, column=6, value=f"=D{r}/C{r}").font = f_bold
             for c in range(1, 7):
                 ws.cell(row=r, column=c).fill = fill_sub
+                ws.cell(row=r, column=c).border = border_thin
+            r += 1
+
+        r += 3
+        # --- Table 4: CF + Bank + Batch Detailed Matrix ---
+        ws.cell(row=r, column=1, value="4. CF & Bank-Wise Batch Breakdown").font = f_sec
+        r += 1
+        cf_headers = ["CF Name", "Bank Name", "Batch No", "Total", "Completed", "Pending", "Completion Rate"]
+        for col_idx, h in enumerate(cf_headers, 1):
+            cell = ws.cell(row=r, column=col_idx, value=h)
+            cell.font, cell.fill = f_hdr, fill_navy
+            cell.alignment = Alignment(horizontal="center")
+        
+        r += 1
+        for _, row in cf_bank_batch_df.iterrows():
+            ws.cell(row=r, column=1, value=str(row['CF_Name']))
+            ws.cell(row=r, column=2, value=str(row['Bank_Name']))
+            ws.cell(row=r, column=3, value=str(row['Batch_No']))
+            ws.cell(row=r, column=4, value=int(row['total'])).number_format = '#,##0'
+            ws.cell(row=r, column=5, value=int(row['completed'])).number_format = '#,##0'
+            ws.cell(row=r, column=6, value=int(row['pending'])).number_format = '#,##0'
+            ws.cell(row=r, column=7, value=f"=E{r}/D{r}").number_format = '0.0%'
+            for c in range(1, 8): 
                 ws.cell(row=r, column=c).border = border_thin
             r += 1
 
