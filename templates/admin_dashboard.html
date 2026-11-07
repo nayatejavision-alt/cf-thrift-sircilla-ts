@@ -228,7 +228,7 @@
                         </thead>
                         <tbody>
                             {% for cf_name, cf_data in cf_bank_matrix.items() %}
-                                {% set rows = cf_data.items %}
+                                {% set rows = cf_data.items() %}
                                 {% for item in rows %}
                                 <tr>
                                     {% if loop.first %}
