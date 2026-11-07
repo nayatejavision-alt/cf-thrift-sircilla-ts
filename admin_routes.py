@@ -150,7 +150,9 @@ def admin_dashboard():
         completed_batches_count = sum(1 for b, stats in batch_summary.items() if stats["pending"] == 0 and stats["total"] > 0)
         total_batches_count = len(batch_summary)
 
-        # 4. CF + Bank + Batch Detailed Matrix
+       
+
+        # 4. CF + Bank + Batch Detailed Matrix (సబ్-టోటల్స్‌తో)
         cf_bank_batch_grouped = df_merged.groupby(['CF_Name', 'Bank_Name', 'Batch_No']).agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum')
