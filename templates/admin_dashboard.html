@@ -206,6 +206,54 @@
         </div>
     </div>
 </div>
+        <!-- 4. CF + Bank + Batch Detailed Matrix Table (ప్రత్యేకమైన విభాగం) -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4" id="cf-bank-section">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold text-success">👤 CF & బ్యాంక్ వారీగా బ్యాచ్ పురోగతి (CF & Bank-Wise Batch Breakdown)</h5>
+                <a href="#cf-bank-section" class="btn btn-outline-success btn-sm fw-bold">
+                    🔍 వివరాలు చూడండి
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle mb-0 text-center">
+                        <thead class="table-success text-dark">
+                            <tr>
+                                <th>CF పేరు (Name of CF)</th>
+                                <th>బ్యాంక్ / ఫైల్ పేరు (Bank Name)</th>
+                                <th>బ్యాచ్ (Batch)</th>
+                                <th>మొత్తం (Total)</th>
+                                <th>పూర్తయినవి (Completed)</th>
+                                <th>పెండింగ్ (Pending)</th>
+                                <th>పురోగతి (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cf_name, rows in cf_bank_matrix.items() %}
+                                {% for item in rows %}
+                                <tr>
+                                    {% if loop.first %}
+                                    <td rowspan="{{ rows|length }}" class="fw-bold bg-light align-middle text-primary">{{ cf_name }}</td>
+                                    {% endif %}
+                                    <td class="text-start ps-3 fw-semibold">{{ item.Bank_Name }}</td>
+                                    <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
+                                    <td>{{ item.total }}</td>
+                                    <td class="text-success fw-bold">{{ item.completed }}</td>
+                                    <td class="text-danger fw-bold">{{ item.pending }}</td>
+                                    <td>
+                                        {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
+                                        {{ "%.1f"|format(pct) }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    
+    
     </div>
 
     <script>
