@@ -147,6 +147,17 @@ def admin_dashboard():
         completed_batches_count = sum(1 for b, stats in batch_summary.items() if stats["pending"] == 0 and stats["total"] > 0)
         total_batches_count = len(batch_summary)
 
+        # 4. CF + Bank + Batch Detailed Matrix
+        cf_bank_batch_grouped = df_merged.groupby(['CF_Name', 'Bank_Name', 'Batch_No']).agg(
+            total=('RD_Account', 'count'),
+            completed=('Status_Val', 'sum')
+        ).reset_index()
+        cf_bank_batch_grouped['pending'] = cf_bank_batch_grouped['total'] - cf_bank_batch_grouped['completed']
+        
+        cf_bank_matrix = {}
+        for cf_name, group in cf_bank_batch_grouped.groupby('CF_Name'):
+            cf_bank_matrix[str(cf_name)] = group.to_dict(orient='records')
+
         return render_template('admin_dashboard.html', 
                                total=total_beneficiaries, 
                                completed=total_completed_all, 
@@ -155,6 +166,7 @@ def admin_dashboard():
                                bank_summary=bank_summary,
                                batch_bank_summary=batch_bank_summary,
                                batch_wise_matrix=batch_wise_matrix,
+                               cf_bank_matrix=cf_bank_matrix,
                                completed_batches_count=completed_batches_count,
                                total_batches_count=total_batches_count)
                                
