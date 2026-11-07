@@ -654,50 +654,60 @@
     }
 
     async function uploadBankFile() {
-        const fileInput = document.getElementById('bank-upload-file');
-        const msgDiv = document.getElementById('upload-msg');
+    const fileInput = document.getElementById('bank-upload-file');
+    const msgDiv = document.getElementById('upload-msg');
 
-        if (fileInput.files.length === 0) {
-            msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
-            msgDiv.innerText = "దయచేసి ముందుగా ఎక్సెల్ ఫైల్‌ను ఎంచుకోండి.";
-            return;
-        }
-
-        const file = fileInput.files[0];
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("month", document.getElementById('filter-month').value);
-        formData.append("batch", document.getElementById('filter-batch').value);
-
-        msgDiv.className = "mt-2 text-xs text-blue-600 font-semibold";
-        msgDiv.innerText = "బల్క్ అప్‌లోడ్ జరుగుతోంది, దయచేసి వేచి ఉండండి...";
-
-        try {
-            const response = await fetch('/api/bulk-upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const result = await response.json();
-
-            if (result.status === "success") {
-                msgDiv.className = "mt-2 text-xs text-emerald-600 font-semibold";
-                msgDiv.innerText = result.message;
-                fileInput.value = ""; 
-                setTimeout(() => {
-                    checkUserLoginStatus();
-                }, 1500);
-            } else {
-                msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
-                msgDiv.innerText = result.message;
-            }
-        } catch (error) {
-            console.error("Bulk Upload Error:", error);
-            msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
-            msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌డేట్ కాలేదు.";
-        }
+    if (fileInput.files.length === 0) {
+        msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
+        msgDiv.innerText = "దయచేసి ముందుగా ఎక్సెల్ ఫైల్‌ను ఎంచుకోండి.";
+        return;
     }
 
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("month", document.getElementById('filter-month').value);
+    formData.append("batch", document.getElementById('filter-batch').value);
+
+    msgDiv.className = "mt-2 text-xs text-blue-600 font-semibold";
+    msgDiv.innerText = "బల్క్ అప్‌లోడ్ జరుగుతోంది, దయచేసి వేచి ఉండండి...";
+
+    try {
+        const response = await fetch('/api/bulk-upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+            msgDiv.className = "mt-2 text-xs text-emerald-600 font-semibold";
+            msgDiv.innerText = result.message;
+            fileInput.value = ""; 
+
+            // పాప్-అప్ / అలర్ట్ ద్వారా వివరాలు చూపించడం
+            let summaryMessage = `✅ ${result.message}\n\n`;
+            summaryMessage += `• సక్సెస్ అయినవి: ${result.updated_count}\n`;
+            if (result.skipped_count > 0) {
+                summaryMessage += `• స్కిప్ చేయబడినవి (వేరే బ్యాచ్‌లో ఉన్నవి): ${result.skipped_count} (SNOs: ${result.skipped_snos.join(', ')})`;
+            }
+            alert(summaryMessage);
+
+            setTimeout(() => {
+                checkUserLoginStatus();
+            }, 1000);
+        } else {
+            msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
+            msgDiv.innerText = result.message;
+        }
+    } catch (error) {
+        console.error("Bulk Upload Error:", error);
+        msgDiv.className = "mt-2 text-xs text-red-600 font-semibold";
+        msgDiv.innerText = "సర్వర్ లోపం వల్ల అప్‌డేట్ కాలేదు.";
+    }
+}
+
+        
     function downloadExcelFile() {
         const month = document.getElementById('filter-month').value;
         const batch = document.getElementById('filter-batch').value;
