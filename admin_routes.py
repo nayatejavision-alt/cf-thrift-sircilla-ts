@@ -54,11 +54,14 @@ def admin_dashboard():
                                    batch_summary={}, bank_summary={}, batch_bank_summary={}, batch_wise_matrix={},
                                    completed_batches_count=0, total_batches_count=0)
 
-        bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
-        rd_col = 'RD 1' if 'RD 1' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else None)
+        bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[36])
+        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_master.columns else ('Name Of CF' if 'Name Of CF' in df_master.columns else df_master.columns[34])
+        rd_col = 'RD 1' if 'RD 1' in df_master.columns else ('RD 1' if 'RD 1' in df_master.columns else df_master.columns[26])
         
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
+        df_master['CF_Name'] = df_master[cf_col].astype(str).str.strip().replace('', 'Unknown CF')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
+        
 
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else 'Batch')
