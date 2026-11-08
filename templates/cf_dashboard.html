@@ -40,6 +40,123 @@
                 </div>
             </form>
         </div>
+    </div> <!-- కంటైనర్ క్లోస్డ్ -->
+
+
+
+        <!-- ఆధార్ సెర్చ్ & డేటా ఎంట్రీ సెక్షన్ -->
+    <div class="container my-4" style="max-width: 800px;">
+        <div class="card border-0 shadow-sm rounded-4 p-4 bg-white mb-4">
+            <h4 class="fw-bold text-secondary mb-3 text-center">🔍 లబ్ధిదారుల ఆధార్ సెర్చ్ & డేటా ఎంట్రీ</h4>
+            
+            <div class="input-group mb-3">
+                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12">
+                <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
+            </div>
+        </div>
+
+        <!-- డైనమిక్ ఫారమ్ డిస్‌ప్లే అయ్యే ఏరియా -->
+        <div id="form_container" class="card border-0 shadow-sm rounded-4 p-4 bg-white" style="display: none;">
+            <h5 id="form_title" class="fw-bold mb-3 text-primary"></h5>
+            <form id="dynamic_beneficiary_form">
+                <input type="hidden" id="action_type">
+                <input type="hidden" id="row_index">
+                
+                <div class="row" id="form_fields_grid">
+                    <!-- జావాస్క్రిప్ట్ ద్వారా డైనమిక్‌గా కాలమ్స్ మరియు ఇన్‌పుట్ బాక్స్‌లు ఇక్కడ వస్తాయి -->
+                </div>
+                
+                <div class="text-center mt-4">
+                    <button type="button" class="btn btn-success px-5 py-2 fw-bold shadow-sm" onclick="saveBeneficiaryData()">సేవ్ / అప్‌డేట్ చేయి</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        async function searchAadhar() {
+            const aadhar = document.getElementById('search_aadhar').value.trim();
+            if (!aadhar || aadhar.length < 12) {
+                alert('దయచేసి సరైన 12 అంకెల ఆధార్ నంబర్ ఎంటర్ చేయండి!');
+                return;
+            }
+
+            const response = await fetch('/cf/search-beneficiary', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({aadhar_number: aadhar})
+            });
+            const result = await response.json();
+
+            if (result.status === 'existing') {
+                document.getElementById('form_title').innerText = "📋 పాత డేటా కనుగొనబడింది - మార్పులు చేసుకోవచ్చు (Update)";
+                document.getElementById('action_type').value = 'update';
+                document.getElementById('row_index').value = result.row_index;
+                buildFormFields(result.columns, result.data, aadhar);
+            } else if (result.status === 'new') {
+                document.getElementById('form_title').innerText = "➕ కొత్త రికార్డు నమోదు (Create New Record)";
+                document.getElementById('action_type').value = 'insert';
+                document.getElementById('row_index').value = '';
+                
+                let defaultData = {'Aadhar Number': aadhar, 'NAME OF CF': result.default_cf};
+                buildFormFields(result.columns, defaultData, aadhar);
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function buildFormFields(columns, data, aadhar) {
+            const grid = document.getElementById('form_fields_grid');
+            grid.innerHTML = '';
+            
+            columns.forEach(col => {
+                if (col === 'SNO') return; // SNO ఆటోమేటిక్ కాబట్టి స్కిప్ చేయవచ్చు
+                
+                let val = data[col] !== undefined ? data.value || data[col] : '';
+                if (col === 'Aadhar Number') val = aadhar;
+
+                let colDiv = document.createElement('div');
+                colDiv.className = 'col-md-6 mb-3';
+                colDiv.innerHTML = `
+                    <label class="form-label fw-semibold text-secondary small">${col}</label>
+                    <input type="text" class="form-control" name="${col}" value="${val}" ${col === 'Aadhar Number' ? 'readonly' : ''}>
+                `;
+                grid.appendChild(colDiv);
+            });
+
+            document.getElementById('form_container').style.display = 'block';
+        }
+
+        async function saveBeneficiaryData() {
+            const form = document.getElementById('dynamic_beneficiary_form');
+            const formData = {};
+            const inputs = form.querySelectorAll('input');
+            
+            inputs.forEach(input => {
+                if(input.name && input.name !== 'action_type' && input.name !== 'row_index') {
+                    formData[input.name] = input.value;
+                }
+            });
+
+            const payload = {
+                action_type: document.getElementById('action_type').value,
+                row_index: document.getElementById('row_index').value,
+                form_data: formData
+            };
+
+            const response = await fetch('/cf/save-beneficiary', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+
+            alert(result.message);
+            if(result.status === 'success') {
+                location.reload();
+            }
+        }
+    </script>
     </div>
 
     <script>
