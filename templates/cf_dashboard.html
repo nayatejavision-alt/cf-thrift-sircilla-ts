@@ -49,6 +49,13 @@
         <div class="card border-0 shadow-sm rounded-4 p-4 bg-white mb-4">
             <h4 class="fw-bold text-secondary mb-3 text-center">🔍 లబ్ధిదారుల ఆధార్ సెర్చ్ & డేటా ఎంట్రీ</h4>
             
+            <div class="mb-3">
+                <label class="form-label fw-semibold">బ్యాంక్ ఫైల్ పేరు ఎంచుకోండి (File Name):</label>
+                <select id="file_name_select" class="form-select form-select-lg mb-3">
+                    <option value="">-- ఫైల్ పేరును ఎంచుకోండి --</option>
+                </select>
+            </div>
+
             <div class="input-group mb-3">
                 <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                 <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
@@ -74,9 +81,33 @@
     </div>
 
     <script>
-        
-       // ఆధార్ సెర్చ్ ఫంక్షన్
+        // పేజీ లోడ్ అయిన వెంటనే బ్యాంక్ ఫైల్ నేమ్స్ లోడ్ చేయడం
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const res = await fetch('/cf/get-bank-files');
+                const data = await res.json();
+                if(data.status === 'success') {
+                    const select = document.getElementById('file_name_select');
+                    data.file_names.forEach(name => {
+                        let opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch(e) {
+                console.error("Error loading bank files", e);
+            }
+        });
+
+        // ఆధార్ సెర్చ్ ఫంక్షన్
         async function searchAadhar() {
+            const fileName = document.getElementById('file_name_select').value;
+            if (!fileName) {
+                alert('దయచేసి ముందుగా బ్యాంక్ ఫైల్ పేరు (File Name) ఎంచుకోండి!');
+                return;
+            }
+
             const aadhar = document.getElementById('search_aadhar').value.trim();
             if (!aadhar || aadhar.length !== 12) {
                 alert('దయచేసి సరైన 12 అంకెల ఆధార్ నంబర్ ఎంటర్ చేయండి!');
@@ -87,7 +118,7 @@
                 const response = await fetch('/cf/search-beneficiary', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({aadhar_number: aadhar})
+                    body: JSON.stringify({aadhar_number: aadhar, file_name: fileName})
                 });
                 const result = await response.json();
 
@@ -95,14 +126,13 @@
                     document.getElementById('form_title').innerHTML = `<span class="text-success">📋 రికార్డు కనుగొనబడింది - ఇది అప్‌డేట్ (Update) అవుతుంది</span>`;
                     document.getElementById('action_type').value = 'update';
                     document.getElementById('row_index').value = result.row_index;
-                    buildFormFields(result.columns, result.data, aadhar);
+                    buildFormFields(result.columns, result.data, aadhar, result.dropdown_data);
                 } else if (result.status === 'new') {
-                    document.getElementById('form_title').innerHTML = `<span class="text-primary">➕ ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. మార్పులు చేసుకోవచ్చు.</span>`;
+                    document.getElementById('form_title').innerHTML = `<span class="text-primary">➕ ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. వివరాలు సరిచూసుకొని మార్పులు చేయవచ్చు.</span>`;
                     document.getElementById('action_type').value = 'insert';
                     document.getElementById('row_index').value = '';
                     
-                    let defaultData = result.data || {'Aadhar Number': aadhar, 'NAME OF CF': result.default_cf};
-                    buildFormFields(result.columns, defaultData, aadhar);
+                    buildFormFields(result.columns, result.data, aadhar, result.dropdown_data);
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
                 }
@@ -111,23 +141,112 @@
             }
         }
 
-        
-        // డైనమిక్ ఫీల్డ్స్ నిర్మించే ఫంక్షన్
-        function buildFormFields(columns, data, aadhar) {
+        // డైనమిక్ ఫీల్డ్స్ & డ్రాప్-డౌన్స్ నిర్మించే ఫంక్షన్
+        function buildFormFields(columns, data, aadhar, dropdowns) {
             const grid = document.getElementById('form_fields_grid');
             grid.innerHTML = '';
             
+            const districts = ['RAJANNA SIRCILLA', 'HYDERABAD', 'KARIMNAGAR', 'WARANGAL', 'NIZAMABAD', 'KHAMMAM', 'NALGONDA', 'MEDAK', 'ADILABAD', 'MAHABUBNAGAR', 'RANGAREDDY', 'SANGAREDDY', 'SIDDIPET', 'JAGTIAL', 'PEDDAPALLI', 'KAMARREDDY'];
+            const mandals = {
+                'RAJANNA SIRCILLA': ['SIRCILLA', 'YELLAREDDIPET', 'MUSTABAD', 'GAMBHIRAOPET', 'VEERANAPET', 'ELLANTHAKUNTA', 'BOINPALLE', 'THANGALLAPALLY', 'CHANDURTHY', 'RUDRANGI', 'MEERPET']
+            };
+            const wageOptions = [200, 300, 500, 600, 700, 800, 1000, 1200];
+
             columns.forEach(col => {
-                if (col === 'SNO') return; // SNO ఆటోమేటిక్ కాబట్టి స్కిప్ చేస్తున్నాం
-                
                 let val = (data && data[col] !== undefined && data[col] !== null) ? data[col] : '';
                 if (col === 'Aadhar Number') val = aadhar;
 
                 let colDiv = document.createElement('div');
                 colDiv.className = 'col-md-6 mb-3';
+                let inputHtml = '';
+
+                // 1. Profession Dropdown
+                if (col === 'Profession') {
+                    let optionsList = dropdowns && dropdowns.professions ? dropdowns.professions : ['POWER LOOM WEAVER'];
+                    if(!optionsList.includes('POWER LOOM WEAVER')) optionsList.unshift('POWER LOOM WEAVER');
+                    inputHtml = `<select class="form-select" name="${col}">`;
+                    optionsList.forEach(item => {
+                        let sel = (val === item || (!val && item === 'POWER LOOM WEAVER')) ? 'selected' : '';
+                        inputHtml += `<option value="${item}" ${sel}>${item}</option>`;
+                    });
+                    inputHtml += `</select>`;
+                }
+                // 2. District Name Dropdown
+                else if (col === 'DISTRICT NAME') {
+                    inputHtml = `<select class="form-select" id="district_select" name="${col}">`;
+                    districts.forEach(d => {
+                        let sel = (val === d || (!val && d === 'RAJANNA SIRCILLA')) ? 'selected' : '';
+                        inputHtml += `<option value="${d}" ${sel}>${d}</option>`;
+                    });
+                    inputHtml += `</select>`;
+                }
+                // 3. Mandal Name Dropdown
+                else if (col === 'MANDAL NAME') {
+                    inputHtml = `<select class="form-select" id="mandal_select" name="${col}">`;
+                    let mList = mandals['RAJANNA SIRCILLA'] || ['SIRCILLA'];
+                    mList.forEach(m => {
+                        let sel = (val === m || (!val && m === 'SIRCILLA')) ? 'selected' : '';
+                        inputHtml += `<option value="${m}" ${sel}>${m}</option>`;
+                    });
+                    inputHtml += `</select>`;
+                }
+                // 4. Caste (Default BC)
+                else if (col === 'Caste') {
+                    if(!val) val = 'BC';
+                    inputHtml = `<input type="text" class="form-control" name="${col}" value="${val}">`;
+                }
+                // 5. 8% Of Monthly Wages Dropdown
+                else if (col === '8% Of Monthly Wages') {
+                    if(!val) val = 1200;
+                    inputHtml = `<select class="form-select" id="eight_percent_wages" name="${col}" onchange="updateMonthlyWages(this.value)">`;
+                    wageOptions.forEach(w => {
+                        let sel = (Number(val) === Number(w)) ? 'selected' : '';
+                        inputHtml += `<option value="${w}" ${sel}>${w}</option>`;
+                    });
+                    inputHtml += `</select>`;
+                }
+                // 6. MONTHLY WAGES (Auto calculated)
+                else if (col === 'MONTHLY WAGES') {
+                    if(!val && data['8% Of Monthly Wages']) val = Number(data['8% Of Monthly Wages']) * 100 / 8;
+                    inputHtml = `<input type="text" class="form-control" id="monthly_wages_input" name="${col}" value="${val}" readonly>`;
+                }
+                // 7. Date of Birth & Age calculation
+                else if (col === 'Date OF Birth') {
+                    inputHtml = `<input type="date" class="form-control" name="${col}" value="${val}" onchange="calculateAge(this.value)">`;
+                }
+                else if (col === 'Age') {
+                    inputHtml = `<input type="text" class="form-control" id="age_input" name="${col}" value="${val}" readonly>`;
+                }
+                // 8. Suggestions (Village, Area, Unit Owner, Unit H.No, Relation)
+                else if (['Village', 'Area', 'Unit Owner', 'H.NO. Unit H.No', 'Relation', 'VILLAGE NAME'].includes(col)) {
+                    let datalistId = `list_${col.replace(/\s+/g, '_')}`;
+                    let suggestions = [];
+                    if(col === 'Village' || col === 'VILLAGE NAME') suggestions = dropdowns.villages;
+                    else if(col === 'Area') suggestions = dropdowns.areas;
+                    else if(col === 'Unit Owner') suggestions = dropdowns.unit_owners;
+                    else if(col === 'H.NO. Unit H.No') suggestions = dropdowns.unit_hns;
+                    else if(col === 'Relation') suggestions = dropdowns.relations;
+
+                    inputHtml = `<input type="text" class="form-control" name="${col}" value="${val}" list="${datalistId}">`;
+                    inputHtml += `<datalist id="${datalistId}">`;
+                    if(suggestions) {
+                        suggestions.forEach(s => {
+                            inputHtml += `<option value="${s}">`;
+                        });
+                    }
+                    inputHtml += `</datalist>`;
+                }
+                // Readonly fields
+                else if (col === 'Aadhar Number' || col === 'BANK SENT' || col === 'BANK_SNO' || col === 'EMAIL ID' || col === 'NAME OF CF' || col === 'Bank Name') {
+                    inputHtml = `<input type="text" class="form-control bg-light" name="${col}" value="${val}" readonly>`;
+                }
+                else {
+                    inputHtml = `<input type="text" class="form-control" name="${col}" value="${val}">`;
+                }
+
                 colDiv.innerHTML = `
                     <label class="form-label fw-semibold text-secondary small">${col}</label>
-                    <input type="text" class="form-control" name="${col}" value="${val}" ${col === 'Aadhar Number' ? 'readonly' : ''}>
+                    ${inputHtml}
                 `;
                 grid.appendChild(colDiv);
             });
@@ -135,6 +254,25 @@
             document.getElementById('form_container').style.display = 'block';
         }
 
+        // వయస్సు లెక్కింపు ఫంక్షన్ (Age = Current Year - DOB Year)
+        function calculateAge(dobValue) {
+            if(!dobValue) return;
+            const dobYear = new Date(dobValue).getFullYear();
+            const currentYear = new Date().getFullYear();
+            const age = currentYear - dobYear;
+            const ageInput = document.getElementById('age_input');
+            if(ageInput) ageInput.value = age >= 0 ? age : 0;
+        }
+
+        // 8% వేతనాల ఆధారంగా MONTHLY WAGES లెక్కించడం
+        function updateMonthlyWages(val) {
+            const wages = Number(val);
+            const monthlyWagesInput = document.getElementById('monthly_wages_input');
+            if(monthlyWagesInput && !isNaN(wages)) {
+                monthlyWagesInput.value = Math.round((wages * 100) / 8);
+            }
+        }
+    
         // డేటా సేవ్ చేసే ఫంక్షన్
         async function saveBeneficiaryData() {
             const form = document.getElementById('dynamic_beneficiary_form');
