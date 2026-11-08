@@ -248,3 +248,113 @@ def cf_logout():
     session.pop('cf_logged_in', None)
     session.pop('cf_name', None)
     return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
+
+# 5. ఆధార్ నంబర్ ద్వారా లబ్ధిదారుని సెర్చ్ చేయడం (Search Beneficiary by Aadhar)
+@cf_bp.route('/cf/search-beneficiary', methods=['POST'])
+def cf_search_beneficiary():
+    if not session.get('cf_logged_in'):
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+        
+    try:
+        from app import get_sheets_client, SPREADSHEET_NAME
+        
+        cf_name = session.get('cf_name')
+        data = request.get_json() if request.is_json else request.form
+        aadhar_number = str(data.get('aadhar_number', '')).strip()
+        
+        if not aadhar_number:
+            return jsonify({"status": "error", "message": "దయచేసి ఆధార్ నంబర్ ఎంటర్ చేయండి!"})
+            
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
+        
+        records = worksheet.get_all_records()
+        columns = worksheet.row_values(1) # షీట్ కాలమ్ హెడర్స్ కోసం
+        
+        matched_record = None
+        row_index = None
+        
+        for idx, row in enumerate(records, start=2): # 1st row header కాబట్టి 2 నుండి start
+            row_aadhar = str(row.get('Aadhar Number', '')).strip()
+            # CF పేరు కూడా సరిపోతుందో లేదो లేదా జనరల్ చెక్ కోసం
+            if row_aadhar == aadhar_number:
+                matched_record = row
+                row_index = idx
+                break
+                
+        if matched_record:
+            return jsonify({
+                "status": "existing",
+                "message": "పాత డేటా కనుగొనబడింది!",
+                "data": matched_record,
+                "row_index": row_index,
+                "columns": columns
+            })
+        else:
+            # ఒకవేళ కొత్తది అయితే కాలమ్స్ మాత్రం పంపిస్తాం
+            return jsonify({
+                "status": "new",
+                "message": "ఈ ఆధార్ నంబర్ రికార్డు లేదు. కొత్త రికార్డును నమోదు చేయవచ్చు.",
+                "columns": columns,
+                "default_cf": cf_name
+            })
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+# 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record)
+@cf_bp.route('/cf/save-beneficiary', methods=['POST'])
+def cf_save_beneficiary():
+    if not session.get('cf_logged_in'):
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+        
+    try:
+        from app import get_sheets_client, SPREADSHEET_NAME
+        
+        cf_name = session.get('cf_name')
+        data = request.get_json() if request.is_json else request.form
+        
+        action_type = data.get('action_type') # 'update' లేదా 'insert'
+        row_index = data.get('row_index')
+        form_data = data.get('form_data') # డిక్షనరీ రూపంలో ఫీల్డ్స్
+        
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
+        headers = worksheet.row_values(1)
+        
+        if action_type == 'update' and row_index:
+            # పాత రో ని అప్‌డేట్ చేయడం
+            for col_name, val in form_data.items():
+                if col_name in headers:
+                    col_idx = headers.index(col_name) + 1
+                    worksheet.update_cell(int(row_index), col_idx, val)
+            return jsonify({"status": "success", "message": "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!"})
+            
+        elif action_type == 'insert':
+            # కొత్త రికార్డును ఇన్‌సర్ట్ చేయడం
+            new_row = []
+            max_sno = 0
+            
+            # SNO ఆటో-ఇంక్రిమెంట్ కోసం
+            try:
+                sno_col_idx = headers.index('SNO') + 1
+                all_snos = worksheet.col_values(sno_col_idx)[1:]
+                max_sno = max([int(s) for s in all_snos if str(s).isdigit()] or [0])
+            except:
+                max_sno = len(worksheet.get_all_values())
+                
+            form_data['SNO'] = max_sno + 1
+            form_data['NAME OF CF'] = cf_name # లాగిన్ అయిన CF పేరు ఆటోమేటిక్ గా సెట్ అవుతుంది
+            
+            for header in headers:
+                new_row.append(form_data.get(header, ''))
+                
+            worksheet.append_row(new_row)
+            return jsonify({"status": "success", "message": "కొత్త రికార్డు విజయవంతంగా సేవ్ చేయబడింది!"})
+            
+        return jsonify({"status": "error", "message": "సరికైన యాక్షన్ రాలేదు!"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
