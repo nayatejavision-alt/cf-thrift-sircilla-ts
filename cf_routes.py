@@ -295,27 +295,37 @@ def cf_search_beneficiary():
                         source_sheet = 'old'
                         break
             except Exception:
-                pass # ఒకవేళ ఓల్డ్ త్రిఫ్ట్ షీట్ అందుబాటులో లేకపోతే స్కిప్ అవుతుంది
+                pass 
 
-        if matched_record:
-            msg = "పాత డేటా కనుగొనబడింది!" if source_sheet == 'old' else "ఫ్రెష్ డేటా కనుగొనబడింది!"
+        if matched_record and source_sheet == 'new':
             return jsonify({
                 "status": "existing",
-                "message": msg,
+                "message": "రికార్డు కనుగొనబడింది - ఇది అప్‌డేట్ (Update) అవుతుంది",
                 "data": matched_record,
-                "row_index": row_index if source_sheet == 'new' else '', # ఓల్డ్ డేటా అయితే కొత్తగా ఇన్సర్ట్ అవుతుంది కాబట్టి రో ఇండెక్స్ ఖాళీగా ఉంటుంది
+                "row_index": row_index,
                 "columns": columns
+            })
+        elif matched_record and source_sheet == 'old':
+            return jsonify({
+                "status": "new",
+                "message": "ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. పాత త్రిఫ్ట్ డేటా నుండి వివరాలు లోడ్ చేయబడ్డాయి.",
+                "data": matched_record,
+                "row_index": '',
+                "columns": columns,
+                "default_cf": cf_name
             })
         else:
             return jsonify({
                 "status": "new",
-                "message": "ఈ ఆధార్ నంబర్ రికార్డు ఎక్కడా లేదు. కొత్త రికార్డును నమోదు చేయవచ్చు.",
+                "message": "ఈ ఆధార్ నంబర్ రికార్డు ఎక్కడా లేదు. డిఫాల్ట్ వాల్యూస్‌తో కొత్త ఎంట్రీ (New Entry) కింద సేవ్ చేయబడుతుంది.",
                 "columns": columns,
-                "default_cf": cf_name
+                "default_cf": cf_name,
+                "data": {'Aadhar Number': aadhar_number, 'NAME OF CF': cf_name}
             })
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
 
 
 # 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record)
