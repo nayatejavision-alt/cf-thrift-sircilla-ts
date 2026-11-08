@@ -7,11 +7,13 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
+    <!-- నెవ్‌బార్ -->
     <nav class="navbar navbar-dark bg-dark px-4">
         <span class="navbar-brand fw-bold">🏛️ CF పోర్టల్ - స్వాగతం, {{ cf_name }}</span>
         <button class="btn btn-outline-light btn-sm fw-bold" onclick="cfLogout()">లాగౌట్</button>
     </nav>
 
+    <!-- రిపోర్ట్ డౌన్‌లోడ్ సెక్షన్ -->
     <div class="container my-5" style="max-width: 600px;">
         <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
             <h4 class="fw-bold text-secondary mb-4 text-center">📥 మీ నెలవారీ రిపోర్ట్‌ని డౌన్‌లోడ్ చేసుకోండి</h4>
@@ -40,17 +42,15 @@
                 </div>
             </form>
         </div>
-    </div> <!-- కంటైనర్ క్లోస్డ్ -->
+    </div>
 
-
-
-        <!-- ఆధార్ సెర్చ్ & డేటా ఎంట్రీ సెక్షన్ -->
+    <!-- ఆధార్ సెర్చ్ & డేటా ఎంట్రీ సెక్షన్ -->
     <div class="container my-4" style="max-width: 800px;">
         <div class="card border-0 shadow-sm rounded-4 p-4 bg-white mb-4">
             <h4 class="fw-bold text-secondary mb-3 text-center">🔍 లబ్ధిదారుల ఆధార్ సెర్చ్ & డేటా ఎంట్రీ</h4>
             
             <div class="input-group mb-3">
-                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12">
+                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                 <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
             </div>
         </div>
@@ -74,45 +74,51 @@
     </div>
 
     <script>
+        // ఆధార్ సెర్చ్ ఫంక్షన్
         async function searchAadhar() {
             const aadhar = document.getElementById('search_aadhar').value.trim();
-            if (!aadhar || aadhar.length < 12) {
+            if (!aadhar || aadhar.length !== 12) {
                 alert('దయచేసి సరైన 12 అంకెల ఆధార్ నంబర్ ఎంటర్ చేయండి!');
                 return;
             }
 
-            const response = await fetch('/cf/search-beneficiary', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({aadhar_number: aadhar})
-            });
-            const result = await response.json();
+            try {
+                const response = await fetch('/cf/search-beneficiary', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({aadhar_number: aadhar})
+                });
+                const result = await response.json();
 
-            if (result.status === 'existing') {
-                document.getElementById('form_title').innerText = "📋 పాత డేటా కనుగొనబడింది - మార్పులు చేసుకోవచ్చు (Update)";
-                document.getElementById('action_type').value = 'update';
-                document.getElementById('row_index').value = result.row_index;
-                buildFormFields(result.columns, result.data, aadhar);
-            } else if (result.status === 'new') {
-                document.getElementById('form_title').innerText = "➕ కొత్త రికార్డు నమోదు (Create New Record)";
-                document.getElementById('action_type').value = 'insert';
-                document.getElementById('row_index').value = '';
-                
-                let defaultData = {'Aadhar Number': aadhar, 'NAME OF CF': result.default_cf};
-                buildFormFields(result.columns, defaultData, aadhar);
-            } else {
-                alert(result.message);
+                if (result.status === 'existing') {
+                    document.getElementById('form_title').innerText = "📋 పాత డేటా కనుగొనబడింది - మార్పులు చేసుకోవచ్చు (Update)";
+                    document.getElementById('action_type').value = 'update';
+                    document.getElementById('row_index').value = result.row_index;
+                    buildFormFields(result.columns, result.data, aadhar);
+                } else if (result.status === 'new') {
+                    document.getElementById('form_title').innerText = "➕ కొత్త రికార్డు నమోదు (Create New Record)";
+                    document.getElementById('action_type').value = 'insert';
+                    document.getElementById('row_index').value = '';
+                    
+                    let defaultData = {'Aadhar Number': aadhar, 'NAME OF CF': result.default_cf};
+                    buildFormFields(result.columns, defaultData, aadhar);
+                } else {
+                    alert(result.message || 'ఏదో లోపం జరిగింది!');
+                }
+            } catch (error) {
+                alert('సర్వర్‌ను కనెక్ట్ చేయడంలో సమస్య ఏర్పడింది.');
             }
         }
 
+        // డైనమిక్ ఫీల్డ్స్ నిర్మించే ఫంక్షన్
         function buildFormFields(columns, data, aadhar) {
             const grid = document.getElementById('form_fields_grid');
             grid.innerHTML = '';
             
             columns.forEach(col => {
-                if (col === 'SNO') return; // SNO ఆటోమేటిక్ కాబట్టి స్కిప్ చేయవచ్చు
+                if (col === 'SNO') return; // SNO ఆటోమేటిక్ కాబట్టి స్కిప్ చేస్తున్నాం
                 
-                let val = data[col] !== undefined ? data.value || data[col] : '';
+                let val = (data && data[col] !== undefined && data[col] !== null) ? data[col] : '';
                 if (col === 'Aadhar Number') val = aadhar;
 
                 let colDiv = document.createElement('div');
@@ -127,6 +133,7 @@
             document.getElementById('form_container').style.display = 'block';
         }
 
+        // డేటా సేవ్ చేసే ఫంక్షన్
         async function saveBeneficiaryData() {
             const form = document.getElementById('dynamic_beneficiary_form');
             const formData = {};
@@ -144,22 +151,24 @@
                 form_data: formData
             };
 
-            const response = await fetch('/cf/save-beneficiary', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
-            const result = await response.json();
+            try {
+                const response = await fetch('/cf/save-beneficiary', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
 
-            alert(result.message);
-            if(result.status === 'success') {
-                location.reload();
+                alert(result.message);
+                if(result.status === 'success') {
+                    location.reload();
+                }
+            } catch (error) {
+                alert('డేటా సేవ్ చేయడంలో సమస్య ఏర్పడింది.');
             }
         }
-    </script>
-    </div>
 
-    <script>
+        // లాగౌట్ ఫంక్షన్
         async function cfLogout() {
             await fetch('/cf/logout', {method: 'POST'});
             window.location.href = '/cf/login';
