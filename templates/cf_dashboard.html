@@ -74,7 +74,8 @@
     </div>
 
     <script>
-        // ఆధార్ సెర్చ్ ఫంక్షన్
+        
+       // ఆధార్ సెర్చ్ ఫంక్షన్
         async function searchAadhar() {
             const aadhar = document.getElementById('search_aadhar').value.trim();
             if (!aadhar || aadhar.length !== 12) {
@@ -91,16 +92,16 @@
                 const result = await response.json();
 
                 if (result.status === 'existing') {
-                    document.getElementById('form_title').innerText = "📋 పాత డేటా కనుగొనబడింది - మార్పులు చేసుకోవచ్చు (Update)";
+                    document.getElementById('form_title').innerHTML = `<span class="text-success">📋 రికార్డు కనుగొనబడింది - ఇది అప్‌డేట్ (Update) అవుతుంది</span>`;
                     document.getElementById('action_type').value = 'update';
                     document.getElementById('row_index').value = result.row_index;
                     buildFormFields(result.columns, result.data, aadhar);
                 } else if (result.status === 'new') {
-                    document.getElementById('form_title').innerText = "➕ కొత్త రికార్డు నమోదు (Create New Record)";
+                    document.getElementById('form_title').innerHTML = `<span class="text-primary">➕ ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. మార్పులు చేసుకోవచ్చు.</span>`;
                     document.getElementById('action_type').value = 'insert';
                     document.getElementById('row_index').value = '';
                     
-                    let defaultData = {'Aadhar Number': aadhar, 'NAME OF CF': result.default_cf};
+                    let defaultData = result.data || {'Aadhar Number': aadhar, 'NAME OF CF': result.default_cf};
                     buildFormFields(result.columns, defaultData, aadhar);
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
@@ -110,6 +111,7 @@
             }
         }
 
+        
         // డైనమిక్ ఫీల్డ్స్ నిర్మించే ఫంక్షన్
         function buildFormFields(columns, data, aadhar) {
             const grid = document.getElementById('form_fields_grid');
