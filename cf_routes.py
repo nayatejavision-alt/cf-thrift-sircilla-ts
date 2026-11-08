@@ -249,7 +249,7 @@ def cf_logout():
     session.pop('cf_name', None)
     return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
 
-# 5. ఆధార్ నంబర్ ద్వారా లబ్ధిదారుని సెర్చ్ చేయడం (Search Beneficiary by Aadhar - NEW & OLD Thrift Data)
+# 5. ఆధార్ నంబర్ ద్వారా లబ్ధిదారుని సెర్చ్ చేయడం / కొత్త ఎంట్రీ కోసం డేటా సిద్ధం చేయడం
 @cf_bp.route('/cf/search-beneficiary', methods=['POST'])
 def cf_search_beneficiary():
     if not session.get('cf_logged_in'):
@@ -261,14 +261,29 @@ def cf_search_beneficiary():
         cf_name = session.get('cf_name')
         data = request.get_json() if request.is_json else request.form
         aadhar_number = str(data.get('aadhar_number', '')).strip()
+        selected_file_name = str(data.get('file_name', '')).strip()
         
         if not aadhar_number:
             return jsonify({"status": "error", "message": "దయచేసి ఆధార్ నంబర్ ఎంటర్ చేయండి!"})
             
+        if not selected_file_name:
+            return jsonify({"status": "error", "message": "దయచేసి ముందుగా FILE NAME ఎంచుకోండి!"})
+            
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
         
-        # 1. మొదట 'NEW THRIFT DATA' లో వెతకడం
+        # 'Bank_Email_Ids' నుండి ఈమెయిల్ ఐడిని పొందడం
+        email_id = ""
+        try:
+            ws_email = spreadsheet.worksheet('Bank_Email_Ids')
+            email_records = ws_email.get_all_records()
+            for row in email_records:
+                if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
+                    email_id = str(row.get('OFFICIAL_EMAIL', '')).strip()
+                    break
+        except Exception:
+            pass
+
         worksheet_new = spreadsheet.worksheet('NEW THRIFT DATA')
         records_new = worksheet_new.get_all_records()
         columns = worksheet_new.row_values(1)
@@ -284,7 +299,6 @@ def cf_search_beneficiary():
                 source_sheet = 'new'
                 break
                 
-        # 2. ఒకవేళ న్యూ డేటాలో లేకపోతే 'Old Thrift Data' లో వెతకడం
         if not matched_record:
             try:
                 worksheet_old = spreadsheet.worksheet('Old Thrift Data')
@@ -295,7 +309,27 @@ def cf_search_beneficiary():
                         source_sheet = 'old'
                         break
             except Exception:
-                pass 
+                pass
+
+        # BANK_SNO గణన: యూజర్ ఎంచుకున్న FILE NAME కి మ్యాచ్ అయ్యే రికార్డ్స్‌లోని 'BANK_SNO' లలో గరిష్ట విలువ + 1
+        max_bank_sno = 0
+        for row in records_new:
+            if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
+                b_sno = str(row.get('BANK_SNO', '0')).strip()
+                if b_sno.isdigit():
+                    max_bank_sno = max(max_bank_sno, int(b_sno))
+        next_bank_sno = max_bank_sno + 1
+
+        # వివిధ కాలమ్స్‌కోసం యూనిక్ లిస్ట్స్ సేకరించడం (Suggestions / Dropdowns కోసం)
+        unique_professions = sorted(list(set([str(r.get('Profession', '')).strip() for r in records_new if r.get('Profession')])))
+        unique_villages = sorted(list(set([str(r.get('Village', '')).strip() for r in records_new if r.get('Village')])))
+        unique_areas = sorted(list(set([str(r.get('Area', '')).strip() for r in records_new if r.get('Area')])))
+        unique_unit_owners = sorted(list(set([str(r.get('Unit Owner', '')).strip() for r in records_new if r.get('Unit Owner')])))
+        unique_unit_hns = sorted(list(set([str(r.get('H.NO. Unit H.No', '')).strip() for r in records_new if r.get('H.NO. Unit H.No')])))
+        unique_relations = sorted(list(set([str(r.get('Relation', '')).strip() for r in records_new if r.get('Relation')])))
+
+        # బ్యాంక్ నేమ్ కూడా FILE NAME అవుతుంది
+        bank_name = selected_file_name
 
         if matched_record and source_sheet == 'new':
             return jsonify({
@@ -303,29 +337,68 @@ def cf_search_beneficiary():
                 "message": "రికార్డు కనుగొనబడింది - ఇది అప్‌డేట్ (Update) అవుతుంది",
                 "data": matched_record,
                 "row_index": row_index,
-                "columns": columns
-            })
-        elif matched_record and source_sheet == 'old':
-            return jsonify({
-                "status": "new",
-                "message": "ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. పాత త్రిఫ్ట్ డేటా నుండి వివరాలు లోడ్ చేయబడ్డాయి.",
-                "data": matched_record,
-                "row_index": '',
                 "columns": columns,
-                "default_cf": cf_name
+                "dropdown_data": {
+                    "professions": unique_professions,
+                    "villages": unique_villages,
+                    "areas": unique_areas,
+                    "unit_owners": unique_unit_owners,
+                    "unit_hns": unique_unit_hns,
+                    "relations": unique_relations
+                }
             })
         else:
+            # కొత్త రికార్డు లేదా ఓల్డ్ డేటా నుండి లోడ్ అయినట్లయితే డిఫాల్ట్ వాల్యూస్ సెట్ చేయబడతాయి
+            base_data = matched_record.copy() if matched_record else {}
+            base_data['Aadhar Number'] = aadhar_number
+            base_data['BANK_SNO'] = next_bank_sno
+            base_data['FILE NAME'] = selected_file_name
+            base_data['Bank Name'] = bank_name
+            base_data['Caste'] = 'BC'
+            base_data['Profession'] = 'POWER LOOM WEAVER'
+            base_data['DISTRICT NAME'] = 'RAJANNA SIRCILLA'
+            base_data['MANDAL NAME'] = 'SIRCILLA' # వీవర్లు ఎక్కువగా ఉన్న మండలం డిఫాల్ట్
+            base_data['NAME OF CF'] = cf_name
+            base_data['EMAIL ID'] = email_id
+            base_data['BANK SENT'] = 'NOT SENT'
+            base_data['8% Of Monthly Wages'] = 1200
+            base_data['MONTHLY WAGES'] = int(1200 * 100 / 8) # 15000
+
             return jsonify({
                 "status": "new",
-                "message": "ఈ ఆధార్ నంబర్ రికార్డు ఎక్కడా లేదు. డిఫాల్ట్ వాల్యూస్‌తో కొత్త ఎంట్రీ (New Entry) కింద సేవ్ చేయబడుతుంది.",
+                "message": "ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. దయచేసి వివరాలను పరిశీలించి అవసరమైన మార్పులు చేయండి.",
+                "data": base_data,
+                "row_index": '',
                 "columns": columns,
-                "default_cf": cf_name,
-                "data": {'Aadhar Number': aadhar_number, 'NAME OF CF': cf_name}
+                "dropdown_data": {
+                    "professions": unique_professions,
+                    "villages": unique_villages,
+                    "areas": unique_areas,
+                    "unit_owners": unique_unit_owners,
+                    "unit_hns": unique_unit_hns,
+                    "relations": unique_relations
+                }
             })
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+
+# బ్రౌజర్ లో డ్రాప్-డౌన్ కోసం Bank_Email_Ids నుండి FILE NAME లను పంపే రౌట్
+@cf_bp.route('/cf/get-bank-files', methods=['GET'])
+def cf_get_bank_files():
+    if not session.get('cf_logged_in'):
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+    try:
+        from app import get_sheets_client, SPREADSHEET_NAME
+        client = get_sheets_client()
+        spreadsheet = client.open(SPREADSHEET_NAME)
+        ws = spreadsheet.worksheet('Bank_Email_Ids')
+        records = ws.get_all_records()
+        file_names = [str(r.get('FILE NAME', '')).strip() for r in records if r.get('FILE NAME')]
+        return jsonify({"status": "success", "file_names": file_names})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e), "file_names": []})
 
 
 # 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record)
