@@ -249,7 +249,7 @@ def cf_logout():
     session.pop('cf_name', None)
     return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
 
-# 5. ఆధార్ నంబర్ ద్వారా లబ్ధిదారుని సెర్చ్ చేయడం (Search Beneficiary by Aadhar)
+# 5. ఆధార్ నంబర్ ద్వారా లబ్ధిదారుని సెర్చ్ చేయడం (Search Beneficiary by Aadhar - NEW & OLD Thrift Data)
 @cf_bp.route('/cf/search-beneficiary', methods=['POST'])
 def cf_search_beneficiary():
     if not session.get('cf_logged_in'):
@@ -267,41 +267,56 @@ def cf_search_beneficiary():
             
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
-        worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
         
-        records = worksheet.get_all_records()
-        columns = worksheet.row_values(1) # షీట్ కాలమ్ హెడర్స్ కోసం
+        # 1. మొదట 'NEW THRIFT DATA' లో వెతకడం
+        worksheet_new = spreadsheet.worksheet('NEW THRIFT DATA')
+        records_new = worksheet_new.get_all_records()
+        columns = worksheet_new.row_values(1)
         
         matched_record = None
         row_index = None
+        source_sheet = None
         
-        for idx, row in enumerate(records, start=2): # 1st row header కాబట్టి 2 నుండి start
-            row_aadhar = str(row.get('Aadhar Number', '')).strip()
-            # CF పేరు కూడా సరిపోతుందో లేదो లేదా జనరల్ చెక్ కోసం
-            if row_aadhar == aadhar_number:
+        for idx, row in enumerate(records_new, start=2):
+            if str(row.get('Aadhar Number', '')).strip() == aadhar_number:
                 matched_record = row
                 row_index = idx
+                source_sheet = 'new'
                 break
                 
+        # 2. ఒకవేళ న్యూ డేటాలో లేకపోతే 'Old Thrift Data' లో వెతకడం
+        if not matched_record:
+            try:
+                worksheet_old = spreadsheet.worksheet('Old Thrift Data')
+                records_old = worksheet_old.get_all_records()
+                for row in records_old:
+                    if str(row.get('Aadhar Number', '')).strip() == aadhar_number:
+                        matched_record = row
+                        source_sheet = 'old'
+                        break
+            except Exception:
+                pass # ఒకవేళ ఓల్డ్ త్రిఫ్ట్ షీట్ అందుబాటులో లేకపోతే స్కిప్ అవుతుంది
+
         if matched_record:
+            msg = "పాత డేటా కనుగొనబడింది!" if source_sheet == 'old' else "ఫ్రెష్ డేటా కనుగొనబడింది!"
             return jsonify({
                 "status": "existing",
-                "message": "పాత డేటా కనుగొనబడింది!",
+                "message": msg,
                 "data": matched_record,
-                "row_index": row_index,
+                "row_index": row_index if source_sheet == 'new' else '', # ఓల్డ్ డేటా అయితే కొత్తగా ఇన్సర్ట్ అవుతుంది కాబట్టి రో ఇండెక్స్ ఖాళీగా ఉంటుంది
                 "columns": columns
             })
         else:
-            # ఒకవేళ కొత్తది అయితే కాలమ్స్ మాత్రం పంపిస్తాం
             return jsonify({
                 "status": "new",
-                "message": "ఈ ఆధార్ నంబర్ రికార్డు లేదు. కొత్త రికార్డును నమోదు చేయవచ్చు.",
+                "message": "ఈ ఆధార్ నంబర్ రికార్డు ఎక్కడా లేదు. కొత్త రికార్డును నమోదు చేయవచ్చు.",
                 "columns": columns,
                 "default_cf": cf_name
             })
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
 
 # 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record)
 @cf_bp.route('/cf/save-beneficiary', methods=['POST'])
