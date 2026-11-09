@@ -56,10 +56,11 @@
                 </select>
             </div>
 
-            <div class="input-group mb-3">
-                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-                <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
-            </div>
+            <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ కోడ్ మార్పు -->
+<div class="input-group mb-3">
+    <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onkeypress="if(event.key === 'Enter') searchAadhar();">
+    <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
+</div>
         </div>
 
         <!-- డైనమిక్ ఫారమ్ డిస్‌ప్లే అయ్యే ఏరియా -->
@@ -136,6 +137,10 @@
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
                 }
+
+                // రికార్డ్ దొరికిన తర్వాత ఫారమ్ కనిపించేలా మరియు స్క్రీన్ అక్కడికి వెళ్లేలా
+                document.getElementById('form_container').style.display = 'block';
+                document.getElementById('form_container').scrollIntoView({ behavior: 'smooth' });
             } catch (error) {
                 alert('సర్వర్‌ను కనెక్ట్ చేయడంలో సమస్య ఏర్పడింది.');
             }
@@ -313,6 +318,8 @@
             await fetch('/cf/logout', {method: 'POST'});
             window.location.href = '/cf/login';
         }
+
+        
     </script>
 </body>
 </html>
