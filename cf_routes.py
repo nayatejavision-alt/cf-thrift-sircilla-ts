@@ -103,7 +103,7 @@ def cf_search_beneficiary():
         # Supabase నుండి ఈమెయిల్ ఐడి పొందడం
         email_id = ""
         try:
-            email_res = supabase.table('bank_email_ids').select("OFFICIAL_EMAIL").eq('FILE NAME', selected_file_name).execute()
+            email_res = supabase.table('bank_email_ids').select("OFFICIAL_EMAIL").eq('FILE_NAME', selected_file_name).execute()
             if email_res.data:
                 email_id = email_res.data[0].get('OFFICIAL_EMAIL', '')
         except Exception:
