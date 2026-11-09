@@ -12,3 +12,4 @@ openpyxl==3.1.2
 gunicorn==21.2.0
 docxtpl
 num2words
+supabase
