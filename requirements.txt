@@ -13,3 +13,4 @@ gunicorn==21.2.0
 docxtpl
 num2words
 supabase
+python-dotenv
