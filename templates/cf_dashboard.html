@@ -157,6 +157,24 @@
             };
             const wageOptions = [200, 300, 500, 600, 700, 800, 1000, 1200];
 
+            // 🔹 ఇండిపెండెంట్ (కోర్) డేటా ముందు, వాటి డిపెండెంట్/కాల్క్యులేటెడ్ డేటా వెంటనే వచ్చేలా ఆర్డర్ అమర్చడం
+            const priorityOrder = [
+                'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'Contact Number', // మెయిన్ వివరాలు
+                'DISTRICT NAME', 'MANDAL NAME', 'Village', 'Area', 'H.NO. Unit H.No', 'Unit Owner', 'Relation', // అడ్రస్ & యూనిట్ వివరాలు
+                'Profession', 'Caste', 'Date OF Birth', 'Age', // వృత్తి & వయస్సు (DOB తర్వాత Age)
+                '8% Of Monthly Wages', 'MONTHLY WAGES', // వేతనాలు (8% తర్వాత Monthly Wages)
+                'BANK_SNO', 'SNO', 'FILE NAME', 'Bank Name', 'EMAIL ID', 'NAME OF CF', 'BANK SENT' // సిస్టమ్ / అఫీషియల్ వివరాలు
+            ];
+
+            // కాలమ్స్‌ని పైన ఇచ్చిన ప్రాధాన్యత క్రమంలో సాట్ చేయడం
+            columns.sort((a, b) => {
+                let idxA = priorityOrder.indexOf(a);
+                let idxB = priorityOrder.indexOf(b);
+                if (idxA === -1) idxA = 999;
+                if (idxB === -1) idxB = 999;
+                return idxA - idxB;
+            });
+
             columns.forEach(col => {
                 let val = (data && data[col] !== undefined && data[col] !== null) ? data[col] : '';
                 if (col === 'Aadhar Number') val = aadhar;
