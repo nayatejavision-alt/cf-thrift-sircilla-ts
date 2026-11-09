@@ -117,7 +117,7 @@ def get_bank_list_from_sheet():
     ws_email_map = sh.worksheet('Bank_Email_Ids')
     df_email_map = pd.DataFrame(ws_email_map.get_all_records())
     banks = (
-        df_email_map['FILE NAME'].dropna().astype(str).str.strip().unique().tolist()
+        df_email_map['FILE_NAME'].dropna().astype(str).str.strip().unique().tolist()
     )
     return [b for b in banks if b and b != '0']
   except Exception as e:
@@ -223,7 +223,7 @@ def background_draft_task(data, app_context):
       df_email_map = pd.DataFrame(ws_email_map.get_all_records())
       email_dict = dict(
           zip(
-              df_email_map['FILE NAME'].astype(str).str.strip(),
+              df_email_map['FILE_NAME'].astype(str).str.strip(),
               df_email_map['OFFICIAL_EMAIL'].astype(str).str.strip(),
           )
       )
