@@ -37,6 +37,16 @@ from reports_routes import reports_bp
 import pandas as pd
 from rd_home import rd_bp
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+load_dotenv()  # .env ఫైల్‌లోని విలువలను లోడ్ చేస్తుంది
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Supabase క్లయింట్ రెడీ అవుతుంది
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
 app.secret_key = 'thrift_scheme_secret_key'
