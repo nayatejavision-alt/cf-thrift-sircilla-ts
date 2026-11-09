@@ -279,40 +279,53 @@
         }
     
         // డేటా సేవ్ చేసే ఫంక్షన్
-        async function saveBeneficiaryData() {
-            const form = document.getElementById('dynamic_beneficiary_form');
-            const formData = {};
-            const inputs = form.querySelectorAll('input');
-            
-            inputs.forEach(input => {
-                if(input.name && input.name !== 'action_type' && input.name !== 'row_index') {
-                    formData[input.name] = input.value;
-                }
-            });
-
-            const payload = {
-                action_type: document.getElementById('action_type').value,
-                row_index: document.getElementById('row_index').value,
-                form_data: formData
-            };
-
-            try {
-                const response = await fetch('/cf/save-beneficiary', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-
-                alert(result.message);
-                if(result.status === 'success') {
-                    location.reload();
-                }
-            } catch (error) {
-                alert('డేటా సేవ్ చేయడంలో సమస్య ఏర్పడింది.');
-            }
+       async function saveBeneficiaryData() {
+    const form = document.getElementById('dynamic_beneficiary_form');
+    
+    // --- మొబైల్ నంబర్ వాలిడేషన్ (JavaScript) ---
+    const contactInput = form.querySelector('input[name="Contact Number"]');
+    if (contactInput) {
+        const contactVal = contactInput.value.trim();
+        // ఒకవేళ నంబర్ ఎంటర్ చేసి ఉండి, అది 10 అంకెలు లేకపోతే లేదా నంబర్స్ కాకపోతే
+        if (contactVal && (contactVal.length !== 10 || !/^\d+$/.test(contactVal))) {
+            alert('దయచేసి సరైన 10 అంకెల మొబైల్ నంబర్ ఎంటర్ చేయండి!');
+            contactInput.focus();
+            return; // డేటా సేవ్ కాకుండా ఆపేస్తుంది
         }
+    }
+    // ---------------------------------------------
 
+    const formData = {};
+    const inputs = form.querySelectorAll('input');
+    
+    inputs.forEach(input => {
+        if(input.name && input.name !== 'action_type' && input.name !== 'row_index') {
+            formData[input.name] = input.value;
+        }
+    });
+
+    const payload = {
+        action_type: document.getElementById('action_type').value,
+        row_index: document.getElementById('row_index').value,
+        form_data: formData
+    };
+
+    try {
+        const response = await fetch('/cf/save-beneficiary', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+
+        alert(result.message);
+        if(result.status === 'success') {
+            location.reload();
+        }
+    } catch (error) {
+        alert('డేటా సేవ్ చేయడంలో సమస్య ఏర్పడింది.');
+    }
+}
         // లాగౌట్ ఫంక్షన్
         async function cfLogout() {
             await fetch('/cf/logout', {method: 'POST'});
