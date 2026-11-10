@@ -1209,13 +1209,17 @@ def download_excel():
           'Name Of Benificiary': (
               row.get('Name Of Benificiary') or row.get('NAME') or ''
           ),
-          'Contact Number' : row.get('Contact Number') or row.get('Contact_Number') or ''),
+          'Contact Number' : (
+              row.get('Contact Number') or row.get('Contact_Number') or ''
+          ),
           'Bank Account Number': acc_num,
           'RD ACCOUNT_1': rd_1,
           'RD ACCOUNT_2': rd_2,
           'Bank Closing Balance': closing_balance,
           'FILE NAME': file_name,
-          'NAME OF CF': ( row.get('NAME OF CF') or row.get('NAME_OF_CF') or ''),
+          'NAME OF CF': ( 
+              row.get('NAME OF CF') or row.get('NAME_OF_CF') or ''
+          )
       }
 
       all_month_data.append(record_item)
