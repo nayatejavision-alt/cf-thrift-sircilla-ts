@@ -1209,6 +1209,7 @@ def download_excel():
           'Name Of Benificiary': (
               row.get('Name Of Benificiary') or row.get('NAME') or ''
           ),
+          'Contact Number' : row.get('Contact Number') or row.get('Contact_Number') or ''),
           'Bank Account Number': acc_num,
           'RD ACCOUNT_1': rd_1,
           'RD ACCOUNT_2': rd_2,
@@ -1246,7 +1247,7 @@ def download_excel():
 
     output.seek(0)
     filename = (
-        f"{bank_user.replace(' ', '_')}_Month_{current_month}_All_Batches.xlsx"
+        f"{bank_user.replace(' ', '_')}_Month_{current_month}_All_Batches_With_CF_NAME.xlsx"
     )
 
     return send_file(
