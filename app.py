@@ -1214,6 +1214,7 @@ def download_excel():
           'RD ACCOUNT_2': rd_2,
           'Bank Closing Balance': closing_balance,
           'FILE NAME': file_name,
+          'NAME OF CF': ( row.get('NAME OF CF') or row.get('NAME_OF_CF') or ''),
       }
 
       all_month_data.append(record_item)
