@@ -1882,6 +1882,58 @@ def process_reconcile():
   except Exception as e:
     return f'Error processing reconciliation file: {str(e)}', 400
 
+@app.route('/api/parse-excel-headers', methods=['POST'])
+def parse_excel_headers():
+    """అప్‌లోడ్ చేసిన ఎక్సెల్ ఫైల్ నుండి షీట్ పేర్లు మరియు కాలమ్స్ ఎక్స్‌ట్రాక్ట్ చేసే API"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'ఫైల్ లభించలేదు.'}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'ఫైల్ ఎంచుకోలేదు.'}), 400
+
+        # Excel File రీడ్ చేయడం
+        excel_file = pd.ExcelFile(file)
+        sheet_names = excel_file.sheet_names
+        
+        # మొదటి షీట్ లోని కాలమ్ పేర్లను తీసుకోడం
+        df_first = pd.read_excel(excel_file, sheet_name=sheet_names[0], nrows=1)
+        columns = [str(col).strip() for col in df_first.columns]
+
+        return jsonify({
+            'status': 'success',
+            'sheets': sheet_names,
+            'columns': columns
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'ఫైల్ రీడ్ చేయడంలో లోపం: {str(e)}'}), 500
+
+@app.route('/api/get-sheet-columns', methods=['POST'])
+def get_sheet_columns():
+    """ఎంచుకున్న నిర్దిష్ట షీట్ లోని కాలమ్స్ ఎక్స్‌ట్రాక్ట్ చేసే API"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'ఫైల్ లభించలేదు.'}), 400
+            
+        file = request.files['file']
+        sheet_name = request.form.get('sheet_name', '').strip()
+        
+        excel_file = pd.ExcelFile(file)
+        if sheet_name not in excel_file.sheet_names:
+            sheet_name = excel_file.sheet_names[0]
+            
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, nrows=1)
+        columns = [str(col).strip() for col in df.columns]
+
+        return jsonify({
+            'status': 'success',
+            'columns': columns
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'కాలమ్స్ లోడ్ చేయడంలో లోపం: {str(e)}'}), 500
+
+
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
   session.pop('bank_user', None)
