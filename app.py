@@ -1605,6 +1605,7 @@ def process_join():
             sheet2 = request.form.get('sheet2', '').strip()
             col2 = request.form.get('col2', '').strip()
             
+            # మెమరీ ఆప్టిమైజేషన్ కోసం అవసరమైన కాలమ్స్ మాత్రమే రీడ్ చేయడం (ఆప్షనల్)
             df1 = pd.read_excel(file, sheet_name=sheet1 if sheet1 else 0)
             df2 = pd.read_excel(file, sheet_name=sheet2 if sheet2 else 1)
             
@@ -1643,8 +1644,13 @@ def process_join():
         df1['Clean_Key'] = df1[col1].apply(clean_acc)
         df2['Clean_Key'] = df2[col2].apply(clean_acc)
         
-        # Left Join చేయడం
-        merged_df = pd.merge(df1, df2, on='Clean_Key', how='left', suffixes=('_left', '_right'))
+        # ✅ మీరు అడిగిన ఆప్టిమైజేషన్ లాజిక్ (Subset మరియు Drop Duplicates)
+        # ఒకవేళ పెద్ద ఫైల్స్ అయితే మెమరీ భారం తగ్గించడానికి డూప్లికేట్స్ తొలగించడం
+        df1_subset = df1.drop_duplicates(subset=['Clean_Key']).copy()
+        df2_subset = df2.drop_duplicates(subset=['Clean_Key']).copy()
+        
+        # Left Join చేయడం (Clean_Key ఆధారంగా)
+        merged_df = pd.merge(df1_subset, df2_subset, on='Clean_Key', how='left', suffixes=('_left', '_right'))
         merged_df = merged_df.drop(columns=['Clean_Key'])
         
         output_file = "Merged_RD_Accounts_Output.xlsx"
@@ -1654,7 +1660,6 @@ def process_join():
         
     except Exception as e:
         return f"ఫైల్ ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
-
 
 @app.route('/process-reconcile', methods=['POST'])
 def process_reconcile():
