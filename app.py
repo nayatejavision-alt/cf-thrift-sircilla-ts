@@ -346,6 +346,15 @@ def background_draft_task(data, app_context):
           export_df['RD ACCOUNT_2 (Govt Contribution)'] = ''
 
         export_df['RD-2 (Govt_Share) Contribution'] = active_df['Govt_Share']
+        export_df['Nominee Name'] = active_df[
+              'Nominee Name'
+          ].apply(format_as_excel_text)
+          export_df['Relation'] = active_df[
+              'Relation'
+          ].apply(format_as_excel_text)
+          export_df['Nominee DOB'] = active_df[
+              'Nominee DOB'
+          ].apply(format_as_excel_text)  
         export_df['Contact Number'] = (
             active_df['Contact Number'].apply(format_as_excel_text)
             if 'Contact Number' in active_df.columns
