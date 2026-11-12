@@ -349,10 +349,11 @@ def background_draft_task(data, app_context):
         export_df['Nominee Name'] = active_df[
               'Nominee Name'
           ].apply(format_as_excel_text)
-          export_df['Relation'] = active_df[
+          
+        export_df['Relation'] = active_df[
               'Relation'
           ].apply(format_as_excel_text)
-          export_df['Nominee DOB'] = active_df[
+        export_df['Nominee DOB'] = active_df[
               'Nominee DOB'
           ].apply(format_as_excel_text)  
         export_df['Contact Number'] = (
