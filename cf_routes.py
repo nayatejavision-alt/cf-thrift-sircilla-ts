@@ -395,7 +395,7 @@ def cf_get_bank_files():
         spreadsheet = client.open(SPREADSHEET_NAME)
         ws = spreadsheet.worksheet('Bank_Email_Ids')
         records = ws.get_all_records()
-        file_names = [str(r.get('FILE NAME', '')).strip() for r in records if r.get('FILE NAME')]
+        file_names = [str(r.get('FILE_NAME')).strip() for r in records if r.get('FILE_NAME')]
         return jsonify({"status": "success", "file_names": file_names})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e), "file_names": []})
