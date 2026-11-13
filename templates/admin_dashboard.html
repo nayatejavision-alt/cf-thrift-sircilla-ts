@@ -23,28 +23,35 @@
     <div class="container my-4">
         
         <!-- Summary Cards (Grand Totals) -->
+        <!-- Summary Cards (Grand Totals) -->
         <div class="row g-3 mb-4">
-            <div class="col-md-3">
+            <div class="col-md">
                 <div class="card border-0 shadow-sm bg-primary text-white p-3 rounded-4">
-                    <h6 class="text-uppercase small">మొత్తం లబ్ధిదారులు (Grand Total)</h6>
+                    <h6 class="text-uppercase small">మొత్తం లబ్ధిదారులు</h6>
                     <h2 class="fw-bold mb-0">{{ total }}</h2>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md">
                 <div class="card border-0 shadow-sm bg-success text-white p-3 rounded-4">
-                    <h6 class="text-uppercase small">మొత్తం పూర్తయినవి (Total Completed)</h6>
+                    <h6 class="text-uppercase small">మొత్తం పూర్తయినవి</h6>
                     <h2 class="fw-bold mb-0">{{ completed }}</h2>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md">
                 <div class="card border-0 shadow-sm bg-danger text-white p-3 rounded-4">
-                    <h6 class="text-uppercase small">మొత్తం పెండింగ్ (Total Pending)</h6>
+                    <h6 class="text-uppercase small">మొత్తం పెండింగ్</h6>
                     <h2 class="fw-bold mb-0">{{ pending }}</h2>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md">
+                <div class="card border-0 shadow-sm bg-warning text-dark p-3 rounded-4">
+                    <h6 class="text-uppercase small">మొత్తం ప్రభుత్వ వాటా</h6>
+                    <h2 class="fw-bold mb-0">₹ {{ "{:,.2f}".format(total_govt_share) }}</h2>
+                </div>
+            </div>
+            <div class="col-md">
                 <div class="card border-0 shadow-sm bg-info text-white p-3 rounded-4">
-                    <h6 class="text-uppercase small">పూర్తయిన బ్యాచ్‌లు (Batches Done)</h6>
+                    <h6 class="text-uppercase small">పూర్తయిన బ్యాచ్‌లు</h6>
                     <h2 class="fw-bold mb-0">{{ completed_batches_count }} / {{ total_batches_count }}</h2>
                 </div>
             </div>
@@ -52,10 +59,10 @@
 
         <!-- 1. Batch Wise Summary Table -->
         <div class="card border-0 shadow-sm rounded-4 mb-4">
-            <div class="card-header bg-white py-3">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0 fw-bold text-primary">📦 బ్యాచ్ వారీగా పురోగతి నివేదిక (Batch-Wise Summary)</h5>
-                <a href="{{ url_for('admin_bp.export_admin_excel') }}" class="btn btn-success me-2">
-                    <i class="fas fa-file-excel"></i> Excel రిపోర్ట్ డౌన్‌లోడ్ చేసుకోండి
+                <a href="{{ url_for('admin_bp.export_admin_excel') }}" class="btn btn-success btn-sm fw-bold">
+                    📥 Excel రిపోర్ట్ డౌన్‌లోడ్ చేసుకోండి
                 </a>
             </div>
             <div class="card-body p-0">
@@ -67,6 +74,7 @@
                                 <th>మొత్తం (Total)</th>
                                 <th>పూర్తయినవి (Completed)</th>
                                 <th>పెండింగ్ (Pending)</th>
+                                <th>ప్రభుత్వ వాటా (Govt Share)</th>
                                 <th>స్టేటస్ (Status)</th>
                             </tr>
                         </thead>
@@ -77,6 +85,7 @@
                                 <td>{{ stats.total }}</td>
                                 <td><span class="badge bg-success px-2 py-1">{{ stats.completed }}</span></td>
                                 <td><span class="badge bg-danger px-2 py-1">{{ stats.pending }}</span></td>
+                                <td class="fw-bold text-dark">₹ {{ "{:,.2f}".format(stats.govt_share) }}</td>
                                 <td>
                                     {% if stats.pending == 0 %}
                                         <span class="badge bg-success">COMPLETED ✅</span>
@@ -93,6 +102,7 @@
                                 <td>{{ total }}</td>
                                 <td class="text-success">{{ completed }}</td>
                                 <td class="text-danger">{{ pending }}</td>
+                                <td class="text-primary">₹ {{ "{:,.2f}".format(total_govt_share) }}</td>
                                 <td>-</td>
                             </tr>
                         </tfoot>
@@ -105,9 +115,6 @@
         <div class="card border-0 shadow-sm rounded-4 mb-4">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0 fw-bold text-secondary">🏦 బ్యాంక్ వారీగా పురోగతి నివేదిక (Bank-Wise Summary)</h5>
-                <a href="/admin/download-report" class="btn btn-success btn-sm fw-bold shadow-sm">
-                    📥 ఎక్సెల్ రిపోర్ట్ డౌన్‌లోడ్ (Download CSV)
-                </a>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -118,6 +125,7 @@
                                 <th>మొత్తం (Total)</th>
                                 <th>పూర్తయినవి (Completed)</th>
                                 <th>పెండింగ్ (Pending)</th>
+                                <th>ప్రభుత్వ వాటా (Govt Share)</th>
                                 <th>పురోగతి (%)</th>
                             </tr>
                         </thead>
@@ -128,10 +136,11 @@
                                 <td>{{ stats.total }}</td>
                                 <td><span class="badge bg-success px-2 py-1">{{ stats.completed }}</span></td>
                                 <td><span class="badge bg-danger px-2 py-1">{{ stats.pending }}</span></td>
+                                <td class="fw-bold text-dark">₹ {{ "{:,.2f}".format(stats.govt_share) }}</td>
                                 <td>
                                     {% set pct = (stats.completed / stats.total * 100) if stats.total > 0 else 0 %}
                                     <div class="progress" style="height: 18px;">
-                                        <div class="progress-bar bg-success" role="progressbar" style="width: {{ pct }}%;" aria-valuenow="{{ pct }}" aria-valuemin="0" aria-valuemax="100">{{ "%.1f"|format(pct) }}%</div>
+                                        <div class="progress-bar bg-success" role="progressbar" style="width: {{ pct }}%;">{{ "%.1f"|format(pct) }}%</div>
                                     </div>
                                 </td>
                             </tr>
@@ -143,6 +152,7 @@
                                 <td>{{ total }}</td>
                                 <td class="text-success">{{ completed }}</td>
                                 <td class="text-danger">{{ pending }}</td>
+                                <td class="text-primary">₹ {{ "{:,.2f}".format(total_govt_share) }}</td>
                                 <td>
                                     {% set grand_pct = (completed / total * 100) if total > 0 else 0 %}
                                     {{ "%.1f"|format(grand_pct) }}%
@@ -154,114 +164,117 @@
             </div>
         </div>
 
-        <!-- 3. Batch + Bank Detailed Matrix Table (With Sub-Totals) -->
-<div class="card border-0 shadow-sm rounded-4 mb-4">
-    <div class="card-header bg-white py-3">
-        <h5 class="mb-0 fw-bold text-dark">📊 బ్యాచ్ + బ్యాంక్ వారీ వివరాలు (Batch & Bank Detailed Breakdown)</h5>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-bordered align-middle mb-0 text-center">
-                <thead class="table-dark">
-                    <tr>
-                        <th>బ్యాచ్ (Batch)</th>
-                        <th>బ్యాంక్ పేరు (Bank)</th>
-                        <th>మొత్తం (Total)</th>
-                        <th>పూర్తయినవి (Completed)</th>
-                        <th>పెండింగ్ (Pending)</th>
-                        <th>పురోగతి (%)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for batch_no, batch_data in batch_wise_matrix.items() %}
-                        <!-- బ్యాంకుల వివరాలు -->
-                        {% for item in batch_data.banks %}
-                        <tr>
-                            <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
-                            <td class="text-start ps-4 fw-semibold text-primary">{{ item.Bank_Name }}</td>
-                            <td>{{ item.total }}</td>
-                            <td class="text-success fw-bold">{{ item.completed }}</td>
-                            <td class="text-danger fw-bold">{{ item.pending }}</td>
-                            <td>
-                                {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
-                                {{ "%.1f"|format(pct) }}%
-                            </td>
-                        </tr>
-                        {% endfor %}
-                        
-                        <!-- బ్యాచ్ సబ్-టోటల్ రో (Sub-Total Row) -->
-                        <tr class="table-primary fw-bold">
-                            <td colspan="2" class="text-end pe-4">Batch {{ batch_no }} సబ్-టోటల్ (Sub-Total)</td>
-                            <td>{{ batch_data.sub_total.total }}</td>
-                            <td class="text-success">{{ batch_data.sub_total.completed }}</td>
-                            <td class="text-danger">{{ batch_data.sub_total.pending }}</td>
-                            <td>
-                                {% set sub_pct = (batch_data.sub_total.completed / batch_data.sub_total.total * 100) if batch_data.sub_total.total > 0 else 0 %}
-                                {{ "%.1f"|format(sub_pct) }}%
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <!-- 3. Batch + Bank Detailed Matrix Table -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold text-dark">📊 బ్యాచ్ + బ్యాంక్ వారీ వివరాలు (Batch & Bank Detailed Breakdown)</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle mb-0 text-center">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>బ్యాచ్ (Batch)</th>
+                                <th>బ్యాంక్ పేరు (Bank)</th>
+                                <th>మొత్తం (Total)</th>
+                                <th>పూర్తయినవి (Completed)</th>
+                                <th>పెండింగ్ (Pending)</th>
+                                <th>ప్రభుత్వ వాటా (Govt Share)</th>
+                                <th>పురోగతి (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for batch_no, batch_data in batch_wise_matrix.items() %}
+                                {% for item in batch_data.banks %}
+                                <tr>
+                                    <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
+                                    <td class="text-start ps-4 fw-semibold text-primary">{{ item.Bank_Name }}</td>
+                                    <td>{{ item.total }}</td>
+                                    <td class="text-success fw-bold">{{ item.completed }}</td>
+                                    <td class="text-danger fw-bold">{{ item.pending }}</td>
+                                    <td class="fw-bold">₹ {{ "{:,.2f}".format(item.govt_share) }}</td>
+                                    <td>
+                                        {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
+                                        {{ "%.1f"|format(pct) }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                
+                                <tr class="table-primary fw-bold">
+                                    <td colspan="2" class="text-end pe-4">Batch {{ batch_no }} సబ్-టోటల్ (Sub-Total)</td>
+                                    <td>{{ batch_data.sub_total.total }}</td>
+                                    <td class="text-success">{{ batch_data.sub_total.completed }}</td>
+                                    <td class="text-danger">{{ batch_data.sub_total.pending }}</td>
+                                    <td class="text-primary">₹ {{ "{:,.2f}".format(batch_data.sub_total.govt_share) }}</td>
+                                    <td>
+                                        {% set sub_pct = (batch_data.sub_total.completed / batch_data.sub_total.total * 100) if batch_data.sub_total.total > 0 else 0 %}
+                                        {{ "%.1f"|format(sub_pct) }}%
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-    </div>
-</div>
 
-<!-- 4. CF + Bank + Batch Detailed Matrix Table (సబ్-టోటల్స్‌తో) -->
-<div class="card border-0 shadow-sm rounded-4 mb-4" id="cf-bank-section">
-    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h5 class="mb-0 fw-bold text-success">👤 CF & బ్యాంక్ వారీగా బ్యాచ్ పురోగతి (CF & Bank-Wise Breakdown)</h5>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-bordered align-middle mb-0 text-center">
-                <thead class="table-success text-dark">
-                    <tr>
-                        <th>CF పేరు (Name of CF)</th>
-                        <th>బ్యాంక్ / ఫైల్ పేరు (Bank Name)</th>
-                        <th>బ్యాచ్ (Batch)</th>
-                        <th>మొత్తం (Total)</th>
-                        <th>పూర్తయినవి (Completed)</th>
-                        <th>పెండింగ్ (Pending)</th>
-                        <th>పురోగతి (%)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for cf_name, cf_data in cf_bank_matrix.items() %}
-                        {% for item in cf_data.rows %}
-                        <tr>
-                            {% if loop.first %}
-                            <td rowspan="{{ cf_data.rows|length + 1 }}" class="fw-bold bg-light align-middle text-primary">{{ cf_name }}</td>
-                            {% endif %}
-                            <td class="text-start ps-3 fw-semibold">{{ item.Bank_Name }}</td>
-                            <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
-                            <td>{{ item.total }}</td>
-                            <td class="text-success fw-bold">{{ item.completed }}</td>
-                            <td class="text-danger fw-bold">{{ item.pending }}</td>
-                            <td>
-                                {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
-                                {{ "%.1f"|format(pct) }}%
-                            </td>
-                        </tr>
-                        {% endfor %}
+        <!-- 4. CF + Bank + Batch Detailed Matrix Table -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4" id="cf-bank-section">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold text-success">👤 CF & బ్యాంక్ వారీగా బ్యాచ్ పురోగతి (CF & Bank-Wise Breakdown)</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle mb-0 text-center">
+                        <thead class="table-success text-dark">
+                            <tr>
+                                <th>CF పేరు (Name of CF)</th>
+                                <th>బ్యాంక్ / ఫైల్ పేరు (Bank Name)</th>
+                                <th>బ్యాచ్ (Batch)</th>
+                                <th>మొత్తం (Total)</th>
+                                <th>పూర్తయినవి (Completed)</th>
+                                <th>పెండింగ్ (Pending)</th>
+                                <th>ప్రభుత్వ వాటా (Govt Share)</th>
+                                <th>పురోగతి (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cf_name, cf_data in cf_bank_matrix.items() %}
+                                {% for item in cf_data.rows %}
+                                <tr>
+                                    {% if loop.first %}
+                                    <td rowspan="{{ cf_data.rows|length + 1 }}" class="fw-bold bg-light align-middle text-primary">{{ cf_name }}</td>
+                                    {% endif %}
+                                    <td class="text-start ps-3 fw-semibold">{{ item.Bank_Name }}</td>
+                                    <td><span class="badge bg-secondary">Batch {{ item.Batch_No }}</span></td>
+                                    <td>{{ item.total }}</td>
+                                    <td class="text-success fw-bold">{{ item.completed }}</td>
+                                    <td class="text-danger fw-bold">{{ item.pending }}</td>
+                                    <td class="fw-bold">₹ {{ "{:,.2f}".format(item.govt_share) }}</td>
+                                    <td>
+                                        {% set pct = (item.completed / item.total * 100) if item.total > 0 else 0 %}
+                                        {{ "%.1f"|format(pct) }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
 
-                        <!-- CF సబ్-టోటల్ రో (Sub-Total Row) -->
-                        <tr class="table-success fw-bold">
-                            <td colspan="2" class="text-end pe-3">{{ cf_name }} మొత్తము (Sub-Total)</td>
-                            <td>Total/td>
-                            <td class="text-success">{{ cf_data.sub_total.completed }}</td>
-                            <td class="text-danger">{{ cf_data.sub_total.pending }}</td>
-                            <td>
-                                {% set cf_pct = (cf_data.sub_total.completed / cf_data.sub_total.total * 100) if cf_data.sub_total.total > 0 else 0 %}
-                                {{ "%.1f"|format(cf_pct) }}%
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>    
+                                <tr class="table-success fw-bold">
+                                    <td colspan="2" class="text-end pe-3">{{ cf_name }} మొత్తము (Sub-Total)</td>
+                                    <td>{{ cf_data.sub_total.total }}</td>
+                                    <td class="text-success">{{ cf_data.sub_total.completed }}</td>
+                                    <td class="text-danger">{{ cf_data.sub_total.pending }}</td>
+                                    <td class="text-primary">₹ {{ "{:,.2f}".format(cf_data.sub_total.govt_share) }}</td>
+                                    <td>
+                                        {% set cf_pct = (cf_data.sub_total.completed / cf_data.sub_total.total * 100) if cf_data.sub_total.total > 0 else 0 %}
+                                        {{ "%.1f"|format(cf_pct) }}%
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>  
     
     
     </div>
