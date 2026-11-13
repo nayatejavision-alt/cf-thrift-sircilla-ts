@@ -222,57 +222,60 @@ def export_admin_excel():
         
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else None)
-        t_month_col = 'MONTH_NUMBER' if 'MONTH_NUMBER' in df_trans.columns else ('MONTH NUMBER' if 'MONTH NUMBER' in df_trans.columns else None)
         
         if not df_trans.empty and t_rd_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
             df_trans['Batch_No'] = df_trans[t_batch_col].astype(str).str.strip() if t_batch_col else '0'
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
             
-            if t_month_col:
-                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col, 'Batch_No']].drop_duplicates()
-            else:
-                completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Batch_No']].drop_duplicates()
-
-           
-
+            # RD_Account మరియు Batch_No వారీగా Govt_Share మొత్తాన్ని గ్రూప్ చేయడం
+            completed_trans = df_trans[df_trans['Govt_Share'] > 0].groupby(['RD_Account', 'Batch_No'], as_index=False).agg(
+                Govt_Share_Amt=('Govt_Share', 'sum')
+            )
             completed_trans['Is_Completed'] = True
+            
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
             df_merged['Batch_No'] = df_merged['Batch_No'].fillna('0')
+            df_merged['Govt_Share_Amt'] = df_merged['Govt_Share_Amt'].fillna(0)
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
             df_merged['Batch_No'] = '0'
+            df_merged['Govt_Share_Amt'] = 0
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
         df_merged['Batch_No'] = df_merged['Batch_No'].astype(str).str.replace('.0', '', regex=False)
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
-        # 1. Batch Aggregates
+        # 1. Batch Aggregates (Govt Share తో సహా)
         batch_df = df_merged.groupby('Batch_No').agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         batch_df['pending'] = batch_df['total'] - batch_df['completed']
 
         # 2. Bank Aggregates
         bank_df = df_merged.groupby('Bank_Name').agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         bank_df['pending'] = bank_df['total'] - bank_df['completed']
 
         # 3. Batch + Bank Detailed Matrix
         batch_bank_df = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         batch_bank_df['pending'] = batch_bank_df['total'] - batch_bank_df['completed']
 
         # 4. CF + Bank + Batch Detailed Matrix
         cf_bank_batch_df = df_merged.groupby(['CF_Name', 'Bank_Name', 'Batch_No']).agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         cf_bank_batch_df['pending'] = cf_bank_batch_df['total'] - cf_bank_batch_df['completed']
 
@@ -298,7 +301,7 @@ def export_admin_excel():
         # --- Table 1: Batch-wise Summary ---
         ws.cell(row=r, column=1, value="1. Batch-wise Summary").font = f_sec
         r += 1
-        b_headers = ["Batch No", "Total", "Completed", "Pending", "Completion Rate"]
+        b_headers = ["Batch No", "Total", "Completed", "Pending", "Govt Share (₹)", "Completion Rate"]
         for col_idx, h in enumerate(b_headers, 1):
             cell = ws.cell(row=r, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
@@ -311,23 +314,25 @@ def export_admin_excel():
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
             ws.cell(row=r, column=4, value=int(row['pending'])).number_format = '#,##0'
-            ws.cell(row=r, column=5, value=f"=C{r}/B{r}").number_format = '0.0%'
-            for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
+            ws.cell(row=r, column=5, value=float(row['govt_share'])).number_format = '#,##0.00'
+            ws.cell(row=r, column=6, value=f"=C{r}/B{r}").number_format = '0.0%'
+            for c in range(1, 7): ws.cell(row=r, column=c).border = border_thin
             r += 1
 
         ws.cell(row=r, column=1, value="Total").font = f_bold
         ws.cell(row=r, column=2, value=f"=SUM(B{start_b_row}:B{r-1})").font = f_bold
         ws.cell(row=r, column=3, value=f"=SUM(C{start_b_row}:C{r-1})").font = f_bold
         ws.cell(row=r, column=4, value=f"=SUM(D{start_b_row}:D{r-1})").font = f_bold
-        ws.cell(row=r, column=5, value=f"=C{r}/B{r}").font = f_bold
-        for c in range(1, 6): ws.cell(row=r, column=c).fill = fill_sub
+        ws.cell(row=r, column=5, value=f"=SUM(E{start_b_row}:E{r-1})").font = f_bold
+        ws.cell(row=r, column=6, value=f"=C{r}/B{r}").font = f_bold
+        for c in range(1, 7): ws.cell(row=r, column=c).fill = fill_sub
         
         r += 3
 
         # --- Table 2: Bank-wise Summary ---
         ws.cell(row=r, column=1, value="2. Bank-wise Summary").font = f_sec
         r += 1
-        bank_headers = ["Bank Name", "Total", "Completed", "Pending", "Completion Rate"]
+        bank_headers = ["Bank Name", "Total", "Completed", "Pending", "Govt Share (₹)", "Completion Rate"]
         for col_idx, h in enumerate(bank_headers, 1):
             cell = ws.cell(row=r, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
@@ -340,23 +345,25 @@ def export_admin_excel():
             ws.cell(row=r, column=2, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=3, value=int(row['completed'])).number_format = '#,##0'
             ws.cell(row=r, column=4, value=int(row['pending'])).number_format = '#,##0'
-            ws.cell(row=r, column=5, value=f"=C{r}/B{r}").number_format = '0.0%'
-            for c in range(1, 6): ws.cell(row=r, column=c).border = border_thin
+            ws.cell(row=r, column=5, value=float(row['govt_share'])).number_format = '#,##0.00'
+            ws.cell(row=r, column=6, value=f"=C{r}/B{r}").number_format = '0.0%'
+            for c in range(1, 7): ws.cell(row=r, column=c).border = border_thin
             r += 1
 
         ws.cell(row=r, column=1, value="Total").font = f_bold
         ws.cell(row=r, column=2, value=f"=SUM(B{start_bank_row}:B{r-1})").font = f_bold
         ws.cell(row=r, column=3, value=f"=SUM(C{start_bank_row}:C{r-1})").font = f_bold
         ws.cell(row=r, column=4, value=f"=SUM(D{start_bank_row}:D{r-1})").font = f_bold
-        ws.cell(row=r, column=5, value=f"=C{r}/B{r}").font = f_bold
-        for c in range(1, 6): ws.cell(row=r, column=c).fill = fill_sub
+        ws.cell(row=r, column=5, value=f"=SUM(E{start_bank_row}:E{r-1})").font = f_bold
+        ws.cell(row=r, column=6, value=f"=C{r}/B{r}").font = f_bold
+        for c in range(1, 7): ws.cell(row=r, column=c).fill = fill_sub
 
         r += 3
 
         # --- Table 3: Batch + Bank Detailed Matrix with Sub-Totals ---
         ws.cell(row=r, column=1, value="3. Batch & Bank Detailed Breakdown").font = f_sec
         r += 1
-        matrix_headers = ["Batch No", "Bank Name", "Total", "Completed", "Pending", "Completion Rate"]
+        matrix_headers = ["Batch No", "Bank Name", "Total", "Completed", "Pending", "Govt Share (₹)", "Completion Rate"]
         for col_idx, h in enumerate(matrix_headers, 1):
             cell = ws.cell(row=r, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
@@ -371,8 +378,9 @@ def export_admin_excel():
                 ws.cell(row=r, column=3, value=int(row['total'])).number_format = '#,##0'
                 ws.cell(row=r, column=4, value=int(row['completed'])).number_format = '#,##0'
                 ws.cell(row=r, column=5, value=int(row['pending'])).number_format = '#,##0'
-                ws.cell(row=r, column=6, value=f"=D{r}/C{r}").number_format = '0.0%'
-                for c in range(1, 7): ws.cell(row=r, column=c).border = border_thin
+                ws.cell(row=r, column=6, value=float(row['govt_share'])).number_format = '#,##0.00'
+                ws.cell(row=r, column=7, value=f"=D{r}/C{r}").number_format = '0.0%'
+                for c in range(1, 8): ws.cell(row=r, column=c).border = border_thin
                 r += 1
             
             ws.cell(row=r, column=1, value=f"Total Batch {batch_no}").font = f_bold
@@ -380,8 +388,9 @@ def export_admin_excel():
             ws.cell(row=r, column=3, value=f"=SUM(C{start_grp_row}:C{r-1})").font = f_bold
             ws.cell(row=r, column=4, value=f"=SUM(D{start_grp_row}:D{r-1})").font = f_bold
             ws.cell(row=r, column=5, value=f"=SUM(E{start_grp_row}:E{r-1})").font = f_bold
-            ws.cell(row=r, column=6, value=f"=D{r}/C{r}").font = f_bold
-            for c in range(1, 7):
+            ws.cell(row=r, column=6, value=f"=SUM(F{start_grp_row}:F{r-1})").font = f_bold
+            ws.cell(row=r, column=7, value=f"=D{r}/C{r}").font = f_bold
+            for c in range(1, 8):
                 ws.cell(row=r, column=c).fill = fill_sub
                 ws.cell(row=r, column=c).border = border_thin
             r += 1
@@ -390,7 +399,7 @@ def export_admin_excel():
         # --- Table 4: CF + Bank + Batch Detailed Matrix ---
         ws.cell(row=r, column=1, value="4. CF & Bank-Wise Batch Breakdown").font = f_sec
         r += 1
-        cf_headers = ["CF Name", "Bank Name", "Batch No", "Total", "Completed", "Pending", "Completion Rate"]
+        cf_headers = ["CF Name", "Bank Name", "Batch No", "Total", "Completed", "Pending", "Govt Share (₹)", "Completion Rate"]
         for col_idx, h in enumerate(cf_headers, 1):
             cell = ws.cell(row=r, column=col_idx, value=h)
             cell.font, cell.fill = f_hdr, fill_navy
@@ -404,8 +413,9 @@ def export_admin_excel():
             ws.cell(row=r, column=4, value=int(row['total'])).number_format = '#,##0'
             ws.cell(row=r, column=5, value=int(row['completed'])).number_format = '#,##0'
             ws.cell(row=r, column=6, value=int(row['pending'])).number_format = '#,##0'
-            ws.cell(row=r, column=7, value=f"=E{r}/D{r}").number_format = '0.0%'
-            for c in range(1, 8): 
+            ws.cell(row=r, column=7, value=float(row['govt_share'])).number_format = '#,##0.00'
+            ws.cell(row=r, column=8, value=f"=E{r}/D{r}").number_format = '0.0%'
+            for c in range(1, 9): 
                 ws.cell(row=r, column=c).border = border_thin
             r += 1
 
