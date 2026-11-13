@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Thrift Scheme Gmail Draft Generator</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.net/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         body {
             background: linear-gradient(135deg, #eef2f3 0%, #8e9eab 100%);
@@ -107,6 +107,27 @@
 
     <form id="draftForm">
         <div class="row g-3">
+            
+            <!-- కొత్తగా చేర్చబడిన 12 దశల డ్రాప్ డౌన్ -->
+            <div class="col-12">
+                <label for="process_step" class="form-label"><i class="fa-solid fa-list-check me-1"></i>ప్రాసెస్ దశను ఎంచుకోండి (Process Step):</label>
+                <select name="process_step" id="process_step" class="form-select" required>
+                    <option value="">-- దశను ఎంచుకోండి (1 నుండి 12 వరకు) --</option>
+                    <option value="1">1. లబ్ధిదారుల ప్రాథమిక జాబితా తయారీ</option>
+                    <option value="2">2. కొత్త RD ఖాతాల ప్రారంభం కోసం అభ్యర్థన</option>
+                    <option value="3">3. బ్యాంకు నుండి కొత్త RD ఖాతా నంబర్ల స్వీకరణ</option>
+                    <option value="4">4. డేటా మ్యాపింగ్ మరియు మాస్టర్ షీట్ అప్‌డేట్</option>
+                    <option value="5">5. కార్మికుడి వాటా (8%) బ్యాంక్ స్టేట్‌మెంట్ల సేకరణ</option>
+                    <option value="6">6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (16%) గణన</option>
+                    <option value="7">7. ప్రభుత్వ వాటా నిధుల మంజూరు మరియు బదిలీ</option>
+                    <option value="8" selected>8. లబ్ధిదారుల వారీగా కేటాయింపు జాబితా పంపడం (Credit Advice)</option>
+                    <option value="9">9. ప్రభుత్వ వాటా జమ మరియు కన్ఫర్మేషన్</option>
+                    <option value="10">10. లోపాల సవరణ మరియు ఉత్తర ప్రత్యుత్తరాలు (Rectification)</option>
+                    <option value="11">11. ఎగ్జిక్యూటివ్ సమ్మరీ మరియు ఆడిట్ రిపోర్ట్స్</option>
+                    <option value="12">12. మెచ్యూరిటీ, NOC జారీ మరియు ఖాతా క్లోజర్</option>
+                </select>
+            </div>
+
             <div class="col-md-6">
                 <label for="month" class="form-label"><i class="fa-regular fa-calendar-alt me-1"></i>నెల (Month):</label>
                 <select name="month" id="month" class="form-select" required>
@@ -248,7 +269,9 @@
         alertBox.classList.add('d-none');
         resetSteps();
 
+        // formData లో process_step ని జోడించడం జరిగింది
         const formData = {
+            process_step: document.getElementById('process_step').value,
             month: document.getElementById('month').value,
             batch: document.getElementById('batch').value,
             bank_name: document.getElementById('bank_name').value,
