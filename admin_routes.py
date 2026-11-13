@@ -51,7 +51,8 @@ def admin_dashboard():
         
         if df_master.empty:
             return render_template('admin_dashboard.html', total=0, completed=0, pending=0, 
-                                   batch_summary={}, bank_summary={}, batch_bank_summary={}, batch_wise_matrix={},
+                                   total_govt_share=0, batch_summary={}, bank_summary={}, 
+                                   batch_bank_summary={}, batch_wise_matrix={}, cf_bank_matrix={},
                                    completed_batches_count=0, total_batches_count=0)
 
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[36])
@@ -61,30 +62,33 @@ def admin_dashboard():
         df_master['Bank_Name'] = df_master[bank_col].astype(str).str.strip().replace('', 'Other')
         df_master['CF_Name'] = df_master[cf_col].astype(str).str.strip().replace('', 'Unknown CF')
         df_master['RD_Account'] = df_master[rd_col].astype(str).str.strip() if rd_col else ''
-        
 
         t_rd_col = 'RD ACCOUNT_1 (Beneficiary Contribution)' if 'RD ACCOUNT_1 (Beneficiary Contribution)' in df_trans.columns else None
         t_batch_col = 'BATCH_NUMBER' if 'BATCH_NUMBER' in df_trans.columns else ('BATCH NO' if 'BATCH NO' in df_trans.columns else 'Batch')
-        t_month_col = 'MONTH_NUMBER' if 'MONTH_NUMBER' in df_trans.columns else 'Month'
         
         if not df_trans.empty and t_rd_col and t_batch_col:
             df_trans['RD_Account'] = df_trans[t_rd_col].astype(str).str.strip()
             df_trans['Batch_No'] = df_trans[t_batch_col].astype(str).str.strip()
-            df_trans['Month_No'] = df_trans[t_month_col].astype(str).str.strip()
             
             if 'Govt_Share' in df_trans.columns:
                 df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
             else:
                 df_trans['Govt_Share'] = 0
 
-            completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Month_No','Batch_No']].drop_duplicates()
+            # RD_Account మరియు Batch_No వారీగా Govt_Share మొత్తాన్ని లెక్కించడం
+            completed_trans = df_trans[df_trans['Govt_Share'] > 0].groupby(['RD_Account', 'Batch_No'], as_index=False).agg(
+                Govt_Share_Amt=('Govt_Share', 'sum')
+            )
             completed_trans['Is_Completed'] = True
             
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
             df_merged['Batch_No'] = df_merged['Batch_No'].fillna('0')
+            df_merged['Govt_Share_Amt'] = df_merged['Govt_Share_Amt'].fillna(0)
         else:
             df_merged = df_master.copy()
             df_merged['Is_Completed'] = False
+            df_merged['Batch_No'] = '0'
+            df_merged['Govt_Share_Amt'] = 0
 
         df_merged['Is_Completed'] = df_merged['Is_Completed'].fillna(False)
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
@@ -92,10 +96,13 @@ def admin_dashboard():
         total_beneficiaries = len(df_merged)
         total_completed_all = int(df_merged['Status_Val'].sum())
         total_pending_all = total_beneficiaries - total_completed_all
+        total_govt_share_all = float(df_merged['Govt_Share_Amt'].sum())
 
+        # 1. Batch Summary
         batch_grouped = df_merged.groupby('Batch_No').agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         batch_grouped['pending'] = batch_grouped['total'] - batch_grouped['completed']
         
@@ -104,12 +111,15 @@ def admin_dashboard():
             batch_summary[str(row['Batch_No'])] = {
                 "total": int(row['total']),
                 "completed": int(row['completed']),
-                "pending": int(row['pending'])
+                "pending": int(row['pending']),
+                "govt_share": float(row['govt_share'])
             }
 
+        # 2. Bank Summary
         bank_grouped = df_merged.groupby('Bank_Name').agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         bank_grouped['pending'] = bank_grouped['total'] - bank_grouped['completed']
         
@@ -118,12 +128,15 @@ def admin_dashboard():
             bank_summary[str(row['Bank_Name'])] = {
                 "total": int(row['total']),
                 "completed": int(row['completed']),
-                "pending": int(row['pending'])
+                "pending": int(row['pending']),
+                "govt_share": float(row['govt_share'])
             }
 
+        # 3. Batch + Bank Matrix
         batch_bank_grouped = df_merged.groupby(['Batch_No', 'Bank_Name']).agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         batch_bank_grouped['pending'] = batch_bank_grouped['total'] - batch_bank_grouped['completed']
         
@@ -134,28 +147,19 @@ def admin_dashboard():
                 'sub_total': {
                     'total': int(group['total'].sum()),
                     'completed': int(group['completed'].sum()),
-                    'pending': int(group['pending'].sum())
+                    'pending': int(group['pending'].sum()),
+                    'govt_share': float(group['govt_share'].sum())
                 }
-            }
-
-        batch_bank_summary = {}
-        for _, row in batch_bank_grouped.iterrows():
-            key = (str(row['Batch_No']), str(row['Bank_Name']))
-            batch_bank_summary[key] = {
-                "total": int(row['total']),
-                "completed": int(row['completed']),
-                "pending": int(row['pending'])
             }
 
         completed_batches_count = sum(1 for b, stats in batch_summary.items() if stats["pending"] == 0 and stats["total"] > 0)
         total_batches_count = len(batch_summary)
 
-       
-
-        # 4. CF + Bank + Batch Detailed Matrix (సబ్-టోటల్స్‌తో)
+        # 4. CF + Bank + Batch Matrix
         cf_bank_batch_grouped = df_merged.groupby(['CF_Name', 'Bank_Name', 'Batch_No']).agg(
             total=('RD_Account', 'count'),
-            completed=('Status_Val', 'sum')
+            completed=('Status_Val', 'sum'),
+            govt_share=('Govt_Share_Amt', 'sum')
         ).reset_index()
         cf_bank_batch_grouped['pending'] = cf_bank_batch_grouped['total'] - cf_bank_batch_grouped['completed']
         
@@ -166,17 +170,18 @@ def admin_dashboard():
                 'sub_total': {
                     'total': int(group['total'].sum()),
                     'completed': int(group['completed'].sum()),
-                    'pending': int(group['pending'].sum())
+                    'pending': int(group['pending'].sum()),
+                    'govt_share': float(group['govt_share'].sum())
                 }
             }
 
         return render_template('admin_dashboard.html', 
                                total=total_beneficiaries, 
                                completed=total_completed_all, 
-                               pending=total_pending_all, 
+                               pending=total_pending_all,
+                               total_govt_share=total_govt_share_all,
                                batch_summary=batch_summary,
                                bank_summary=bank_summary,
-                               batch_bank_summary=batch_bank_summary,
                                batch_wise_matrix=batch_wise_matrix,
                                cf_bank_matrix=cf_bank_matrix,
                                completed_batches_count=completed_batches_count,
@@ -185,7 +190,6 @@ def admin_dashboard():
     except Exception as e:
         print(f"Admin Dashboard Error with Pandas: {repr(e)}")
         return f"లోపం సంభవించింది: {str(e)}"
-
 
 
 
@@ -229,6 +233,8 @@ def export_admin_excel():
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', t_month_col, 'Batch_No']].drop_duplicates()
             else:
                 completed_trans = df_trans[df_trans['Govt_Share'] > 0][['RD_Account', 'Batch_No']].drop_duplicates()
+
+           
 
             completed_trans['Is_Completed'] = True
             df_merged = pd.merge(df_master, completed_trans, on=['RD_Account'], how='left')
