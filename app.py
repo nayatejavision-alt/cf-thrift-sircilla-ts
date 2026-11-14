@@ -737,7 +737,7 @@ def home():
 
   return render_template('index.html', banks=bank_list)
 
-  @app.route('/api/search', methods=['POST'])
+@app.route('/api/search', methods=['POST'])
 def search_beneficiary():
   try:
     data = request.get_json()
