@@ -34,19 +34,8 @@ import gspread
 from num2words import num2words
 from mismatch_routes import mismatch_bp
 from reports_routes import reports_bp
-import pandas as pd
 from rd_home import rd_bp
 from werkzeug.utils import secure_filename
-#from dotenv import load_dotenv
-#from supabase import create_client, Client
-
-#load_dotenv()  # .env ఫైల్‌లోని విలువలను లోడ్ చేస్తుంది
-
-#SUPABASE_URL = os.getenv("SUPABASE_URL")
-#SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# Supabase క్లయింట్ రెడీ అవుతుంది
-#supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
 app.secret_key = 'thrift_scheme_secret_key'
@@ -77,6 +66,96 @@ MONTH_MAPPING = {
     12: ('May', '2027'),
 }
 
+# ==========================================
+# 1 నుండి 12 దశల మాస్టర్ కాన్ఫిగరేషన్
+# ==========================================
+PROCESS_STEPS_CONFIG = {
+    '1': {
+        'step_name': '1. లబ్ధిదారుల ప్రాథమిక జాబితా తయారీ',
+        'template': 'MASTER_LIST_TEMPLATE.docx',
+        'sheet_name': 'Master_Beneficiary_List',
+        'subject_prefix': 'Submission of Verified Beneficiary Master List for TSPWTFS & SS',
+        'body_desc': 'forwarding the verified Master Beneficiary List under Telangana State Powerloom Weavers Thrift Fund Scheme (TSPWTFS & SS)'
+    },
+    '2': {
+        'step_name': '2. కొత్త RD ఖాతాల ప్రారంభం కోసం అభ్యర్థన',
+        'template': 'NEW_ACCOUNT_REQUEST_TEMPLATE.docx',
+        'sheet_name': 'New_Account_Opening_List',
+        'subject_prefix': 'Request for Opening New Thrift RD Accounts (RD-1 & RD-2)',
+        'body_desc': 'requesting you to open new Thrift Recurring Deposit (RD-1 & RD-2) accounts for the enclosed eligible weavers'
+    },
+    '3': {
+        'step_name': '3. బ్యాంకు నుండి కొత్త RD ఖాతా నంబర్ల స్వీకరణ',
+        'template': 'ACCOUNT_MAPPING_TEMPLATE.docx',
+        'sheet_name': 'Account_Mapping_Status',
+        'subject_prefix': 'Follow-up / Receipt of Newly Opened Thrift RD Account Numbers',
+        'body_desc': 'regarding the status and mapping of newly opened Thrift RD account numbers'
+    },
+    '4': {
+        'step_name': '4. డేటా మ్యాపింగ్ మరియు మాస్టర్ షీట్ అప్‌డేట్',
+        'template': 'MAPPING_UPDATE_TEMPLATE.docx',
+        'sheet_name': 'Updated_Master_Mapping',
+        'subject_prefix': 'Updated Master Database & Account Mapping Confirmation',
+        'body_desc': 'sharing the updated Master Database after mapping the RD account numbers'
+    },
+    '5': {
+        'step_name': '5. కార్మికుడి వాటా (8%) బ్యాంక్ స్టేట్‌మెంట్ల సేకరణ',
+        'template': 'SCROLL_COLLECTION_TEMPLATE.docx',
+        'sheet_name': 'Monthly_8Percent_Scroll_Req',
+        'subject_prefix': 'Request for Monthly 8% Beneficiary Contribution Bank Statement / Scroll',
+        'body_desc': 'requesting the monthly bank scroll / transaction statement showing the 8% weaver share deposits into RD-1 accounts'
+    },
+    '6': {
+        'step_name': '6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (16%) గణన',
+        'template': 'RECONCILIATION_TEMPLATE.docx',
+        'sheet_name': 'Reconciliation_Statement',
+        'subject_prefix': 'Monthly Reconciliation & 16% Govt Matching Share Calculation Statement',
+        'body_desc': 'forwarding the reconciled statement of 8% weaver contributions and corresponding 16% Government matching share calculation'
+    },
+    '7': {
+        'step_name': '7. ప్రభుత్వ వాటా నిధుల మంజూరు మరియు బదిలీ',
+        'template': 'FUND_SANCTION_TEMPLATE.docx',
+        'sheet_name': 'Fund_Sanction_Details',
+        'subject_prefix': 'Intimation of Sanction & Fund Transfer for Govt Matching Share',
+        'body_desc': 'intimating the sanction and transfer of Government matching share funds'
+    },
+    '8': {
+        'step_name': '8. లబ్ధిదారుల వారీగా కేటాయింపు జాబితా పంపడం (Credit Advice)',
+        'template': 'RD2_CREDIT_SANCTION_TEMPLATE.docx',
+        'sheet_name': 'Eligible_Credit_List',
+        'subject_prefix': 'Official Letter & Beneficiary Excel List for TSPWTFS & SS RD2 Credit',
+        'body_desc': 'crediting the Government matching share into RD2 Accounts'
+    },
+    '9': {
+        'step_name': '9. ప్రభుత్వ వాటా జమ మరియు కన్ఫర్మేషన్',
+        'template': 'CREDIT_CONFIRMATION_TEMPLATE.docx',
+        'sheet_name': 'Credit_Confirmation_Req',
+        'subject_prefix': 'Request for Credit Confirmation Statement & Failed Transactions Report',
+        'body_desc': 'requesting the Credit Confirmation Statement (with UTR/Transaction IDs) and list of any failed/returned credits'
+    },
+    '10': {
+        'step_name': '10. లోపాల సవరణ మరియు ఉత్తర ప్రత్యుత్తరాలు (Rectification)',
+        'template': 'RECTIFICATION_TEMPLATE.docx',
+        'sheet_name': 'Rectification_List',
+        'subject_prefix': 'Rectification of Bank Account Errors, Dormant Accounts & IFSC Updates',
+        'body_desc': 'requesting rectification of account discrepancies, dormant accounts, or IFSC updates as per the attached list'
+    },
+    '11': {
+        'step_name': '11. ఎగ్జిక్యూటివ్ సమ్మరీ మరియు ఆడిట్ రిపోర్ట్స్',
+        'template': 'AUDIT_SUMMARY_TEMPLATE.docx',
+        'sheet_name': 'Executive_Audit_Summary',
+        'subject_prefix': 'Periodic Executive Summary & Audit Reconciliation Report',
+        'body_desc': 'submitting the consolidated Executive Summary and Audit Reconciliation Report'
+    },
+    '12': {
+        'step_name': '12. మెచ్యూరిటీ, NOC జారీ మరియు ఖాతా క్లోజర్',
+        'template': 'MATURITY_NOC_TEMPLATE.docx',
+        'sheet_name': 'Maturity_NOC_List',
+        'subject_prefix': 'Issuance of NOC for Maturity & Closure of Thrift RD Accounts',
+        'body_desc': 'issuing No Objection Certificate (NOC) for maturity closure and release of funds to the beneficiaries savings accounts'
+    }
+}
+
 app.register_blueprint(admin_bp)
 app.register_blueprint(cf_bp)
 app.register_blueprint(mismatch_bp)
@@ -84,7 +163,15 @@ app.register_blueprint(rd_bp)
 app.register_blueprint(reports_bp)
 
 
-# ✅ ఇదివరకు సగ్గా పనిచేసిన (ఫైల్ 7) సేఫ్ ఆథెంటికేషన్ పద్ధతి (ఎర్రర్స్ రావు)
+def format_as_excel_text(val):
+  if pd.isna(val) or val is None:
+    return ''
+  s = str(val).strip()
+  if s.endswith('.0'):
+    s = s[:-2]
+  return s
+
+
 def get_sheets_client():
   scopes = [
       'https://www.googleapis.com/auth/spreadsheets',
@@ -125,36 +212,6 @@ def get_bank_list_from_sheet():
     return []
 
 
-@app.route('/')
-def home():
-  bank_list = []
-  try:
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-
-    login_sheet = spreadsheet.worksheet('BANK_LOGINS')
-    logins = login_sheet.get_all_records()
-
-    for row in logins:
-      b_name = (
-          row.get('Bank Name') or row.get('BANK NAME') or row.get('Bank_Name')
-      )
-      if b_name:
-        cleaned_name = str(b_name).strip()
-        if cleaned_name and cleaned_name not in bank_list:
-          bank_list.append(cleaned_name)
-
-  except Exception as e:
-    print('Error fetching bank list:', e)
-    bank_list = []
-
-  return render_template('index.html', banks=bank_list)
-
-
-# ==========================================
-# GMAIL DRAFT GENERATOR ROUTES
-# ==========================================
-
 # ==========================================
 # GMAIL DRAFT GENERATOR ROUTES (THREADED)
 # ==========================================
@@ -192,20 +249,23 @@ def get_bank_doc_details():
 
 
 def background_draft_task(data, app_context):
-  """బ్యాక్‌గ్రౌండ్‌లో హెవీ ప్రాసెసింగ్ (Excel, Word, IMAP) చేయడానికి థ్రెడ్ ఫంక్షన్"""
+  """బ్యాక్‌గ్రౌండ్‌లో 1 నుండి 12 దశలకు అనుగుణంగా (Excel, Word, IMAP) ప్రాసెసింగ్"""
   with app_context:
     try:
+      process_step = str(data.get('process_step', '8')).strip()
       target_month = int(data.get('month', 1))
       target_batch = int(data.get('batch', 1))
       selected_bank = str(data.get('bank_name', '')).strip()
 
       user_cheque_no = str(data.get('cheque_no', '')).strip()
       user_cheque_date = str(data.get('cheque_date', '')).strip()
+      user_cheque_amount = str(data.get('cheque_amount', '')).strip()
 
       if not selected_bank:
         print("Error: Bank name is missing in background task.")
         return
 
+      step_cfg = PROCESS_STEPS_CONFIG.get(process_step, PROCESS_STEPS_CONFIG['8'])
       selected_month_name, selected_year = MONTH_MAPPING.get(
           target_month, ('June', '2026')
       )
@@ -228,6 +288,11 @@ def background_draft_task(data, app_context):
           )
       )
 
+      bank_email = email_dict.get(selected_bank, '')
+      if not bank_email or '@' not in bank_email:
+        print(f'Error: {selected_bank} కి అధికారిక ఈమెయిల్ ఐడి లేదు!')
+        return
+
       try:
         ws_doc_sheet = sh.worksheet('PREPARE_DOC_RD_TRANSACTIONS')
         doc_records = ws_doc_sheet.get_all_records()
@@ -243,190 +308,215 @@ def background_draft_task(data, app_context):
       cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
       cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
 
-      df_trans['Govt_Share'] = pd.to_numeric(
-          df_trans['Govt_Share'], errors='coerce'
-      ).fillna(0)
-      df_trans['MONTH_NUMBER'] = pd.to_numeric(
-          df_trans['MONTH_NUMBER'], errors='coerce'
-      )
-      df_trans['BATCH_NUMBER'] = (
-          pd.to_numeric(df_trans['BATCH_NUMBER'], errors='coerce').fillna(0)
-          if 'BATCH_NUMBER' in df_trans.columns
-          else 0
-      )
-
+      # బ్యాంకు వారీగా మాస్టర్ డేటా ఫిల్టర్
       bank_thrift_df = df_thrift[
           df_thrift['FILE NAME'].astype(str).str.strip() == selected_bank
       ].copy()
 
-      bank_month_df = pd.merge(
-          bank_thrift_df,
-          df_trans[df_trans['MONTH_NUMBER'] == target_month],
-          left_on='RD 1',
-          right_on='RD ACCOUNT_1 (Beneficiary Contribution)',
-          how='left',
-          suffixes=('', '_TRANS')
-      )
-
-      bank_month_df['Govt_Share'] = pd.to_numeric(bank_month_df['Govt_Share'], errors='coerce').fillna(0)
-      bank_month_df['BATCH_NUMBER'] = (
-          pd.to_numeric(bank_month_df['BATCH_NUMBER'], errors='coerce').fillna(0)
-          if 'BATCH_NUMBER' in bank_month_df.columns
-          else 0
-      )
-
-      if 'BANK_REMARKS' in bank_month_df.columns:
-        bank_month_df['BANK_REMARKS_CLEAN'] = bank_month_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
+      if 'BANK_REMARKS' in bank_thrift_df.columns:
+        bank_thrift_df['BANK_REMARKS_CLEAN'] = bank_thrift_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
       else:
-        bank_month_df['BANK_REMARKS_CLEAN'] = ''
-
-      died_mask = bank_month_df['BANK_REMARKS_CLEAN'].str.contains('DIED', na=False)
-
-      active_df = bank_month_df[
-          (bank_month_df['Govt_Share'] > 0)
-          & (bank_month_df['BATCH_NUMBER'] == target_batch)
-          & (~died_mask)
-      ]
-      active_df = active_df.drop_duplicates(subset=['RD 1'], keep='first')
-
-      pending_df = bank_month_df[
-          (bank_month_df['Govt_Share'] == 0)
-          | (bank_month_df['BATCH_NUMBER'] == 0)
-          | (died_mask)
-      ]
-
-      record_count = len(active_df)
-      pending_count = len(pending_df)
-      total_govt_share = active_df['Govt_Share'].sum()
-      cheque_amount = str(total_govt_share)
-
-      bank_email = email_dict.get(selected_bank, '')
-      if not bank_email or '@' not in bank_email:
-        print(f'Error: {selected_bank} కి అధికారిక ఈమెయిల్ ఐడి లేదు!')
-        return
+        bank_thrift_df['BANK_REMARKS_CLEAN'] = ''
 
       target_folder_path = (
-          f'/tmp/Bank_Wise_Excel_Files_Month_{target_month}_Batch_{target_batch}'
+          f'/tmp/Step_{process_step}_Bank_Files_Month_{target_month}_Batch_{target_batch}'
       )
-      if not os.path.exists(target_folder_path):
-        os.makedirs(target_folder_path)
+      os.makedirs(target_folder_path, exist_ok=True)
 
       local_excel_path = os.path.join(
           target_folder_path,
-          f'{selected_bank}_Month_{target_month}_Batch_{target_batch}.xlsx',
+          f'{selected_bank}_Step{process_step}_{step_cfg["sheet_name"]}_M{target_month}_B{target_batch}.xlsx',
       )
 
+      record_count = 0
+      pending_count = 0
+      total_govt_share = 0.0
+
+      # ========================================================
+      # దశల వారీగా (Step 1 to 12) Excel File తయారీ లాజిక్
+      # ========================================================
       with pd.ExcelWriter(local_excel_path, engine='openpyxl') as writer:
-        export_df = pd.DataFrame()
-        export_df['BENEFICIARY SNO'] = active_df.get(
-            'BANK_SNO', active_df.get('SNO', '')
-        )
-        export_df['Name Of Benificiary'] = active_df['Name Of Benificiary']
-        export_df['Bank Account Number'] = active_df[
-            'Bank Account Number'
-        ].apply(format_as_excel_text)
-        export_df['RD ACCOUNT_1 (Beneficiary Contribution)'] = active_df[
-            'RD ACCOUNT_1 (Beneficiary Contribution)'
-        ].apply(format_as_excel_text)
-        export_df['RD-1 (Beneficiary) Contribution'] = active_df['Govt_Share']
-
-        if 'RD 2' in active_df.columns:
-          export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2'].apply(
-              format_as_excel_text
+        
+        # --- దశ 8 (RD2 Credit Advice) మరియు దశ 6, 7, 9 (నెలవారీ లావాదేవీలకు సంబంధించినవి) ---
+        if process_step in ['6', '7', '8', '9']:
+          df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
+          df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce')
+          df_trans['BATCH_NUMBER'] = (
+              pd.to_numeric(df_trans['BATCH_NUMBER'], errors='coerce').fillna(0)
+              if 'BATCH_NUMBER' in df_trans.columns
+              else 0
           )
-        elif 'RD ACCOUNT_2' in active_df.columns:
-          export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df[
-              'RD ACCOUNT_2'
-          ].apply(format_as_excel_text)
-        elif 'RD 2_THRIFT' in active_df.columns:
-          export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df[
-              'RD 2_THRIFT'
-          ].apply(format_as_excel_text)
-        else:
-          export_df['RD ACCOUNT_2 (Govt Contribution)'] = ''
 
-        export_df['RD-2 (Govt_Share) Contribution'] = active_df['Govt_Share']
-        export_df['Nominee Name'] = active_df[
-              'Nominee Name'
-          ].apply(format_as_excel_text)
-          
-        export_df['Relation'] = active_df[
-              'Relation'
-          ].apply(format_as_excel_text)
-        export_df['Nominee DOB'] = active_df[
-              'Nominee DOB'
-          ].apply(format_as_excel_text)  
-        export_df['Contact Number'] = (
-            active_df['Contact Number'].apply(format_as_excel_text)
-            if 'Contact Number' in active_df.columns
-            else ''
-        )
-        export_df.to_excel(writer, sheet_name='Eligible_Credit_List', index=False)
-
-        if pending_count > 0:
-          p_export_df = pd.DataFrame()
-          p_export_df['SNO'] = pending_df.get(
-              'BANK_SNO', pending_df.get('SNO', '')
+          bank_month_df = pd.merge(
+              bank_thrift_df,
+              df_trans[df_trans['MONTH_NUMBER'] == target_month],
+              left_on='RD 1',
+              right_on='RD ACCOUNT_1 (Beneficiary Contribution)',
+              how='left',
+              suffixes=('', '_TRANS')
           )
-          p_export_df['Name Of Benificiary'] = pending_df['Name Of Benificiary']
-          p_export_df['Bank Account Number'] = pending_df[
-              'Bank Account Number'
-          ].apply(format_as_excel_text)
-          p_export_df['RD ACCOUNT_1'] = pending_df[
-              'RD ACCOUNT_1 (Beneficiary Contribution)'
-          ].apply(format_as_excel_text)
-          p_export_df['Contact Number'] = (
-              pending_df['Contact Number'].apply(format_as_excel_text)
-              if 'Contact Number' in pending_df.columns
+
+          bank_month_df['Govt_Share'] = pd.to_numeric(bank_month_df['Govt_Share'], errors='coerce').fillna(0)
+          bank_month_df['BATCH_NUMBER'] = (
+              pd.to_numeric(bank_month_df['BATCH_NUMBER'], errors='coerce').fillna(0)
+              if 'BATCH_NUMBER' in bank_month_df.columns
+              else 0
+          )
+
+          if 'BANK_REMARKS' in bank_month_df.columns:
+            bank_month_df['BANK_REMARKS_CLEAN'] = bank_month_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
+          else:
+            bank_month_df['BANK_REMARKS_CLEAN'] = ''
+
+          died_mask = bank_month_df['BANK_REMARKS_CLEAN'].str.contains('DIED', na=False)
+
+          active_df = bank_month_df[
+              (bank_month_df['Govt_Share'] > 0)
+              & (bank_month_df['BATCH_NUMBER'] == target_batch)
+              & (~died_mask)
+          ].drop_duplicates(subset=['RD 1'], keep='first')
+
+          pending_df = bank_month_df[
+              (bank_month_df['Govt_Share'] == 0)
+              | (bank_month_df['BATCH_NUMBER'] == 0)
+              | (died_mask)
+          ]
+
+          record_count = len(active_df)
+          pending_count = len(pending_df)
+          total_govt_share = float(active_df['Govt_Share'].sum())
+
+          export_df = pd.DataFrame()
+          export_df['BENEFICIARY SNO'] = active_df.get('BANK_SNO', active_df.get('SNO', ''))
+          export_df['Name Of Benificiary'] = active_df['Name Of Benificiary']
+          export_df['Bank Account Number'] = active_df['Bank Account Number'].apply(format_as_excel_text)
+          export_df['RD ACCOUNT_1 (Beneficiary Contribution)'] = active_df['RD ACCOUNT_1 (Beneficiary Contribution)'].apply(format_as_excel_text)
+          export_df['RD-1 (Beneficiary) Contribution'] = active_df['Govt_Share']
+
+          if 'RD 2' in active_df.columns:
+            export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2'].apply(format_as_excel_text)
+          elif 'RD ACCOUNT_2' in active_df.columns:
+            export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD ACCOUNT_2'].apply(format_as_excel_text)
+          elif 'RD 2_THRIFT' in active_df.columns:
+            export_df['RD ACCOUNT_2 (Govt Contribution)'] = active_df['RD 2_THRIFT'].apply(format_as_excel_text)
+          else:
+            export_df['RD ACCOUNT_2 (Govt Contribution)'] = ''
+
+          export_df['RD-2 (Govt_Share) Contribution'] = active_df['Govt_Share']
+          export_df['Nominee Name'] = active_df.get('Nominee Name', '').apply(format_as_excel_text)
+          export_df['Relation'] = active_df.get('Relation', '').apply(format_as_excel_text)
+          export_df['Nominee DOB'] = active_df.get('Nominee DOB', '').apply(format_as_excel_text)
+          export_df['Contact Number'] = (
+              active_df['Contact Number'].apply(format_as_excel_text)
+              if 'Contact Number' in active_df.columns
               else ''
           )
-          p_export_df['Nominee Name'] = pending_df[
-              'Nominee Name'
-          ].apply(format_as_excel_text)
-          p_export_df['Relation'] = pending_df[
-              'Relation'
-          ].apply(format_as_excel_text)
-          p_export_df['Nominee DOB'] = pending_df[
-              'Nominee DOB'
-          ].apply(format_as_excel_text)
-          p_export_df['Status'] = pending_df['BANK_REMARKS_CLEAN'].apply(
-              lambda x: 'Beneficiary Expired' if 'DIED' in str(x) else 'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
-          )
-          p_export_df.to_excel(
-              writer, sheet_name='Pending_RD1_List', index=False
-          )
+          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
 
+          if pending_count > 0:
+            p_export_df = pd.DataFrame()
+            p_export_df['SNO'] = pending_df.get('BANK_SNO', pending_df.get('SNO', ''))
+            p_export_df['Name Of Benificiary'] = pending_df['Name Of Benificiary']
+            p_export_df['Bank Account Number'] = pending_df['Bank Account Number'].apply(format_as_excel_text)
+            p_export_df['RD ACCOUNT_1'] = pending_df['RD ACCOUNT_1 (Beneficiary Contribution)'].apply(format_as_excel_text)
+            p_export_df['Contact Number'] = (
+                pending_df['Contact Number'].apply(format_as_excel_text)
+                if 'Contact Number' in pending_df.columns
+                else ''
+            )
+            p_export_df['Status'] = pending_df['BANK_REMARKS_CLEAN'].apply(
+                lambda x: 'Beneficiary Expired' if 'DIED' in str(x) else 'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
+            )
+            p_export_df.to_excel(writer, sheet_name='Pending_RD1_List', index=False)
+
+        # --- దశ 2 & 3 (కొత్త RD ఖాతాల ప్రారంభం / RD నంబర్ల స్వీకరణ) ---
+        elif process_step in ['2', '3']:
+          # ఇంకా RD 1 ఖాతా నంబర్ లేని వారిని లేదా మొత్తం లిస్ట్‌ను సిద్ధం చేయడం
+          rd1_col = bank_thrift_df['RD 1'].astype(str).str.strip() if 'RD 1' in bank_thrift_df.columns else pd.Series(['']*len(bank_thrift_df))
+          pending_acc_df = bank_thrift_df[(rd1_col == '') | (rd1_col == '0') | (rd1_col.str.lower() == 'nan')].copy()
+          
+          # ఒకవేళ అందరికీ ఖాతాలు ఉంటే మొత్తం బ్యాంక్ లిస్ట్ తీసుకుంటుంది
+          target_df = pending_acc_df if len(pending_acc_df) > 0 else bank_thrift_df
+          record_count = len(target_df)
+
+          export_df = pd.DataFrame()
+          export_df['SNO'] = target_df.get('BANK_SNO', target_df.get('SNO', ''))
+          export_df['Name Of Benificiary'] = target_df.get('Name Of Benificiary', '')
+          export_df['Savings Bank Account No'] = target_df.get('Bank Account Number', '').apply(format_as_excel_text)
+          export_df['Aadhaar Number'] = target_df.get('Aadhaar Number', '').apply(format_as_excel_text) if 'Aadhaar Number' in target_df.columns else ''
+          export_df['Contact Number'] = target_df.get('Contact Number', '').apply(format_as_excel_text) if 'Contact Number' in target_df.columns else ''
+          export_df['Nominee Name'] = target_df.get('Nominee Name', '').apply(format_as_excel_text)
+          export_df['Relation'] = target_df.get('Relation', '').apply(format_as_excel_text)
+          export_df['New RD-1 Account No (To be filled by Bank)'] = target_df.get('RD 1', '').apply(format_as_excel_text)
+          export_df['New RD-2 Account No (To be filled by Bank)'] = target_df.get('RD 2', '').apply(format_as_excel_text)
+          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
+
+        # --- దశ 10 (లోపాల సవరణ / Rectification) ---
+        elif process_step == '10':
+          # Remarks ఉన్నవారు లేదా ఖాతా లోపాలు ఉన్నవారిని ఫిల్టర్ చేయడం
+          remarks_mask = bank_thrift_df['BANK_REMARKS_CLEAN'] != ''
+          rect_df = bank_thrift_df[remarks_mask].copy() if remarks_mask.sum() > 0 else bank_thrift_df.copy()
+          record_count = len(rect_df)
+
+          export_df = pd.DataFrame()
+          export_df['SNO'] = rect_df.get('BANK_SNO', rect_df.get('SNO', ''))
+          export_df['Name Of Benificiary'] = rect_df.get('Name Of Benificiary', '')
+          export_df['Savings Account No'] = rect_df.get('Bank Account Number', '').apply(format_as_excel_text)
+          export_df['RD-1 Account No'] = rect_df.get('RD 1', '').apply(format_as_excel_text)
+          export_df['RD-2 Account No'] = rect_df.get('RD 2', '').apply(format_as_excel_text)
+          export_df['Issue / Remarks'] = rect_df.get('BANK_REMARKS', '')
+          export_df['Bank Action / Updated Details'] = ''
+          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
+
+        # --- దశ 1, 4, 5, 11, 12 (మాస్టర్ లిస్ట్ / స్క్రోల్ రిక్వెస్ట్ / ఆడిట్ / మెచ్యూరిటీ NOC) ---
+        else:
+          record_count = len(bank_thrift_df)
+          export_df = pd.DataFrame()
+          export_df['SNO'] = bank_thrift_df.get('BANK_SNO', bank_thrift_df.get('SNO', ''))
+          export_df['Name Of Benificiary'] = bank_thrift_df.get('Name Of Benificiary', '')
+          export_df['Bank Account Number'] = bank_thrift_df.get('Bank Account Number', '').apply(format_as_excel_text)
+          export_df['RD-1 Account No'] = bank_thrift_df.get('RD 1', '').apply(format_as_excel_text)
+          export_df['RD-2 Account No'] = bank_thrift_df.get('RD 2', '').apply(format_as_excel_text)
+          export_df['Contact Number'] = bank_thrift_df.get('Contact Number', '').apply(format_as_excel_text) if 'Contact Number' in bank_thrift_df.columns else ''
+          export_df['Nominee Name'] = bank_thrift_df.get('Nominee Name', '').apply(format_as_excel_text)
+          export_df['Remarks'] = bank_thrift_df.get('BANK_REMARKS', '')
+          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
+
+      cheque_amount = user_cheque_amount or str(total_govt_share)
+
+      # ========================================================
+      # Word Letter తయారీ (దశకు తగిన Template వాడుతూ)
+      # ========================================================
       letter_path = None
-      doc_template_path = 'RD2_CREDIT_SANCTION_TEMPLATE.docx'
+      doc_template_path = step_cfg['template']
+      
+      # ఒకవేళ ఆ దశకు ప్రత్యేక టెంప్లేట్ ఫైల్ లేకపోతే, డిఫాల్ట్ టెంప్లేట్ వాడుతుంది
+      if not os.path.exists(doc_template_path):
+        doc_template_path = 'RD2_CREDIT_SANCTION_TEMPLATE.docx'
+
       if os.path.exists(doc_template_path):
         import docx
-
         doc = docx.Document(doc_template_path)
         try:
-          amt_words = (
-              num2words(float(cheque_amount or total_govt_share), lang='en_IN')
-              .title()
-              + ' Only'
-          )
+          amt_val = float(cheque_amount) if cheque_amount else 0.0
+          amt_words = num2words(amt_val, lang='en_IN').title() + ' Only'
         except:
-          amt_words = f'Rupees {cheque_amount or total_govt_share} Only'
+          amt_words = f'Rupees {cheque_amount} Only'
 
         replacements = {
-            '{{Bank_Name}}': str(
-                bank_doc_info.get('Bank_Name', selected_bank)
-            ),
+            '{{Bank_Name}}': str(bank_doc_info.get('Bank_Name', selected_bank)),
             '{{Location}}': str(bank_doc_info.get('Location', 'Sircilla')),
-            '{{Current_Date}}': cheque_date,
-            '{{Total_Count_Of_Records}}': str(
-                bank_doc_info.get('Total_Count_Of_Records', len(bank_month_df))
-            ),
+            '{{Current_Date}}': cheque_date or time.strftime('%d/%m/%Y'),
+            '{{Total_Count_Of_Records}}': str(record_count),
             '{{Cheque_No}}': cheque_no,
             '{{Cheque_Date}}': cheque_date,
-            '{{Cheque_Amount}}': cheque_amount or str(total_govt_share),
+            '{{Cheque_Amount}}': cheque_amount,
             '{{Amount_In_Words}}': amt_words,
             '{{Rd_Total_Count_for_month_number}}': str(record_count),
             '{{RD_Start_from_for_month_number}}': '1',
             '{{RD_End_With_for_month_number}}': str(record_count),
+            '{{Month_Name}}': f'{selected_month_name} {selected_year}',
+            '{{Batch_Number}}': str(target_batch),
             '{{This_Office_Previous_Dates}}': str(
                 bank_doc_info.get(
                     'This_Office_Previous_Dates',
@@ -448,11 +538,14 @@ def background_draft_task(data, app_context):
                   cell.text = cell.text.replace(k, str(v))
 
         letter_path = os.path.join(
-            target_folder_path, f'Official_Letter_{selected_bank}.docx'
+            target_folder_path, f'Official_Letter_Step{process_step}_{selected_bank}.docx'
         )
         doc.save(letter_path)
 
-      subject = f'Official Letter & Beneficiary Excel List for TSPWTFS & SS RD2 Credit - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}'
+      # ========================================================
+      # Gmail Draft తయారీ (IMAP)
+      # ========================================================
+      subject = f"{step_cfg['subject_prefix']} - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}"
 
       pending_notice_html = ''
       if pending_count > 0:
@@ -463,12 +556,17 @@ def background_draft_task(data, app_context):
             </div>
             """
 
+      cheque_info_html = ''
+      if process_step in ['6', '7', '8'] and (total_govt_share > 0 or cheque_no):
+        cheque_info_html = f"<p><b>Summary Details:</b> Beneficiaries: {record_count} | Amount: ₹{total_govt_share:,.2f} | Cheque No: {cheque_no}</p>"
+      else:
+        cheque_info_html = f"<p><b>Summary Details:</b> Total Beneficiaries in List: {record_count} | Stage: {step_cfg['step_name']}</p>"
+
       cc_recipients_html = """
         <br>
         <p style="font-size: 13px; color: #555; line-height: 1.4;">
             <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
-            
-            1. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) పాటించుట కొరకు పంపడమైనది.<br>
+            1. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) / సమన్వయము కొరకు పంపడమైనది.<br>
             2. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
         </p>
         """
@@ -489,10 +587,10 @@ def background_draft_task(data, app_context):
         <html>
         <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; line-height: 1.5;">
             <p>Dear <b>{selected_bank} Branch Manager</b>,</p>
-            <p>Please find attached the official letter along with the Beneficiary Excel List for crediting the Government 8% matching share into RD2 Accounts for <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
-            <p><b>Summary Details:</b> Active: {record_count} | Amount: ₹{total_govt_share:,.2f} | Cheque No: {cheque_no}</p>
+            <p>Please find attached the official letter along with the Beneficiary Excel List for <b>{step_cfg['body_desc']}</b> for <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
+            {cheque_info_html}
             {pending_notice_html}
-            <p>Kindly process the credits strictly adhering to the <b>RBI Positive Pay System (PPS)</b> guidelines.</p>
+            <p>Kindly process the same strictly adhering to the scheme guidelines and <b>RBI Positive Pay System (PPS)</b> norms wherever applicable.</p>
             <p style="color: #444; font-weight: bold; margin-top: 15px;">ఈ విషయము తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.</p>
             {cc_recipients_html}
             {OFFICIAL_SIGNATURE_HTML}
@@ -503,7 +601,6 @@ def background_draft_task(data, app_context):
       message = MIMEMultipart()
       message['To'] = bank_email
       message['Cc'] = ', '.join([
-          
           'ubin0827444@unionbankofindia.bank.in',
           'rajannahandtex@gmail.com',
       ])
@@ -539,15 +636,17 @@ def background_draft_task(data, app_context):
       )
       mail.logout()
 
+      # Google Sheet లో ట్రాన్సాక్షన్ లాగ్ చేయడం
       try:
         try:
           ws_log = sh.worksheet('Bank_Transactions')
         except:
           ws_log = sh.add_worksheet(
-              title='Bank_Transactions', rows=100, cols=10
+              title='Bank_Transactions', rows=100, cols=12
           )
           ws_log.append_row([
               'Timestamp',
+              'Process Step',
               'Bank Name',
               'Month',
               'Batch',
@@ -559,6 +658,7 @@ def background_draft_task(data, app_context):
 
         ws_log.append_row([
             time.strftime('%Y-%m-%d %H:%M:%S'),
+            step_cfg['step_name'],
             selected_bank,
             f'{selected_month_name} {selected_year}',
             target_batch,
@@ -570,7 +670,7 @@ def background_draft_task(data, app_context):
       except Exception as log_err:
         print(f'Logging Error: {log_err}')
 
-      print(f'Background Draft generated successfully for {selected_bank}!')
+      print(f'Background Draft generated successfully for {selected_bank} (Step {process_step})!')
 
     except Exception as e:
       print(f'Background Draft Generation Error: {str(e)}')
@@ -582,6 +682,7 @@ def generate_draft_api():
   try:
     data = request.get_json() if request.is_json else request.form
     selected_bank = str(data.get('bank_name', '')).strip()
+    process_step = str(data.get('process_step', '8')).strip()
 
     if not selected_bank:
       return (
@@ -591,10 +692,10 @@ def generate_draft_api():
           400,
       )
 
-    # Flask యాప్ కాంటెక్స్ట్ కోల్పోకుండా ఉండటానికి current_app._get_current_object() వాడాలి
+    step_label = PROCESS_STEPS_CONFIG.get(process_step, {}).get('step_name', f'దశ {process_step}')
+
     app_context = current_app._get_current_object().app_context() if hasattr(current_app, '_get_current_object') else app.app_context()
 
-    # బ్యాక్‌గ్రౌండ్ థ్రెడ్‌ని స్టార్ట్ చేయడం (టైమ్‌అవుట్ సమస్య రాదు)
     thread = threading.Thread(target=background_draft_task, args=(data, app_context))
     thread.daemon = True
     thread.start()
@@ -602,7 +703,7 @@ def generate_draft_api():
     return jsonify({
         'status': 'success',
         'message': (
-            'ఇమెయిల్ డ్రాఫ్ట్ బ్యాక్‌గ్రౌండ్‌లో తయారవుతోంది. దయచేసి కొన్ని క్షణాల తరువాత మీ జిమెయిల్ డ్రాఫ్ట్స్ చెక్ చేయండి!'
+            f'"{step_label}" కోసం {selected_bank} ఇమెయిల్ డ్రాఫ్ట్ బ్యాక్‌గ్రౌండ్‌లో తయారవుతోంది. దయచేసి కొన్ని క్షణాల తరువాత మీ జిమెయిల్ డ్రాఫ్ట్స్ చెక్ చేయండి!'
         ),
     })
 
@@ -611,7 +712,32 @@ def generate_draft_api():
         {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
     ), 500
 
-@app.route('/api/search', methods=['POST'])
+@app.route('/')
+def home():
+  bank_list = []
+  try:
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+
+    login_sheet = spreadsheet.worksheet('BANK_LOGINS')
+    logins = login_sheet.get_all_records()
+
+    for row in logins:
+      b_name = (
+          row.get('Bank Name') or row.get('BANK NAME') or row.get('Bank_Name')
+      )
+      if b_name:
+        cleaned_name = str(b_name).strip()
+        if cleaned_name and cleaned_name not in bank_list:
+          bank_list.append(cleaned_name)
+
+  except Exception as e:
+    print('Error fetching bank list:', e)
+    bank_list = []
+
+  return render_template('index.html', banks=bank_list)
+
+  @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
   try:
     data = request.get_json()
