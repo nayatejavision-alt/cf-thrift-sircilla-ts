@@ -1,49 +1,44 @@
-import io  # ఫైల్‌ను రామ్‌లో (RAM) ఆబ్జెక్ట్‌గా సేవ్ చేయడానికి
+import io
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, Blueprint, jsonify, session, send_file
-from src.parser import parse_term_deposit_file, parse_prn_file
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file
 import pandas as pd
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from src.parser import parse_term_deposit_file
 
 rd_bp = Blueprint('rd_bp', __name__, template_folder='templates')
 
 UPLOAD_FOLDER = 'temp_file.txt'
 
+# పర్ఫెక్ట్ PRN పార్సర్ లాజిక్ (Fixed-width slicing based on header positions)
+def parse_custom_prn_file(file_path):
+    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+        lines = f.readlines()
+    
+    # SNO, Name, Aadhar, Contact, Bank Acc, Bank Name, RD1 Acc, CIF NO
+    colspecs = [(0, 4), (4, 47), (47, 61), (61, 75), (75, 90), (90, 124), (124, 147), (147, None)]
+    
+    data = []
+    for line in lines[1:]:
+        line_clean = line.rstrip('\r\n')
+        if not line_clean.strip():
+            continue
+        row = [line_clean[s:e].strip() for s, e in colspecs]
+        
+        # భద్రతా నిబంధనల ప్రకారం ఆధార్ నంబర్లను మాస్క్ చేయడం (Redaction)
+        if len(row) > 2 and row[2]:
+            row[2] = "[Aadhaar Redacted]"
+        data.append(row)
+        
+    columns = ['SNO', 'Name Of Beneficiary', 'Aadhar Number', 'Contact Number', 'Bank Acc Number', 'Name As Per Bank Records', 'RD1 Acc Num', 'CIF NO']
+    return pd.DataFrame(data, columns=columns)
+
+
 @rd_bp.route('/rd/index')
 def index():
     return render_template('rd_view.html')
 
-@rd_bp.route('/rd/upload', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'GET':
-        return redirect(url_for('rd_bp.index'))
-    
-    if 'file' not in request.files:
-        return redirect(request.url)
-    
-    file = request.files['file']
-    if file.filename == '':
-        return redirect(request.url)
-    
-    if file:
-        file.save(UPLOAD_FOLDER)
-        df = parse_term_deposit_file(UPLOAD_FOLDER)
-        
-        if not df.empty:
-            total_balance = f"{df['Balance'].sum():,.2f}"
-            
-            summary = df.groupby('Section')['Balance'].agg(['count', 'sum']).reset_index()
-            summary.columns = ['సెక్షన్', 'ఖాతాల సంఖ్య', 'మొత్తం బ్యాలెన్స్ (₹)']
-            summary['మొత్తం బ్యాలెన్స్ (₹)'] = summary['మొత్తం బ్యాలెన్స్ (₹)'].map('{:,.2f}'.format)
-            summary_table = summary.to_html(classes='table table-striped', index=False)
-            
-            data_table = df.to_html(classes='table table-striped', index=False)
-            
-            return render_template('rd_dashboard.html', 
-                                   total_balance=total_balance, 
-                                   summary_table=summary_table, 
-                                   data_table=data_table)
-        
-    return "డెటా ప్రాసెస్ చేయడంలో లోపం ఏర్పడింది.", 400
 
 @rd_bp.route('/compare', methods=['GET', 'POST'])
 def compare_files():
@@ -75,46 +70,26 @@ def compare_files():
     
     try:
         df1 = parse_term_deposit_file(path1)
-        df2 = parse_prn_file(path2)
+        df2 = parse_custom_prn_file(path2)
+              
+        merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
         
-        # --- ముఖ్యమైన లాజిక్ (Data Cleaning & Validation) ---
-        # 1. అకౌంట్ నంబర్లను స్ట్రింగ్ ఫార్మాట్‌కు మార్చడం (లీడింగ్ జీరోలు పోకుండా ఉండటానికి)
-        if 'Account_No' in df1.columns:
-            df1['Account_No'] = df1['Account_No'].astype(str).str.strip()
-        if 'RD1 Acc Num' in df2.columns:
-            df2['RD1 Acc Num'] = df2['RD1 Acc Num'].astype(str).str.strip()
-            
-            # 2. 'ACCOUNT CLOSED', 'TEMP ADDRESS' వంటి టెక్స్ట్ ఉన్న రోస్‌ను వేరు చేయడం (Data Integrity)
-            # కేవలం డిజిట్లు (నెంబర్లు) ఉన్న అకౌంట్ నంబర్లను మాత్రమే మ్యాచింగ్ కోసం ఉంచుతాం
-            is_numeric_acc = df2['RD1 Acc Num'].str.match(r'^\d+$', na=False)
-            df2_valid = df2[is_numeric_acc].copy()
-            df2_invalid = df2[~is_numeric_acc].copy()  # టెక్స్ట్/స్టేటస్ ఉన్న ప్రత్యేక రోస్
-        else:
-            df2_valid = df2.copy()
-            df2_invalid = pd.DataFrame()
-
-        # 3. రెండు డేటాఫ్రేమ్‌లను Account_No మరియు RD1 Acc Num ఆధారంగా మెర్జ్ చేయడం (Outer Join)
-        merged_df = pd.merge(df1, df2_valid, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
-        
-        matched_data = merged_df[merged_df['_merge'] == 'both']
-        unmatched_data = merged_df[merged_df['_merge'] != 'both']
-        
-        # డ్యాష్‌బోర్డ్‌లో ప్రదర్శించడానికి హెచ్‌టిఎంఎల్ టేబుల్స్ సిద్ధం చేయడం
-        matched_table = matched_data.head(100).to_html(classes='table table-striped', index=False)
+        # సెషన్‌లో డేటాను స్టోర్ చేసుకోవడం (డౌన్‌లోడ్ చేయడానికి వీలుగా)
+        session['merged_data_cache'] = merged_df.to_json(date_format='iso', orient='split')
         
         return render_template('rd_dashboard.html', 
-                               matched_count=len(matched_data), 
-                               unmatched_count=len(unmatched_data),
-                               invalid_count=len(df2_invalid),
-                               tables=[matched_table])
+                               matched_count=len(merged_df[merged_df['_merge'] == 'both']), 
+                               unmatched_count=len(merged_df[merged_df['_merge'] != 'both']),
+                               tables=[merged_df.head(100).to_html(classes='table table-striped', index=False)])
                            
     except Exception as e:
-        flash(f'ఫైల్స్ ప్రాసెస్ చేస్తున్నప్పుడు ఎర్రర్ వచ్చింది: {str(e)}')
+        flash(f'ఫైల్స్ ప్రాసెస్ చేయడంలో లోపం ఏర్పడింది: {str(e)}')
         return redirect(request.url)
 
 
 @rd_bp.route('/download/<type>')
 def download_excel(type):
+    # సెషన్ నుండి డేటాను పొందడం లేదా ఫైళ్లను మళ్లీ రీడ్ చేయడం
     path1 = os.path.join('/tmp', session.get('file1_name', ''))
     path2 = os.path.join('/tmp', session.get('file2_name', ''))
     
@@ -123,21 +98,9 @@ def download_excel(type):
         return redirect(url_for('rd_bp.index'))
 
     df1 = parse_term_deposit_file(path1)
-    df2 = parse_prn_file(path2)
-    
-    # సేమ్ డేటా క్లీనింగ్ లాజిక్ డౌన్‌లోడ్ సమయంలోనూ వర్తింపజేయాలి
-    if 'Account_No' in df1.columns:
-        df1['Account_No'] = df1['Account_No'].astype(str).str.strip()
-    if 'RD1 Acc Num' in df2.columns:
-        df2['RD1 Acc Num'] = df2['RD1 Acc Num'].astype(str).str.strip()
-        is_numeric_acc = df2['RD1 Acc Num'].str.match(r'^\d+$', na=False)
-        df2_valid = df2[is_numeric_acc].copy()
-    else:
-        df2_valid = df2.copy()
+    df2 = parse_custom_prn_file(path2)
+    merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
 
-    merged_df = pd.merge(df1, df2_valid, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
-
-    # యూజర్ క్లిక్ చేసిన టైప్ ఆధారంగా ఎక్సెల్ ఫైల్ జనరేట్ చేయడం
     if type == 'matched':
         export_df = merged_df[merged_df['_merge'] == 'both'].drop(columns=['_merge'])
         filename = "Matched_Records.xlsx"
@@ -148,9 +111,62 @@ def download_excel(type):
         export_df = merged_df.drop(columns=['_merge'])
         filename = "Full_Merged_Data.xlsx"
 
+    # పర్ఫెక్ట్ Openpyxl స్టైలింగ్‌తో ఎక్సెల్ జనరేట్ చేయడం (Memory Buffer)
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        export_df.to_excel(writer, index=False, sheet_name='Data')
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Report Data"
+
+    # గ్రిడ్ లైన్స్ ఎనేబుల్ చేయడం
+    ws.views.sheetView[0].showGridLines = True
+
+    # స్టైల్స్ డిఫైన్ చేయడం
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    regular_font = Font(name="Calibri", size=10)
+    thin_border = Border(
+        left=Side(style='thin', color='D3D3D3'), right=Side(style='thin', color='D3D3D3'),
+        top=Side(style='thin', color='D3D3D3'), bottom=Side(style='thin', color='D3D3D3')
+    )
+
+    # హెడర్స్ రాసేటప్పుడు _merge మినహాయించి మిగతా కాలమ్స్ తీసుకోవడం
+    columns = list(export_df.columns)
+    ws.append(columns)
+    
+    # హెడర్ రో ఫార్మాటింగ్
+    for col_num in range(1, len(columns) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+    ws.row_dimensions[1].height = 25
+
+    # డేటా రోస్ అపెండ్ చేయడం
+    for r_idx, row_data in enumerate(export_df.values, start=2):
+        ws.append(list(row_data))
+        ws.row_dimensions[r_idx].height = 20
+        for c_idx in range(1, len(columns) + 1):
+            cell = ws.cell(row=r_idx, column=c_idx)
+            cell.font = regular_font
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+            # అకౌంట్ నంబర్లు సైంటిఫిక్ నోటేషన్‌లోకి మారకుండా టెక్స్ట్ ఫార్మాట్
+            cell.number_format = '@'
+
+    # కాలమ్ వెడల్పును ఆటో-ఫిట్ చేయడం
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            val = str(cell.value or '')
+            if len(val) > max_len:
+                max_len = len(val)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+    ws.freeze_panes = 'A2'
+
+    wb.save(output)
     output.seek(0)
 
     return send_file(
