@@ -278,7 +278,7 @@ def cf_search_beneficiary():
             ws_email = spreadsheet.worksheet('Bank_Email_Ids')
             email_records = ws_email.get_all_records()
             for row in email_records:
-                if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
+                if str(row.get('FILE NAME') or row.get('FILE_NAME','')).strip().upper() == selected_file_name.upper():
                     email_id = str(row.get('OFFICIAL_EMAIL', '')).strip()
                     break
         except Exception:
@@ -313,12 +313,16 @@ def cf_search_beneficiary():
 
         # BANK_SNO గణన: యూజర్ ఎంచుకున్న FILE NAME కి మ్యాచ్ అయ్యే రికార్డ్స్‌లోని 'BANK_SNO' లలో గరిష్ట విలువ + 1
         max_bank_sno = 0
+       
         for row in records_new:
             if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
                 b_sno = str(row.get('BANK_SNO', '0')).strip()
+                
                 if b_sno.isdigit():
                     max_bank_sno = max(max_bank_sno, int(b_sno))
+                   
         next_bank_sno = max_bank_sno + 1
+        
 
         # వివిధ కాలమ్స్‌కోసం యూనిక్ లిస్ట్స్ సేకరించడం (Suggestions / Dropdowns కోసం)
         unique_professions = sorted(list(set([str(r.get('Profession', '')).strip() for r in records_new if r.get('Profession')])))
