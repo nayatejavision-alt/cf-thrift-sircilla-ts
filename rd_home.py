@@ -3,9 +3,11 @@ import os
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file
 import pandas as pd
 import openpyxl
+import pickle  # పైభాగంలో ఇంపోర్ట్ చేసుకోండి
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from src.parser import parse_term_deposit_file
+
 
 rd_bp = Blueprint('rd_bp', __name__, template_folder='templates')
 
@@ -38,6 +40,8 @@ def parse_custom_prn_file(file_path):
 @rd_bp.route('/rd/index')
 def index():
     return render_template('rd_view.html')
+
+
 
 
 @rd_bp.route('/compare', methods=['GET', 'POST'])
@@ -74,8 +78,12 @@ def compare_files():
               
         merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
         
-        # సెషన్‌లో డేటాను స్టోర్ చేసుకోవడం (డౌన్‌లోడ్ చేయడానికి వీలుగా)
-        session['merged_data_cache'] = merged_df.to_json(date_format='iso', orient='split')
+        # ❌ పాత పద్ధతి (కుకీ సైజ్ పెరిగిపోతుంది):
+        # session['merged_data_cache'] = merged_df.to_json(...)
+        
+        # ✅ కొత్త పద్ధతి: డేటాను /tmp లో పికిల్ ఫైల్‌గా సేవ్ చేయడం (కుకీ ఓవర్‌లోడ్ ఉండదు)
+        cache_path = os.path.join(upload_folder, 'merged_cache.pkl')
+        merged_df.to_pickle(cache_path)
         
         return render_template('rd_dashboard.html', 
                                matched_count=len(merged_df[merged_df['_merge'] == 'both']), 
@@ -89,17 +97,22 @@ def compare_files():
 
 @rd_bp.route('/download/<type>')
 def download_excel(type):
-    # సెషన్ నుండి డేటాను పొందడం లేదా ఫైళ్లను మళ్లీ రీడ్ చేయడం
-    path1 = os.path.join('/tmp', session.get('file1_name', ''))
-    path2 = os.path.join('/tmp', session.get('file2_name', ''))
+    cache_path = os.path.join('/tmp', 'merged_cache.pkl')
     
-    if not os.path.exists(path1) or not os.path.exists(path2):
-        flash("ఫైల్స్ లభించలేదు, దయచేసి మళ్ళీ అప్‌లోడ్ చేయండి.")
-        return redirect(url_for('rd_bp.index'))
+    if os.path.exists(cache_path):
+        merged_df = pd.read_pickle(cache_path)
+    else:
+        # ఫైల్ మిస్ అయితే మళ్లీ ప్రాసెస్ చేయడం
+        path1 = os.path.join('/tmp', session.get('file1_name', ''))
+        path2 = os.path.join('/tmp', session.get('file2_name', ''))
+        
+        if not os.path.exists(path1) or not os.path.exists(path2):
+            flash("ఫైల్స్ లభించలేదు, దయచేసి మళ్ళీ అప్‌లోడ్ చేయండి.")
+            return redirect(url_for('rd_bp.index'))
 
-    df1 = parse_term_deposit_file(path1)
-    df2 = parse_custom_prn_file(path2)
-    merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+        df1 = parse_term_deposit_file(path1)
+        df2 = parse_custom_prn_file(path2)
+        merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
 
     if type == 'matched':
         export_df = merged_df[merged_df['_merge'] == 'both'].drop(columns=['_merge'])
@@ -111,7 +124,7 @@ def download_excel(type):
         export_df = merged_df.drop(columns=['_merge'])
         filename = "Full_Merged_Data.xlsx"
 
-    # పర్ఫెక్ట్ Openpyxl స్టైలింగ్‌తో ఎక్సెల్ జనరేట్ చేయడం (Memory Buffer)
+    # మిగతా ఎక్సెల్ జనరేషన్ కోడ్ అలాగే ఉంచండి...
     output = io.BytesIO()
     wb = openpyxl.Workbook()
     ws = wb.active
