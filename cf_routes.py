@@ -430,15 +430,36 @@ def cf_save_beneficiary():
         spreadsheet = client.open(SPREADSHEET_NAME)
         worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
         headers = worksheet.row_values(1)
-        
+
         if action_type == 'update' and row_index:
-            # పాత రో ని అప్‌డేట్ చేయడం
+            # భద్రత కోసం: ఆ రో నంబర్‌లో ఉన్న ఆధార్ నంబర్ మరియు ఫ్రంట్-ఎండ్ నుండి వస్తున్న ఆధార్ నంబర్ ఒకటేనా కాదా అని చెక్ చేయడం
+            current_row_values = worksheet.row_values(int(row_index))
+            aadhar_col_idx = headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
+            
+            # ఒకవేళ రో నంబర్ మారిపోయి ఉంటే, ఆధార్ నంబర్ ద్వారా సరైన రో ని కనుగొనడం
+            target_row = int(row_index)
+            if aadhar_col_idx != -1 and len(current_row_values) > aadhar_col_idx:
+                existing_aadhar = str(current_row_values[aadhar_col_idx]).strip()
+                form_aadhar = str(form_data.get('Aadhar Number', '')).strip()
+                
+                if existing_aadhar != form_aadhar:
+                    # రో నంబర్ మారిపోయింది కాబట్టి, ఆధార్ నంబర్ ఆధారంగా కరెక్ట్ రో ని వెతకాలి
+                    all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
+                    for idx, adh in enumerate(all_aadhars[1:], start=2):
+                        if str(adh).strip() == form_aadhar:
+                            target_row = idx
+                            break
+
+            # ఇప్పుడు కరెక్ట్ అయిన target_row లో మాత్రమే డేటా అప్‌డేట్ అవుతుంది
             for col_name, val in form_data.items():
                 if col_name in headers:
                     col_idx = headers.index(col_name) + 1
-                    worksheet.update_cell(int(row_index), col_idx, val)
-            return jsonify({"status": "success", "message": "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!"})
+                    worksheet.update_cell(target_row, col_idx, val)
             
+            return jsonify({"status": "success", "message": "డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది!"})
+        
+      
+        
         elif action_type == 'insert':
             # కొత్త రికార్డును ఇన్‌సర్ట్ చేయడం
             new_row = []
