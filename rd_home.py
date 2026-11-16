@@ -1,7 +1,6 @@
 import io  # ఫైల్‌ను రామ్‌లో (RAM) ఆబ్జెక్ట్‌గా సేవ్ చేయడానికి
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash
-from flask import Blueprint, render_template, request, jsonify, session, redirect, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, Blueprint, jsonify, session, send_file
 from src.parser import parse_term_deposit_file, parse_prn_file
 import pandas as pd
 
@@ -15,7 +14,6 @@ def index():
 
 @rd_bp.route('/rd/upload', methods=['GET', 'POST'])
 def upload_file():
-    # ఒకవేళ గెట్ రిక్వెస్ట్ వస్తే ఇండెక్స్ పేజీకి రీడైరెక్ట్ చేయవచ్చు
     if request.method == 'GET':
         return redirect(url_for('rd_bp.index'))
     
@@ -78,30 +76,45 @@ def compare_files():
     try:
         df1 = parse_term_deposit_file(path1)
         df2 = parse_prn_file(path2)
-              
-        # 1. అకౌంట్ నంబర్ కాలమ్స్‌ను స్ట్రింగ్‌గా మార్చి, స్పేస్‌లు తొలగించడం
-        df1['Account_No'] = df1['Account_No'].astype(str).str.strip().str.replace('.0', '', regex=False)
-        df2['RD1 Acc Num'] = df2['RD1 Acc Num'].astype(str).str.strip().str.replace('.0', '', regex=False)
         
-        # 2. సరిగ్గా మెర్జ్ (Merge) చేయడం
-        merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+        # --- ముఖ్యమైన లాజిక్ (Data Cleaning & Validation) ---
+        # 1. అకౌంట్ నంబర్లను స్ట్రింగ్ ఫార్మాట్‌కు మార్చడం (లీడింగ్ జీరోలు పోకుండా ఉండటానికి)
+        if 'Account_No' in df1.columns:
+            df1['Account_No'] = df1['Account_No'].astype(str).str.strip()
+        if 'RD1 Acc Num' in df2.columns:
+            df2['RD1 Acc Num'] = df2['RD1 Acc Num'].astype(str).str.strip()
+            
+            # 2. 'ACCOUNT CLOSED', 'TEMP ADDRESS' వంటి టెక్స్ట్ ఉన్న రోస్‌ను వేరు చేయడం (Data Integrity)
+            # కేవలం డిజిట్లు (నెంబర్లు) ఉన్న అకౌంట్ నంబర్లను మాత్రమే మ్యాచింగ్ కోసం ఉంచుతాం
+            is_numeric_acc = df2['RD1 Acc Num'].str.match(r'^\d+$', na=False)
+            df2_valid = df2[is_numeric_acc].copy()
+            df2_invalid = df2[~is_numeric_acc].copy()  # టెక్స్ట్/స్టేటస్ ఉన్న ప్రత్యేక రోస్
+        else:
+            df2_valid = df2.copy()
+            df2_invalid = pd.DataFrame()
+
+        # 3. రెండు డేటాఫ్రేమ్‌లను Account_No మరియు RD1 Acc Num ఆధారంగా మెర్జ్ చేయడం (Outer Join)
+        merged_df = pd.merge(df1, df2_valid, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
         
         matched_data = merged_df[merged_df['_merge'] == 'both']
         unmatched_data = merged_df[merged_df['_merge'] != 'both']
         
+        # డ్యాష్‌బోర్డ్‌లో ప్రదర్శించడానికి హెచ్‌టిఎంఎల్ టేబుల్స్ సిద్ధం చేయడం
+        matched_table = matched_data.head(100).to_html(classes='table table-striped', index=False)
+        
         return render_template('rd_dashboard.html', 
                                matched_count=len(matched_data), 
                                unmatched_count=len(unmatched_data),
-                               tables=[matched_data.to_html(classes='data', header="true")])
+                               invalid_count=len(df2_invalid),
+                               tables=[matched_table])
                            
     except Exception as e:
-        flash(f'ఫైల్స్ ప్రాసెస్ చేయడంలో లోపం ఏర్పడింది: {str(e)}')
+        flash(f'ఫైల్స్ ప్రాసెస్ చేస్తున్నప్పుడు ఎర్రర్ వచ్చింది: {str(e)}')
         return redirect(request.url)
+
 
 @rd_bp.route('/download/<type>')
 def download_excel(type):
-    # సెషన్ నుండి లేదా లాస్ట్ ప్రాసెస్ చేసిన ఫైల్స్ ద్వారా డేటా పొందడం
-    # ఉదాహరణకు compare_files నుండి ప్రాసెస్ చేసిన ఫైల్ మార్గాలను ఉపయోగిద్దాం
     path1 = os.path.join('/tmp', session.get('file1_name', ''))
     path2 = os.path.join('/tmp', session.get('file2_name', ''))
     
@@ -111,9 +124,20 @@ def download_excel(type):
 
     df1 = parse_term_deposit_file(path1)
     df2 = parse_prn_file(path2)
-    merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+    
+    # సేమ్ డేటా క్లీనింగ్ లాజిక్ డౌన్‌లోడ్ సమయంలోనూ వర్తింపజేయాలి
+    if 'Account_No' in df1.columns:
+        df1['Account_No'] = df1['Account_No'].astype(str).str.strip()
+    if 'RD1 Acc Num' in df2.columns:
+        df2['RD1 Acc Num'] = df2['RD1 Acc Num'].astype(str).str.strip()
+        is_numeric_acc = df2['RD1 Acc Num'].str.match(r'^\d+$', na=False)
+        df2_valid = df2[is_numeric_acc].copy()
+    else:
+        df2_valid = df2.copy()
 
-    # యూజర్ క్లిక్ చేసిన టైప్ ఆధారంగా ఫిల్టర్ చేయడం
+    merged_df = pd.merge(df1, df2_valid, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+
+    # యూజర్ క్లిక్ చేసిన టైప్ ఆధారంగా ఎక్సెల్ ఫైల్ జనరేట్ చేయడం
     if type == 'matched':
         export_df = merged_df[merged_df['_merge'] == 'both'].drop(columns=['_merge'])
         filename = "Matched_Records.xlsx"
@@ -124,7 +148,6 @@ def download_excel(type):
         export_df = merged_df.drop(columns=['_merge'])
         filename = "Full_Merged_Data.xlsx"
 
-    # Excel ఫైల్‌ను Memory Buffer లోకి రాయడం
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         export_df.to_excel(writer, index=False, sheet_name='Data')
