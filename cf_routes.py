@@ -311,16 +311,20 @@ def cf_search_beneficiary():
             except Exception:
                 pass
 
+        
         # BANK_SNO గణన: యూజర్ ఎంచుకున్న FILE NAME కి మ్యాచ్ అయ్యే రికార్డ్స్‌లోని 'BANK_SNO' లలో గరిష్ట విలువ + 1
         max_bank_sno = 0
        
         for row in records_new:
+            s_val = str(row.get('SNO', '0')).strip()
+            if s_val.isdigit():
+                max_sno = max(max_sno, int(s_val))
             if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
                 b_sno = str(row.get('BANK_SNO', '0')).strip()
                 
                 if b_sno.isdigit():
                     max_bank_sno = max(max_bank_sno, int(b_sno))
-                   
+        next_sno = max_sno + 1           
         next_bank_sno = max_bank_sno + 1
         
 
@@ -355,6 +359,7 @@ def cf_search_beneficiary():
             # కొత్త రికార్డు లేదా ఓల్డ్ డేటా నుండి లోడ్ అయినట్లయితే డిఫాల్ట్ వాల్యూస్ సెట్ చేయబడతాయి
             base_data = matched_record.copy() if matched_record else {}
             base_data['Aadhar Number'] = aadhar_number
+            base_data['SNO'] = next_sno
             base_data['BANK_SNO'] = next_bank_sno
             base_data['FILE NAME'] = selected_file_name
             base_data['Bank Name'] = bank_name
