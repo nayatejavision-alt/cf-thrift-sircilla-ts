@@ -410,7 +410,7 @@ def cf_get_bank_files():
         return jsonify({"status": "error", "message": str(e), "file_names": []})
 
 
-# 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record)
+# 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record - Safe Version)
 @cf_bp.route('/cf/save-beneficiary', methods=['POST'])
 def cf_save_beneficiary():
     if not session.get('cf_logged_in'):
@@ -430,38 +430,43 @@ def cf_save_beneficiary():
         spreadsheet = client.open(SPREADSHEET_NAME)
         worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
         headers = worksheet.row_values(1)
+        
+        aadhar_col_idx = headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
+        form_aadhar = str(form_data.get('Aadhar Number', '')).strip()
 
-        if action_type == 'update' and row_index:
-            # భద్రత కోసం: ఆ రో నంబర్‌లో ఉన్న ఆధార్ నంబర్ మరియు ఫ్రంట్-ఎండ్ నుండి వస్తున్న ఆధార్ నంబర్ ఒకటేనా కాదా అని చెక్ చేయడం
-            current_row_values = worksheet.row_values(int(row_index))
-            aadhar_col_idx = headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
+        # 🛡️ అదనపు భద్రత: అసలు ఈ ఆధార్ నంబర్ షీట్‌లో ఇప్పటికే ఉందో లేదో ముందుగా చెక్ చేయడం
+        existing_row_idx = None
+        if aadhar_col_idx != -1 and form_aadhar:
+            all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
+            for idx, adh in enumerate(all_aadhars[1:], start=2):
+                if str(adh).strip() == form_aadhar:
+                    existing_row_idx = idx
+                    break
+
+        # ఒకవేళ యూజర్ 'insert' అని పంపినా, ఆధార్ నంబర్ ఇప్పటికే షీట్‌లో ఉంటే పొరపాటున డూప్లికేట్ పడకుండా అప్‌డేట్ కింద మార్చడం
+        if action_type == 'insert' and existing_row_idx:
+            action_type = 'update'
+            row_index = existing_row_idx
+
+        if action_type == 'update':
+            target_row = int(row_index) if row_index else existing_row_idx
             
-            # ఒకవేళ రో నంబర్ మారిపోయి ఉంటే, ఆధార్ నంబర్ ద్వారా సరైన రో ని కనుగొనడం
-            target_row = int(row_index)
-            if aadhar_col_idx != -1 and len(current_row_values) > aadhar_col_idx:
-                existing_aadhar = str(current_row_values[aadhar_col_idx]).strip()
-                form_aadhar = str(form_data.get('Aadhar Number', '')).strip()
-                
-                if existing_aadhar != form_aadhar:
-                    # రో నంబర్ మారిపోయింది కాబట్టి, ఆధార్ నంబర్ ఆధారంగా కరెక్ట్ రో ని వెతకాలి
-                    all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
-                    for idx, adh in enumerate(all_aadhars[1:], start=2):
-                        if str(adh).strip() == form_aadhar:
-                            target_row = idx
-                            break
+            if not target_row:
+                return jsonify({"status": "error", "message": "అప్‌డేట్ చేయడానికి సరైన రికార్డు లభించలేదు!"})
 
-            # ఇప్పుడు కరెక్ట్ అయిన target_row లో మాత్రమే డేటా అప్‌డేట్ అవుతుంది
+            # కరెక్ట్ అయిన target_row లో డేటా అప్‌డేట్ చేయడం
             for col_name, val in form_data.items():
                 if col_name in headers:
                     col_idx = headers.index(col_name) + 1
                     worksheet.update_cell(target_row, col_idx, val)
-            
+                    
             return jsonify({"status": "success", "message": "డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది!"})
-        
-      
-        
+            
         elif action_type == 'insert':
-            # కొత్త రికార్డును ఇన్‌సర్ట్ చేయడం
+            # షీట్‌లో అసలు ఆధార్ లేకపోతేనే కొత్త రో ఇన్‌సర్ట్ అవుతుంది
+            if existing_row_idx:
+                return jsonify({"status": "error", "message": "ఈ ఆధార్ నంబర్తో ఇప్పటికే రికార్డు ఉంది! కాబట్టి కొత్త ఎంట్రీ కుదరదు."})
+
             new_row = []
             max_sno = 0
             
