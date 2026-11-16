@@ -49,20 +49,18 @@ def upload_file():
 
 @rd_bp.route('/compare', methods=['GET', 'POST'])
 def compare_files():
-    # ఒకవేళ యూజర్ గెట్ రిక్వెస్ట్ చేస్తే అప్లోడ్ పేజ్‌కి పంపాలి
     if request.method == 'GET':
-        return render_template('rd_view.html')  # లేదా rd_view_2.html
+        return render_template('rd_view.html')
         
-    # 1. User upload chesina files unnaayo ledo check cheyadam
     if 'file1' not in request.files or 'file2' not in request.files:
-        flash('Dayachesi rendu files select cheyandi!')
+        flash('దయచేసి రెండు ఫైళ్లను సెలెక్ట్ చేయండి!')
         return redirect(request.url)
     
     file1 = request.files['file1']
     file2 = request.files['file2']
     
     if file1.filename == '' or file2.filename == '':
-        flash('Asalu file select avvaledu!')
+        flash('ఫైల్ సెలెక్ట్ చేయబడలేదు!')
         return redirect(request.url)
     
     upload_folder = '/tmp'
@@ -81,20 +79,24 @@ def compare_files():
         df1 = parse_term_deposit_file(path1)
         df2 = parse_prn_file(path2)
               
-        #merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
-        merged_df =    df2
-        #matched_data = merged_df[merged_df['_merge'] == 'both']
-        #unmatched_data = merged_df[merged_df['_merge'] != 'both']
+        # 1. అకౌంట్ నంబర్ కాలమ్స్‌ను స్ట్రింగ్‌గా మార్చి, స్పేస్‌లు తొలగించడం
+        df1['Account_No'] = df1['Account_No'].astype(str).str.strip().str.replace('.0', '', regex=False)
+        df2['RD1 Acc Num'] = df2['RD1 Acc Num'].astype(str).str.strip().str.replace('.0', '', regex=False)
         
-        return render_template('rd_dashboard.html',  # ఫైల్ పేరు rd_dashboard_2 అయితే ఇక్కడ మార్చండి
-                               matched_count=len(df2), 
-                               unmatched_count=len(df2),
-                               tables=[df2.to_html(classes='data', header="true")])
+        # 2. సరిగ్గా మెర్జ్ (Merge) చేయడం
+        merged_df = pd.merge(df1, df2, left_on='Account_No', right_on='RD1 Acc Num', how='outer', indicator=True)
+        
+        matched_data = merged_df[merged_df['_merge'] == 'both']
+        unmatched_data = merged_df[merged_df['_merge'] != 'both']
+        
+        return render_template('rd_dashboard.html', 
+                               matched_count=len(matched_data), 
+                               unmatched_count=len(unmatched_data),
+                               tables=[matched_data.to_html(classes='data', header="true")])
                            
     except Exception as e:
-        flash(f'Files process chesthunappudu error vachindi: {str(e)}')
+        flash(f'ఫైల్స్ ప్రాసెస్ చేయడంలో లోపం ఏర్పడింది: {str(e)}')
         return redirect(request.url)
-
 
 @rd_bp.route('/download/<type>')
 def download_excel(type):
