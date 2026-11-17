@@ -35,42 +35,66 @@ cf_sheet_ids = {
 }
 
 active_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number',
-    'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 'Govt_Share',
-    'Contact Number', 'FILE NAME_x', '8% Of Monthly Wages',
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
+    'Aadhar Number', 'Caste', 'Profession', 'H.NO. Residentional H.No', 
+    'VILLAGE NAME', 'MANDAL NAME', 'Bank Account Number', 'RD 1', 
+    'RD ACCOUNT_2 (Govt. Contribution)', 'Govt_Share', 'Contact Number', 
+    'Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village', 'BANK_REMARKS', 
+    'NAME OF CF', 'FILE NAME_x', '8% Of Monthly Wages',
 ]
 rename_active_map = {
     'BANK_SNO': 'S.No', 'Name Of Benificiary': 'Beneficiary Name',
-    'Aadhar Number': 'Aadhaar No', 'Bank Account Number': 'Account No',
+    'Father Name': 'Father Name', 'Date OF Birth': 'Date Of Birth', 'Age': 'Age',
+    'Aadhaar No': 'Aadhaar No', 'Caste': 'Caste', 'Profession': 'Profession',
+    'H.NO. Residentional H.No': 'Residential H.No', 'VILLAGE NAME': 'Village Name',
+    'MANDAL NAME': 'Mandal Name', 'Bank Account Number': 'Account No',
     'RD 1': 'RD Account - 1', 'RD ACCOUNT_2 (Govt. Contribution)': 'RD Account - 2',
     'FILE NAME_x': 'Bank Name', 'Govt_Share': 'Govt_Share',
-    'Contact Number': 'Phone Number', 'Status': 'Status', '8% Of Monthly Wages': 'Amount'
+    'Contact Number': 'Phone Number', 'Status': 'Status', '8% Of Monthly Wages': 'Amount',
+    'Unit Owner': 'Unit Owner', 'H.NO. Unit H.No': 'Unit H.No', 'Area': 'Area',
+    'Village': 'Village', 'BANK_REMARKS': 'Bank Remarks', 'NAME OF CF': 'Name Of CF'
 }
 
 missing_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number',
-    'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', '8% Of Monthly Wages',
-    'Contact Number', 'FILE NAME_x',
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
+    'Aadhar Number', 'Caste', 'Profession', 'H.NO. Residentional H.No', 
+    'VILLAGE NAME', 'MANDAL NAME', 'Bank Account Number', 'RD 1', 
+    'RD ACCOUNT_2 (Govt. Contribution)', '8% Of Monthly Wages', 'Contact Number', 
+    'Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village', 'BANK_REMARKS', 
+    'NAME OF CF', 'FILE NAME_x',
 ]
 rename_missing_map = {
     'BANK_SNO': 'S.No', 'Name Of Benificiary': 'Beneficiary Name',
-    'Aadhar Number': 'Aadhaar No', 'Bank Account Number': 'Account No',
+    'Father Name': 'Father Name', 'Date OF Birth': 'Date Of Birth', 'Age': 'Age',
+    'Aadhaar No': 'Aadhaar No', 'Caste': 'Caste', 'Profession': 'Profession',
+    'H.NO. Residentional H.No': 'Residential H.No', 'VILLAGE NAME': 'Village Name',
+    'MANDAL NAME': 'Mandal Name', 'Bank Account Number': 'Account No',
     'RD 1': 'RD Account - 1', 'RD ACCOUNT_2 (Govt. Contribution)': 'RD Account - 2',
     'FILE NAME_x': 'Bank Name', '8% Of Monthly Wages': 'Amount',
     'Contact Number': 'Phone Number', 'Status': 'Status',
+    'Unit Owner': 'Unit Owner', 'H.NO. Unit H.No': 'Unit H.No', 'Area': 'Area',
+    'Village': 'Village', 'BANK_REMARKS': 'Bank Remarks', 'NAME OF CF': 'Name Of CF'
 }
 
 all_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number',
-    'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 'Govt_Share',
-    'Contact Number', 'FILE NAME_x', '8% Of Monthly Wages',
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
+    'Aadhar Number', 'Caste', 'Profession', 'H.NO. Residentional H.No', 
+    'VILLAGE NAME', 'MANDAL NAME', 'Bank Account Number', 'RD 1', 
+    'RD ACCOUNT_2 (Govt. Contribution)', 'Govt_Share', 'Contact Number', 
+    'Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village', 'BANK_REMARKS', 
+    'NAME OF CF', 'FILE NAME_x', '8% Of Monthly Wages',
 ]
 rename_all_map = {
     'BANK_SNO': 'S.No', 'Name Of Benificiary': 'Beneficiary Name',
-    'Aadhar Number': 'Aadhaar No', 'Bank Account Number': 'Account No',
+    'Father Name': 'Father Name', 'Date OF Birth': 'Date Of Birth', 'Age': 'Age',
+    'Aadhaar No': 'Aadhaar No', 'Caste': 'Caste', 'Profession': 'Profession',
+    'H.NO. Residentional H.No': 'Residential H.No', 'VILLAGE NAME': 'Village Name',
+    'MANDAL NAME': 'Mandal Name', 'Bank Account Number': 'Account No',
     'RD 1': 'RD Account - 1', 'RD ACCOUNT_2 (Govt. Contribution)': 'RD Account - 2',
     'FILE NAME_x': 'Bank Name', 'Govt_Share': 'Govt Share Amount',
     'Contact Number': 'Phone Number', 'Status': 'Status', '8% Of Monthly Wages': 'Amount',
+    'Unit Owner': 'Unit Owner', 'H.NO. Unit H.No': 'Unit H.No', 'Area': 'Area',
+    'Village': 'Village', 'BANK_REMARKS': 'Bank Remarks', 'NAME OF CF': 'Name Of CF'
 }
 
 SCOPES = [
@@ -140,7 +164,7 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
     # SHEET 1: ACTIVE
     ws1 = wb.active
     ws1.title = 'Sent_To_Bank_List'
-    ws1.merge_cells('A1:J1')
+    ws1.merge_cells('A1:X1')
     ws1['A1'] = f'{clean_cf_name} - MONTH {current_month} BANK SENT ({len(df_active_cf)} Records)'
     ws1['A1'].font = Font(name='Arial', size=12, bold=True, color='FFFFFF')
     ws1['A1'].fill = blue_fill
@@ -148,9 +172,12 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
 
     ws1.append([])
     headers_active = [
-        'BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number',
-        'RD 1 (Beneficiary Acc)', 'RD ACCOUNT_2 (Govt. Contribution)',
-        'Bank / Branch Name', 'Govt Share Amount', 'Contact Number', 'Status'
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
+        'Aadhar Number', 'Caste', 'Profession', 'H.NO. Residentional H.No', 
+        'VILLAGE NAME', 'MANDAL NAME', 'Bank Account Number', 'RD 1', 
+        'RD ACCOUNT_2 (Govt. Contribution)', 'Bank / Branch Name', 'Govt Share Amount', 
+        'Contact Number', 'Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village', 
+        'BANK_REMARKS', 'NAME OF CF', 'Status'
     ]
     ws1.append(headers_active)
     for col_num in range(1, len(headers_active) + 1):
@@ -161,18 +188,23 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
     r_idx1 = 4
     for _, r in df_active_cf.iterrows():
         ws1.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''),
-            r.get('Aadhar Number', ''), r.get('Bank Account Number', ''),
+            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
+            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
+            r.get('Caste', ''), r.get('Profession', ''), r.get('H.NO. Residentional H.No', ''),
+            r.get('VILLAGE NAME', ''), r.get('MANDAL NAME', ''), r.get('Bank Account Number', ''),
             r.get('RD 1', ''), r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
             r.get('FILE NAME_x', r.get('FILE NAME', '')), r.get('Govt_Share', 0),
-            r.get('Contact Number', ''), f'{month_label} Govt_Share Released'
+            r.get('Contact Number', ''), r.get('Unit Owner', ''), r.get('H.NO. Unit H.No', ''),
+            r.get('Area', ''), r.get('Village', ''), r.get('BANK_REMARKS', ''),
+            r.get('NAME OF CF', ''), f'{month_label} Govt_Share Released'
         ])
-        ws1.cell(row=r_idx1, column=8).number_format = '₹#,##0.00'
+        # Find index of Govt Share Amount column dynamically or use exact index (16)
+        ws1.cell(row=r_idx1, column=16).number_format = '₹#,##0.00'
         r_idx1 += 1
 
     # SHEET 2: MISSING
     ws2 = wb.create_sheet(title='Missing_or_Zero_List')
-    ws2.merge_cells('A1:I1')
+    ws2.merge_cells('A1:X1')
     ws2['A1'] = f'{clean_cf_name} - MONTH {current_month} MISSING / ZERO SHARE ({len(df_missing_cf)} Records)'
     ws2['A1'].font = Font(name='Arial', size=12, bold=True, color='FFFFFF')
     ws2['A1'].fill = red_fill
@@ -180,9 +212,12 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
 
     ws2.append([])
     headers_missing = [
-        'BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number',
-        'RD 1 (Beneficiary Acc)', 'RD ACCOUNT_2 (Govt. Contribution)',
-        'Bank / Branch Name', 'Contact Number', 'Status'
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
+        'Aadhar Number', 'Caste', 'Profession', 'H.NO. Residentional H.No', 
+        'VILLAGE NAME', 'MANDAL NAME', 'Bank Account Number', 'RD 1', 
+        'RD ACCOUNT_2 (Govt. Contribution)', 'Bank / Branch Name', 'Contact Number', 
+        'Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village', 'BANK_REMARKS', 
+        'NAME OF CF', 'Status'
     ]
     ws2.append(headers_missing)
     for col_num in range(1, len(headers_missing) + 1):
@@ -192,16 +227,20 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
 
     for _, r in df_missing_cf.iterrows():
         ws2.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''),
-            r.get('Aadhar Number', ''), r.get('Bank Account Number', ''),
+            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
+            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
+            r.get('Caste', ''), r.get('Profession', ''), r.get('H.NO. Residentional H.No', ''),
+            r.get('VILLAGE NAME', ''), r.get('MANDAL NAME', ''), r.get('Bank Account Number', ''),
             r.get('RD 1', ''), r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
-            r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned')),
-            r.get('Contact Number', ''), f'Zero or missing transactions reported for {month_label}'
+            r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned')), r.get('Contact Number', ''),
+            r.get('Unit Owner', ''), r.get('H.NO. Unit H.No', ''), r.get('Area', ''),
+            r.get('Village', ''), r.get('BANK_REMARKS', ''), r.get('NAME OF CF', ''),
+            f'Zero or missing transactions reported for {month_label}'
         ])
 
     # SHEET 3: ALL BENEFICIARIES
     ws3 = wb.create_sheet(title='All_Beneficiaries_Master')
-    ws3.merge_cells('A1:J1')
+    ws3.merge_cells('A1:X1')
     ws3['A1'] = f'PROJECT ALL BENEFICIARIES MASTER DATA - MONTH {current_month} ({len(df_cross)} Records)'
     ws3['A1'].font = Font(name='Arial', size=12, bold=True, color='FFFFFF')
     ws3['A1'].fill = green_fill
@@ -209,9 +248,12 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
 
     ws3.append([])
     headers_all = [
-        'BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number',
-        'RD 1 (Beneficiary Acc)', 'RD ACCOUNT_2 (Govt. Contribution)',
-        'Bank / Branch Name', 'Govt Share Amount', 'Contact Number', 'Status'
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
+        'Aadhar Number', 'Caste', 'Profession', 'H.NO. Residentional H.No', 
+        'VILLAGE NAME', 'MANDAL NAME', 'Bank Account Number', 'RD 1', 
+        'RD ACCOUNT_2 (Govt. Contribution)', 'Bank / Branch Name', 'Govt Share Amount', 
+        'Contact Number', 'Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village', 
+        'BANK_REMARKS', 'NAME OF CF', 'Status'
     ]
     ws3.append(headers_all)
     for col_num in range(1, len(headers_all) + 1):
@@ -222,13 +264,17 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_cross, current_month
     r_idx3 = 4
     for _, r in df_cross.iterrows():
         ws3.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''),
-            r.get('Aadhar Number', ''), r.get('Bank Account Number', ''),
+            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
+            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
+            r.get('Caste', ''), r.get('Profession', ''), r.get('H.NO. Residentional H.No', ''),
+            r.get('VILLAGE NAME', ''), r.get('MANDAL NAME', ''), r.get('Bank Account Number', ''),
             r.get('RD 1', ''), r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
             r.get('FILE NAME_x', r.get('FILE NAME', '')), r.get('Govt_Share', 0),
-            r.get('Contact Number', ''), r.get('Status', '')
+            r.get('Contact Number', ''), r.get('Unit Owner', ''), r.get('H.NO. Unit H.No', ''),
+            r.get('Area', ''), r.get('Village', ''), r.get('BANK_REMARKS', ''),
+            r.get('NAME OF CF', ''), r.get('Status', '')
         ])
-        ws3.cell(row=r_idx3, column=8).number_format = '₹#,##0.00'
+        ws3.cell(row=r_idx3, column=16).number_format = '₹#,##0.00'
         r_idx3 += 1
 
     for ws in [ws1, ws2, ws3]:
@@ -267,21 +313,21 @@ def update_sheets():
                     worksheets = spreadsheet.worksheets()
 
                     # TAB 1
-                    sh1 = worksheets[0] if len(worksheets) > 0 else spreadsheet.add_worksheet(title="Sent_To_Bank_List", rows="1000", cols="20")
+                    sh1 = worksheets[0] if len(worksheets) > 0 else spreadsheet.add_worksheet(title="Sent_To_Bank_List", rows="1000", cols="30")
                     sh1.clear()
                     cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
                     df_act_sel = df_active_clean[cols1].rename(columns=rename_active_map)
                     sh1.update(range_name='A1', values=[df_act_sel.columns.values.tolist()] + df_act_sel.values.tolist())
 
                     # TAB 2
-                    sh2 = worksheets[1] if len(worksheets) > 1 else spreadsheet.add_worksheet(title="Missing_or_Zero_List", rows="1000", cols="20")
+                    sh2 = worksheets[1] if len(worksheets) > 1 else spreadsheet.add_worksheet(title="Missing_or_Zero_List", rows="1000", cols="30")
                     sh2.clear()
                     cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
                     df_mis_sel = df_missing_clean[cols2].rename(columns=rename_missing_map)
                     sh2.update(range_name='A1', values=[df_mis_sel.columns.values.tolist()] + df_mis_sel.values.tolist())
 
                     # TAB 3
-                    sh3 = worksheets[2] if len(worksheets) > 2 else spreadsheet.add_worksheet(title="All_Beneficiaries_Master", rows="2000", cols="20")
+                    sh3 = worksheets[2] if len(worksheets) > 2 else spreadsheet.add_worksheet(title="All_Beneficiaries_Master", rows="2000", cols="30")
                     sh3.clear()
                     cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
                     df_all_sel = df_all_master_clean[cols3].rename(columns=rename_all_map)
