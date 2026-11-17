@@ -78,6 +78,64 @@
                         </button>
                     </div>
                 </div>
+                <!-- 📊 Google Sheets Update & CF-Wise Excel Download Cards -->
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mt-6 space-y-6">
+    <h3 class="text-sm font-bold text-blue-900 border-b pb-2 mb-4">
+        📊 Google Sheets అప్‌డేట్ & CF-వారీగా ఎక్సెల్ డౌన్‌లోడ్
+    </h3>
+
+    <!-- CARD 1: ONE-CLICK GOOGLE SHEETS UPDATE -->
+    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+        <h4 class="text-xs font-bold text-emerald-700 mb-1">1. అన్ని CF Google Sheets ఆటోమేటిక్‌గా అప్‌డేట్ చేయండి</h4>
+        <p class="text-[11px] text-slate-500 mb-3">నెల ఎంచుకుని బటన్ క్లిక్ చేస్తే, మొత్తం CF ల Google Sheets లోని 3 ట్యాబ్‌లు అప్‌డేట్ అవుతాయి.</p>
+        
+        <form action="/update_sheets" method="POST" onsubmit="showLoader()" class="flex flex-col sm:flex-row gap-3 items-end">
+            <div class="w-full sm:flex-1">
+                <label class="block text-[11px] font-semibold text-slate-700 mb-1">నెల ఎంచుకోండి (Select Month):</label>
+                <select name="month" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                    {% for num, name in months.items() %}
+                        <option value="{{ num }}">Month {{ num }} ({{ name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="w-full sm:w-auto">
+                <button type="submit" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition shadow-sm">
+                    🔄 Update All Sheets
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- CARD 2: CF-WISE ON-DEMAND EXCEL DOWNLOAD -->
+    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+        <h4 class="text-xs font-bold text-blue-700 mb-1">2. CF వారీగా 3-షీట్ల ఎక్సెల్ రిపోర్ట్ డౌన్‌లోడ్</h4>
+        <p class="text-[11px] text-slate-500 mb-3">మీకు అవసరమైన CF పేరు మరియు నెల ఎంచుకుని నేరుగా ఎక్సెల్ ఫైల్ డౌన్‌లోడ్ చేసుకోండి.</p>
+        
+        <form action="/download_excel" method="POST" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div>
+                <label class="block text-[11px] font-semibold text-slate-700 mb-1">CF పేరు ఎంచుకోండి:</label>
+                <select name="cf_name" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                    {% for cf in cf_list %}
+                        <option value="{{ cf }}">{{ cf }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-[11px] font-semibold text-slate-700 mb-1">నెల ఎంచుకోండి:</label>
+                <select name="month" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                    {% for num, name in months.items() %}
+                        <option value="{{ num }}">Month {{ num }} ({{ name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+                    📥 Download Excel
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
             </div>
 
             <!-- మెయిన్ ప్యానెల్ -->
