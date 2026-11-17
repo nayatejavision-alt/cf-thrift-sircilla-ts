@@ -106,11 +106,11 @@ PROCESS_STEPS_CONFIG = {
         'body_desc': 'requesting the monthly bank scroll / transaction statement showing the 8% weaver share deposits into RD-1 accounts'
     },
     '6': {
-        'step_name': '6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (16%) గణన',
+        'step_name': '6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (8%) గణన',
         'template': 'RECONCILIATION_TEMPLATE.docx',
         'sheet_name': 'Reconciliation_Statement',
-        'subject_prefix': 'Monthly Reconciliation & 16% Govt Matching Share Calculation Statement',
-        'body_desc': 'forwarding the reconciled statement of 8% weaver contributions and corresponding 16% Government matching share calculation'
+        'subject_prefix': 'Monthly Reconciliation & 8% Govt Matching Share Calculation Statement',
+        'body_desc': 'forwarding the reconciled statement of 8% weaver contributions and corresponding 8% Government matching share calculation'
     },
     '7': {
         'step_name': '7. ప్రభుత్వ వాటా నిధుల మంజూరు మరియు బదిలీ',
@@ -424,6 +424,9 @@ def background_draft_task(data, app_context):
                 if 'Contact Number' in pending_df.columns
                 else ''
             )
+            p_export_df['Nominee Name'] = pending_df.get('Nominee Name', '').apply(format_as_excel_text)
+            p_export_df['Relation'] = pending_df.get('Relation', '').apply(format_as_excel_text)
+            p_export_df['Nominee DOB'] = pending_df.get('Nominee DOB', '').apply(format_as_excel_text)  
             p_export_df['Status'] = pending_df['BANK_REMARKS_CLEAN'].apply(
                 lambda x: 'Beneficiary Expired' if 'DIED' in str(x) else 'RD-1 Account Pending / Unassigned Batch / Zero Transaction'
             )
@@ -442,11 +445,11 @@ def background_draft_task(data, app_context):
           export_df = pd.DataFrame()
           export_df['SNO'] = target_df.get('BANK_SNO', target_df.get('SNO', ''))
           export_df['Name Of Benificiary'] = target_df.get('Name Of Benificiary', '')
-          export_df['Savings Bank Account No'] = target_df.get('Bank Account Number', '').apply(format_as_excel_text)
-          export_df['Aadhaar Number'] = target_df.get('Aadhaar Number', '').apply(format_as_excel_text) if 'Aadhaar Number' in target_df.columns else ''
+          export_df['Savings Bank Account No'] = target_df.get('Bank Account Number', '').apply(format_as_excel_text)          
           export_df['Contact Number'] = target_df.get('Contact Number', '').apply(format_as_excel_text) if 'Contact Number' in target_df.columns else ''
           export_df['Nominee Name'] = target_df.get('Nominee Name', '').apply(format_as_excel_text)
           export_df['Relation'] = target_df.get('Relation', '').apply(format_as_excel_text)
+          export_df['Nominee DOB'] = active_df.get('Nominee DOB', '').apply(format_as_excel_text)
           export_df['New RD-1 Account No (To be filled by Bank)'] = target_df.get('RD 1', '').apply(format_as_excel_text)
           export_df['New RD-2 Account No (To be filled by Bank)'] = target_df.get('RD 2', '').apply(format_as_excel_text)
           export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
@@ -479,6 +482,8 @@ def background_draft_task(data, app_context):
           export_df['RD-2 Account No'] = bank_thrift_df.get('RD 2', '').apply(format_as_excel_text)
           export_df['Contact Number'] = bank_thrift_df.get('Contact Number', '').apply(format_as_excel_text) if 'Contact Number' in bank_thrift_df.columns else ''
           export_df['Nominee Name'] = bank_thrift_df.get('Nominee Name', '').apply(format_as_excel_text)
+          export_df['Relation'] = bank_thrift_df.get('Relation', '').apply(format_as_excel_text)
+          export_df['Nominee DOB'] = bank_thrift_df.get('Nominee DOB', '').apply(format_as_excel_text)  
           export_df['Remarks'] = bank_thrift_df.get('BANK_REMARKS', '')
           export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
 
