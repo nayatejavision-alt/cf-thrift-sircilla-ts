@@ -35,6 +35,8 @@ from num2words import num2words
 from mismatch_routes import mismatch_bp
 from reports_routes import reports_bp
 from rd_home import rd_bp
+# కొత్త షీట్స్ బ్లూప్రింట్ ఇంపోర్ట్
+from sheets_routes import sheets_bp, month_map, cf_sheet_ids
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -161,6 +163,7 @@ app.register_blueprint(cf_bp)
 app.register_blueprint(mismatch_bp)
 app.register_blueprint(rd_bp)
 app.register_blueprint(reports_bp)
+app.register_blueprint(sheets_bp)
 
 
 def format_as_excel_text(val):
@@ -740,7 +743,10 @@ def home():
     print('Error fetching bank list:', e)
     bank_list = []
 
-  return render_template('index.html', banks=bank_list)
+  # నెలల జాబితా మరియు CF ల జాబితాను టెంప్లేట్‌కు పంపడం
+  cf_list = list(cf_sheet_ids.keys())
+  return render_template('index.html', banks=bank_list, months=month_map, cf_list=cf_list)
+
 
 @app.route('/api/search', methods=['POST'])
 def search_beneficiary():
