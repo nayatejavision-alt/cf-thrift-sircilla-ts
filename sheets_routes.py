@@ -9,6 +9,8 @@ from openpyxl.utils import get_column_letter
 import pandas as pd
 import os
 
+pd.set_option('future.no_silent_downcasting', True)
+
 sheets_bp = Blueprint('sheets_bp', __name__)
 
 SPREADSHEET_NAME = 'NOT_BANK_SENT_FORM'
