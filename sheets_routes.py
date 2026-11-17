@@ -45,7 +45,7 @@ active_columns = [
 rename_active_map = {
     'BANK_SNO': 'S.No', 'Name Of Benificiary': 'Beneficiary Name',
     'Father Name': 'Father Name', 'Date OF Birth': 'Date Of Birth', 'Age': 'Age',
-    'Aadhar Number: 'Aadhaar No', 'Caste': 'Caste', 'Profession': 'Profession',
+    'Aadhar Number': 'Aadhaar No', 'Caste': 'Caste', 'Profession': 'Profession',
     'H.NO. Residentional H.No': 'Residential H.No', 'VILLAGE NAME': 'Village Name',
     'MANDAL NAME': 'Mandal Name', 'Bank Account Number': 'Account No',
     'RD 1': 'RD Account - 1', 'RD ACCOUNT_2 (Govt. Contribution)': 'RD Account - 2',
