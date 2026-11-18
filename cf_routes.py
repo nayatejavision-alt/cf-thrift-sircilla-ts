@@ -3,6 +3,7 @@ import pandas as pd
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 import io
+import datetime
 
 cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 
@@ -38,6 +39,25 @@ CF_PASSWORDS = {
     "KAMAL": "kamal@2026",
     "MARKANDEYULU": "markandeyulu@2026"
 }
+
+# 🛠️ డేట్ ఫార్మాటింగ్ హెల్పర్ ఫంక్షన్ (HTML date input కోసం YYYY-MM-DD ఫార్మాట్‌లోకి మార్చడానికి)
+def format_date_val(val):
+    if not val or pd.isna(val):
+        return ""
+    if isinstance(val, (datetime.date, datetime.datetime)):
+        return val.strftime('%Y-%m-%d')
+    val_str = str(val).strip()
+    if not val_str or val_str.upper() in ['NAN', 'NONE', 'NAT']:
+        return ""
+    if ' ' in val_str:
+        val_str = val_str.split(' ')[0]
+    try:
+        dt = pd.to_datetime(val_str, errors='coerce')
+        if pd.notna(dt):
+            return dt.strftime('%Y-%m-%d')
+    except:
+        pass
+    return val_str
 
 # 1. CF లాగిన్ / నేమ్ సెలెక్షన్ పేజీ
 @cf_bp.route('/cf/login', methods=['GET', 'POST'])
@@ -169,15 +189,9 @@ def cf_download_report_by_bank():
 
 # కామన్ ఎక్సెల్ జనరేషన్ హెల్పర్ ఫంక్షన్
 def generate_excel_response(group_df, cf_name, current_month, report_type):
-    
-   #account_cols = ['Bank Account Number', 'RD 1']  # మీ షీట్‌లోని అకౌంట్ కాలమ్ పేర్లు ఇక్కడ ఇవ్వండి
-    #for col in account_cols:
-    #    if col in group_df.columns:        # నంబర్ చివర వచ్చే .0 లను తొలగించి, ముందుగా ' చేర్చడానికి
-    #        group_df[col] = "'" + group_df[col].astype(str).str.replace(r'\.0$', '', regex=True)
-
     account_columns = ['Bank Account Number', 'RD 1']
     for col in account_columns:
-        if col in group_df.columns:        # ముందుగా వాల్యూస్‌ని స్ట్రింగ్‌గా మార్చి, వాటి ముందు "'" కలుపుతాము
+        if col in group_df.columns:
             group_df[col] = "'" + group_df[col].astype(str)
             
     df_active = group_df[group_df['Govt_Share'] > 0].copy()
@@ -311,8 +325,17 @@ def cf_search_beneficiary():
             except Exception:
                 pass
 
-        
-        # BANK_SNO గణన: యూజర్ ఎంచుకున్న FILE NAME కి మ్యాచ్ అయ్యే రికార్డ్స్‌లోని 'BANK_SNO' లలో గరిష్ట విలువ + 1
+        # 📅 డేట్ కాలమ్స్ (Date OF Birth, Nominee DOB మొదలైనవి) సరిగ్గా YYYY-MM-DD ఫార్మాట్‌లోకి మార్చడం
+        if matched_record:
+            cleaned_matched = {}
+            for k, v in matched_record.items():
+                if any(date_keyword in k.lower() for date_keyword in ['dob', 'date of birth', 'date']):
+                    cleaned_matched[k] = format_date_val(v)
+                else:
+                    cleaned_matched[k] = v
+            matched_record = cleaned_matched
+
+        # BANK_SNO మరియు SNO గణన
         max_sno = 0
         max_bank_sno = 0
        
@@ -322,14 +345,13 @@ def cf_search_beneficiary():
                 max_sno = max(max_sno, int(s_val))
             if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
                 b_sno = str(row.get('BANK_SNO', '0')).strip()
-                
                 if b_sno.isdigit():
                     max_bank_sno = max(max_bank_sno, int(b_sno))
+                    
         next_sno = max_sno + 1           
         next_bank_sno = max_bank_sno + 1
-        
 
-        # వివిధ కాలమ్స్‌కోసం యూనిక్ లిస్ట్స్ సేకరించడం (Suggestions / Dropdowns కోసం)
+        # వివిధ కాలమ్స్‌కోసం యూనిక్ లిస్ట్స్ సేకరించడం
         unique_professions = sorted(list(set([str(r.get('Profession', '')).strip() for r in records_new if r.get('Profession')])))
         unique_villages = sorted(list(set([str(r.get('Village', '')).strip() for r in records_new if r.get('Village')])))
         unique_areas = sorted(list(set([str(r.get('Area', '')).strip() for r in records_new if r.get('Area')])))
@@ -337,7 +359,6 @@ def cf_search_beneficiary():
         unique_unit_hns = sorted(list(set([str(r.get('H.NO. Unit H.No', '')).strip() for r in records_new if r.get('H.NO. Unit H.No')])))
         unique_relations = sorted(list(set([str(r.get('Relation', '')).strip() for r in records_new if r.get('Relation')])))
 
-        # బ్యాంక్ నేమ్ కూడా FILE NAME అవుతుంది
         bank_name = selected_file_name
 
         if matched_record and source_sheet == 'new':
@@ -357,7 +378,6 @@ def cf_search_beneficiary():
                 }
             })
         else:
-            # కొత్త రికార్డు లేదా ఓల్డ్ డేటా నుండి లోడ్ అయినట్లయితే డిఫాల్ట్ వాల్యూస్ సెట్ చేయబడతాయి
             base_data = matched_record.copy() if matched_record else {}
             base_data['Aadhar Number'] = aadhar_number
             base_data['SNO'] = next_sno
@@ -367,12 +387,12 @@ def cf_search_beneficiary():
             base_data['Caste'] = 'BC'
             base_data['Profession'] = 'POWER LOOM WEAVER'
             base_data['DISTRICT NAME'] = 'RAJANNA SIRCILLA'
-            base_data['MANDAL NAME'] = 'SIRCILLA' # వీవర్లు ఎక్కువగా ఉన్న మండలం డిఫాల్ట్
+            base_data['MANDAL NAME'] = 'SIRCILLA'
             base_data['NAME OF CF'] = cf_name
             base_data['EMAIL ID'] = email_id
             base_data['BANK SENT'] = 'NOT SENT'
             base_data['8% Of Monthly Wages'] = 1200
-            base_data['MONTHLY WAGES'] = int(1200 * 100 / 8) # 15000
+            base_data['MONTHLY WAGES'] = int(1200 * 100 / 8)
 
             return jsonify({
                 "status": "new",
@@ -393,7 +413,6 @@ def cf_search_beneficiary():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
-
 # బ్రౌజర్ లో డ్రాప్-డౌన్ కోసం Bank_Email_Ids నుండి FILE NAME లను పంపే రౌట్
 @cf_bp.route('/cf/get-bank-files', methods=['GET'])
 def cf_get_bank_files():
@@ -410,8 +429,7 @@ def cf_get_bank_files():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e), "file_names": []})
 
-
-# 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record - Safe Version)
+# 6. డేటాను అప్‌డేట్ లేదా కొత్తది సేవ్ చేయడం (Update or Insert Record)
 @cf_bp.route('/cf/save-beneficiary', methods=['POST'])
 def cf_save_beneficiary():
     if not session.get('cf_logged_in'):
@@ -423,9 +441,9 @@ def cf_save_beneficiary():
         cf_name = session.get('cf_name')
         data = request.get_json() if request.is_json else request.form
         
-        action_type = data.get('action_type') # 'update' లేదా 'insert'
+        action_type = data.get('action_type')
         row_index = data.get('row_index')
-        form_data = data.get('form_data') # డిక్షనరీ రూపంలో ఫీల్డ్స్
+        form_data = data.get('form_data')
         
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
@@ -435,7 +453,6 @@ def cf_save_beneficiary():
         aadhar_col_idx = headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
         form_aadhar = str(form_data.get('Aadhar Number', '')).strip()
 
-        # 🛡️ అదనపు భద్రత: అసలు ఈ ఆధార్ నంబర్ షీట్‌లో ఇప్పటికే ఉందో లేదో ముందుగా చెక్ చేయడం
         existing_row_idx = None
         if aadhar_col_idx != -1 and form_aadhar:
             all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
@@ -444,7 +461,6 @@ def cf_save_beneficiary():
                     existing_row_idx = idx
                     break
 
-        # ఒకవేళ యూజర్ 'insert' అని పంపినా, ఆధార్ నంబర్ ఇప్పటికే షీట్‌లో ఉంటే పొరపాటున డూప్లికేట్ పడకుండా అప్‌డేట్ కింద మార్చడం
         if action_type == 'insert' and existing_row_idx:
             action_type = 'update'
             row_index = existing_row_idx
@@ -455,7 +471,6 @@ def cf_save_beneficiary():
             if not target_row:
                 return jsonify({"status": "error", "message": "అప్‌డేట్ చేయడానికి సరైన రికార్డు లభించలేదు!"})
 
-            # కరెక్ట్ అయిన target_row లో డేటా అప్‌డేట్ చేయడం
             for col_name, val in form_data.items():
                 if col_name in headers:
                     col_idx = headers.index(col_name) + 1
@@ -464,14 +479,12 @@ def cf_save_beneficiary():
             return jsonify({"status": "success", "message": "డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది!"})
             
         elif action_type == 'insert':
-            # షీట్‌లో అసలు ఆధార్ లేకపోతేనే కొత్త రో ఇన్‌సర్ట్ అవుతుంది
             if existing_row_idx:
                 return jsonify({"status": "error", "message": "ఈ ఆధార్ నంబర్తో ఇప్పటికే రికార్డు ఉంది! కాబట్టి కొత్త ఎంట్రీ కుదరదు."})
 
             new_row = []
             max_sno = 0
             
-            # SNO ఆటో-ఇంక్రిమెంట్ కోసం
             try:
                 sno_col_idx = headers.index('SNO') + 1
                 all_snos = worksheet.col_values(sno_col_idx)[1:]
@@ -480,7 +493,7 @@ def cf_save_beneficiary():
                 max_sno = len(worksheet.get_all_values())
                 
             form_data['SNO'] = max_sno + 1
-            form_data['NAME OF CF'] = cf_name # లాగిన్ అయిన CF పేరు ఆటోమేటిక్ గా సెట్ అవుతుంది
+            form_data['NAME OF CF'] = cf_name
             
             for header in headers:
                 new_row.append(form_data.get(header, ''))
