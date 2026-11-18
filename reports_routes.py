@@ -45,6 +45,11 @@ def get_thrift_dataframe():
         return None, sh
     
     df = pd.DataFrame(rows[1:], columns=rows[0])
+    
+    # బ్యాంకుకు పంపని (NOT SENT) రికార్డులను ఫిల్టర్ చేసి తొలగించుట
+    if 'BANK SENT' in df.columns:
+        df = df[df['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT'].reset_index(drop=True)
+        
     return df, sh
 
 # ==========================================
@@ -393,9 +398,6 @@ def generate_form_v():
 # ==========================================
 # 4. MASTER REPORT (All Tabs: Form III-A, III-B, IV & V)
 # ==========================================
-# ==========================================
-# అప్‌డేట్ చేయబడిన మాస్టర్ రిపోర్ట్ రూట్స్
-# ==========================================
 @reports_bp.route('/api/generate-all-reports', methods=['POST'])
 def generate_all_reports():
     data = request.get_json() if request.is_json else request.form
@@ -404,7 +406,6 @@ def generate_all_reports():
     job_id = str(uuid.uuid4())
     JOB_STATUS[job_id] = {'status': 'queued', 'message': 'జాబ్ క్యూలో ఉంది...'}
     
-    # బ్యాక్‌గ్రౌండ్‌లో త్రెడ్ ద్వారా రన్ చేయడం (సర్వర్ క్రాష్ కాకుండా)
     thread = threading.Thread(target=background_generate_all_reports, args=(job_id, target_month))
     thread.daemon = True
     thread.start()
@@ -414,10 +415,6 @@ def generate_all_reports():
         'job_id': job_id,
         'message': 'మాస్టర్ రిపోర్ట్ జనరేషన్ బ్యాక్‌గ్రౌండ్‌లో ప్రారంభమైంది.'
     })
-
-
-
-
 
 def background_generate_all_reports(job_id, target_month):
     try:
@@ -631,7 +628,6 @@ def background_generate_all_reports(job_id, target_month):
 
         JOB_STATUS[job_id] = {'status': 'processing', 'message': 'ఎక్సెల్ ఫైల్‌లో డేటా రాయబడుతోంది...'}
 
-        # Excel లో రాయడం
         with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
             if not report_df_iiia.empty and target_sheet_iiia:
                 report_df_iiia.to_excel(writer, sheet_name=target_sheet_iiia, startrow=7, startcol=0, header=False, index=False)
@@ -656,7 +652,6 @@ def background_generate_all_reports(job_id, target_month):
         del df_thrift, df_weavers, df_ancillary, df_v
         gc.collect()
 
-        # జాబ్ విజయవంతం అయిందని మార్క్ చేయడం
         JOB_STATUS[job_id] = {
             'status': 'completed', 
             'message': 'అన్ని రిపోర్ట్‌లు విజయవంతంగా తయారయ్యాయి!',
@@ -668,8 +663,6 @@ def background_generate_all_reports(job_id, target_month):
         JOB_STATUS[job_id] = {'status': 'error', 'message': f'లోపం సంభవించింది: {str(e)}'}
     finally:
         gc.collect()
-
-
 
 @reports_bp.route('/api/report-job-status/<job_id>', methods=['GET'])
 def report_job_status(job_id):
