@@ -314,7 +314,7 @@
     // ---------------------------------------------
 
     const formData = {};
-    const inputs = form.querySelectorAll('input');
+    const inputs = form.querySelectorAll('input, select');
     
     inputs.forEach(input => {
         if(input.name && input.name !== 'action_type' && input.name !== 'row_index') {
