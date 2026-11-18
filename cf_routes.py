@@ -313,6 +313,7 @@ def cf_search_beneficiary():
 
         
         # BANK_SNO గణన: యూజర్ ఎంచుకున్న FILE NAME కి మ్యాచ్ అయ్యే రికార్డ్స్‌లోని 'BANK_SNO' లలో గరిష్ట విలువ + 1
+        max_sno = 0
         max_bank_sno = 0
        
         for row in records_new:
