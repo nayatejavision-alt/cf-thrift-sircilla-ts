@@ -49,6 +49,10 @@ def admin_dashboard():
         df_master = pd.DataFrame(master_records)
         df_trans = pd.DataFrame(trans_records)
         
+        # బ్యాంకుకు పంపని (NOT SENT) రికార్డులను ఫిల్టర్ చేసి తొలగించుట
+        if 'BANK SENT' in df_master.columns:
+            df_master = df_master[df_master['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT']
+
         if df_master.empty:
             return render_template('admin_dashboard.html', total=0, completed=0, pending=0, 
                                    total_govt_share=0, batch_summary={}, bank_summary={}, 
@@ -75,7 +79,6 @@ def admin_dashboard():
             else:
                 df_trans['Govt_Share'] = 0
 
-            # RD_Account మరియు Batch_No వారీగా Govt_Share మొత్తాన్ని లెక్కించడం
             completed_trans = df_trans[df_trans['Govt_Share'] > 0].groupby(['RD_Account', 'Batch_No'], as_index=False).agg(
                 Govt_Share_Amt=('Govt_Share', 'sum')
             )
@@ -209,6 +212,10 @@ def export_admin_excel():
         df_master = pd.DataFrame(master_sheet.get_all_records())
         df_trans = pd.DataFrame(trans_sheet.get_all_records())
         
+        # బ్యాంకుకు పంపని (NOT SENT) రికార్డులను ఎక్సెల్ ఎగుమతిలో కూడా తొలగించుటకు
+        if 'BANK SENT' in df_master.columns:
+            df_master = df_master[df_master['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT']
+
         if df_master.empty:
             return "డేటా అందుబాటులో లేదు."
 
@@ -228,7 +235,6 @@ def export_admin_excel():
             df_trans['Batch_No'] = df_trans[t_batch_col].astype(str).str.strip() if t_batch_col else '0'
             df_trans['Govt_Share'] = pd.to_numeric(df_trans.get('Govt_Share', 0), errors='coerce').fillna(0)
             
-            # RD_Account మరియు Batch_No వారీగా Govt_Share మొత్తాన్ని గ్రూప్ చేయడం
             completed_trans = df_trans[df_trans['Govt_Share'] > 0].groupby(['RD_Account', 'Batch_No'], as_index=False).agg(
                 Govt_Share_Amt=('Govt_Share', 'sum')
             )
@@ -247,7 +253,7 @@ def export_admin_excel():
         df_merged['Batch_No'] = df_merged['Batch_No'].astype(str).str.replace('.0', '', regex=False)
         df_merged['Status_Val'] = df_merged['Is_Completed'].astype(int)
 
-        # 1. Batch Aggregates (Govt Share తో సహా)
+        # 1. Batch Aggregates
         batch_df = df_merged.groupby('Batch_No').agg(
             total=('RD_Account', 'count'),
             completed=('Status_Val', 'sum'),
@@ -279,7 +285,6 @@ def export_admin_excel():
         ).reset_index()
         cf_bank_batch_df['pending'] = cf_bank_batch_df['total'] - cf_bank_batch_df['completed']
 
-        # Openpyxl Excel Workbook creation with Styling
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Thrift Summary"
