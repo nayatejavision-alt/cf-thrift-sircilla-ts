@@ -282,6 +282,10 @@ def background_draft_task(data, app_context):
       ws_thrift = sh.worksheet('NEW THRIFT DATA')
       df_thrift = pd.DataFrame(ws_thrift.get_all_records())
 
+      # --- బ్యాంకుకు పంపని (NOT SENT) రికార్డులను తొలగించుట ---
+      if 'BANK SENT' in df_thrift.columns:
+          df_thrift = df_thrift[df_thrift['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT'].copy()  
+
       ws_email_map = sh.worksheet('Bank_Email_Ids')
       df_email_map = pd.DataFrame(ws_email_map.get_all_records())
       email_dict = dict(
@@ -892,6 +896,12 @@ def get_bank_data():
     target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
     master_records = target_sheet.get_all_records()
 
+    # --- బ్యాంకుకు పంపని (NOT SENT) రికార్డులను తొలగించుటకు ఫిల్టర్ ---
+    master_records = [
+        row for row in master_records 
+        if str(row.get('BANK SENT', '')).strip().upper() != 'NOT SENT'
+    ]
+
     try:
       trans_sheet = spreadsheet.worksheet('Transactions_Year1')
       trans_records = trans_sheet.get_all_records()
@@ -991,6 +1001,12 @@ def download_csv():
   spreadsheet = client.open(SPREADSHEET_NAME)
   target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
   records = target_sheet.get_all_records()
+
+  # --- బ్యాంకుకు పంపని (NOT SENT) రికార్డులను తొలగించుట ---
+  records = [
+      row for row in records 
+      if str(row.get('BANK SENT', '')).strip().upper() != 'NOT SENT'
+  ]  
 
   bank_user_clean = bank_user.strip().lower()
   filtered_data = [
@@ -1271,6 +1287,10 @@ def download_excel():
     target_sheet = spreadsheet.worksheet('NEW THRIFT DATA')
     master_records = target_sheet.get_all_records()
     df_master = pd.DataFrame(master_records)
+
+    # --- బ్యాంకుకు పంపని (NOT SENT) రికార్డులను తొలగించుట ---
+    if 'BANK SENT' in df_master.columns:
+        df_master = df_master[df_master['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT'].copy()  
 
     bank_user_clean = bank_user.strip().lower()
     df_master = df_master[
