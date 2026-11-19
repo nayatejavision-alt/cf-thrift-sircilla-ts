@@ -68,6 +68,47 @@ def background_draft_task(data, app_context):
       s = s[:-2]
     return s
 
+  def build_beneficiary_export_df(df_in, include_status_col=False):
+    if df_in is None or df_in.empty:
+      cols = [
+          'SNO',
+          'Name Of Benificiary',
+          'Bank Account Number',
+          'RD-1 Account No',
+          'RD-2 Account No',
+          'Contact Number',
+          'Nominee Name',
+          'Relation',
+          'Nominee DOB',
+          'BANK SENT',
+          'Remarks',
+      ]
+      if include_status_col:
+        cols.append('Status')
+      return pd.DataFrame(columns=cols)
+
+    out = pd.DataFrame()
+    out['SNO'] = df_in.get('BANK_SNO', df_in.get('SNO', ''))
+    out['Name Of Benificiary'] = df_in.get('Name Of Benificiary', '')
+    out['Bank Account Number'] = df_in.get('Bank Account Number', '').apply(
+        format_text
+    )
+    out['RD-1 Account No'] = df_in.get('RD 1', '').apply(format_text)
+    out['RD-2 Account No'] = df_in.get('RD 2', '').apply(format_text)
+    out['Contact Number'] = (
+        df_in.get('Contact Number', '').apply(format_text)
+        if 'Contact Number' in df_in.columns
+        else ''
+    )
+    out['Nominee Name'] = df_in.get('Nominee Name', '').apply(format_text)
+    out['Relation'] = df_in.get('Relation', '').apply(format_text)
+    out['Nominee DOB'] = df_in.get('Nominee DOB', '').apply(format_text)
+    out['BANK SENT'] = df_in.get('BANK SENT', '')
+    out['Remarks'] = df_in.get('BANK_REMARKS', '')
+    if include_status_col:
+      out['Status'] = df_in.get('Status', '')
+    return out
+
   with app_context:
     try:
       process_step = str(data.get('process_step', '8')).strip()
@@ -97,14 +138,19 @@ def background_draft_task(data, app_context):
       df_trans = pd.DataFrame(ws_trans.get_all_records())
 
       ws_thrift = sh.worksheet('NEW THRIFT DATA')
-      df_thrift = pd.DataFrame(ws_thrift.get_all_records())
+      df_thrift_all = pd.DataFrame(ws_thrift.get_all_records())
 
-      # --- బ్యాంకుకు పంపని (NOT SENT) రికార్డులను తొలగించుట ---
-      if 'BANK SENT' in df_thrift.columns:
-        df_thrift = df_thrift[
-            df_thrift['BANK SENT'].astype(str).str.strip().str.upper()
-            != 'NOT SENT'
-        ].copy()
+      # BANK SENT ఆధారంగా NOT SENT వారిని మరియు ఇప్పటికే పంపినవారిని గుర్తించడం
+      if 'BANK SENT' in df_thrift_all.columns:
+        not_sent_mask_all = (
+            df_thrift_all['BANK SENT'].astype(str).str.strip().str.upper()
+            == 'NOT SENT'
+        )
+      else:
+        not_sent_mask_all = pd.Series([False] * len(df_thrift_all))
+
+      df_thrift_not_sent_all = df_thrift_all[not_sent_mask_all].copy()
+      df_thrift_sent_all = df_thrift_all[~not_sent_mask_all].copy()
 
       ws_email_map = sh.worksheet('Bank_Email_Ids')
       df_email_map = pd.DataFrame(ws_email_map.get_all_records())
@@ -135,16 +181,23 @@ def background_draft_task(data, app_context):
       cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
       cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
 
-      bank_thrift_df = df_thrift[
-          df_thrift['FILE NAME'].astype(str).str.strip() == selected_bank
+      # బ్యాంకు వారీగా Sent మరియు Not Sent డేటా వేరు చేయడం
+      bank_sent_df = df_thrift_sent_all[
+          df_thrift_sent_all['FILE NAME'].astype(str).str.strip()
+          == selected_bank
+      ].copy()
+      bank_not_sent_df = df_thrift_not_sent_all[
+          df_thrift_not_sent_all['FILE NAME'].astype(str).str.strip()
+          == selected_bank
       ].copy()
 
-      if 'BANK_REMARKS' in bank_thrift_df.columns:
-        bank_thrift_df['BANK_REMARKS_CLEAN'] = (
-            bank_thrift_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
-        )
-      else:
-        bank_thrift_df['BANK_REMARKS_CLEAN'] = ''
+      for sub_df in [bank_sent_df, bank_not_sent_df]:
+        if 'BANK_REMARKS' in sub_df.columns:
+          sub_df['BANK_REMARKS_CLEAN'] = (
+              sub_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
+          )
+        else:
+          sub_df['BANK_REMARKS_CLEAN'] = ''
 
       target_folder_path = f'/tmp/Step_{process_step}_Bank_Files_Month_{target_month}_Batch_{target_batch}'
       os.makedirs(target_folder_path, exist_ok=True)
@@ -158,8 +211,37 @@ def background_draft_task(data, app_context):
       pending_count = 0
       total_govt_share = 0.0
 
+      # ========================================================
+      # దశల వారీగా (Step 1 to 12) Excel File తయారీ లాజిక్
+      # ========================================================
       with pd.ExcelWriter(local_excel_path, engine='openpyxl') as writer:
-        if process_step in ['6', '7', '8', '9']:
+        # --- దశ 1 & దశ 2 (ప్రారంభ దశలు: NOT SENT వారు Current_Eligible_List లో, Sent వారు Already_Sent_To_Bank షీట్‌లో) ---
+        if process_step in ['1', '2']:
+          if process_step == '2' and not bank_not_sent_df.empty and 'RD 1' in bank_not_sent_df.columns:
+            rd1_col = bank_not_sent_df['RD 1'].astype(str).str.strip()
+            pending_rd_df = bank_not_sent_df[
+                (rd1_col == '') | (rd1_col == '0') | (rd1_col.str.lower() == 'nan')
+            ].copy()
+            current_eligible_df = (
+                pending_rd_df if len(pending_rd_df) > 0 else bank_not_sent_df.copy()
+            )
+          else:
+            current_eligible_df = bank_not_sent_df.copy()
+
+          record_count = len(current_eligible_df)
+
+          df_eligible_out = build_beneficiary_export_df(current_eligible_df)
+          df_eligible_out.to_excel(
+              writer, sheet_name='Current_Eligible_List', index=False
+          )
+
+          df_already_sent_out = build_beneficiary_export_df(bank_sent_df)
+          df_already_sent_out.to_excel(
+              writer, sheet_name='Already_Sent_To_Bank', index=False
+          )
+
+        # --- దశ 6, 7, 8, 9 (నెలవారీ లావాదేవీలు / Govt Share / Credit Advice) ---
+        elif process_step in ['6', '7', '8', '9']:
           df_trans['Govt_Share'] = pd.to_numeric(
               df_trans['Govt_Share'], errors='coerce'
           ).fillna(0)
@@ -173,7 +255,7 @@ def background_draft_task(data, app_context):
           )
 
           bank_month_df = pd.merge(
-              bank_thrift_df,
+              bank_sent_df,
               df_trans[df_trans['MONTH_NUMBER'] == target_month],
               left_on='RD 1',
               right_on='RD ACCOUNT_1 (Beneficiary Contribution)',
@@ -305,56 +387,18 @@ def background_draft_task(data, app_context):
                 writer, sheet_name='Pending_RD1_List', index=False
             )
 
-        elif process_step in ['2', '3']:
-          rd1_col = (
-              bank_thrift_df['RD 1'].astype(str).str.strip()
-              if 'RD 1' in bank_thrift_df.columns
-              else pd.Series([''] * len(bank_thrift_df))
-          )
-          pending_acc_df = bank_thrift_df[
-              (rd1_col == '') | (rd1_col == '0') | (rd1_col.str.lower() == 'nan')
-          ].copy()
-          target_df = (
-              pending_acc_df if len(pending_acc_df) > 0 else bank_thrift_df
-          )
-          record_count = len(target_df)
+          if not bank_not_sent_df.empty:
+            build_beneficiary_export_df(bank_not_sent_df).to_excel(
+                writer, sheet_name='Not_Sent_To_Bank', index=False
+            )
 
-          export_df = pd.DataFrame()
-          export_df['SNO'] = target_df.get('BANK_SNO', target_df.get('SNO', ''))
-          export_df['Name Of Benificiary'] = target_df.get(
-              'Name Of Benificiary', ''
-          )
-          export_df['Savings Bank Account No'] = target_df.get(
-              'Bank Account Number', ''
-          ).apply(format_text)
-          export_df['Contact Number'] = (
-              target_df.get('Contact Number', '').apply(format_text)
-              if 'Contact Number' in target_df.columns
-              else ''
-          )
-          export_df['Nominee Name'] = target_df.get('Nominee Name', '').apply(
-              format_text
-          )
-          export_df['Relation'] = target_df.get('Relation', '').apply(
-              format_text
-          )
-          export_df['Nominee DOB'] = target_df.get('Nominee DOB', '').apply(
-              format_text
-          )
-          export_df['New RD-1 Account No (To be filled by Bank)'] = target_df.get(
-              'RD 1', ''
-          ).apply(format_text)
-          export_df['New RD-2 Account No (To be filled by Bank)'] = target_df.get(
-              'RD 2', ''
-          ).apply(format_text)
-          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
-
+        # --- దశ 3 & దశ 10 మరియు మిగిలిన దశలు ---
         elif process_step == '10':
-          remarks_mask = bank_thrift_df['BANK_REMARKS_CLEAN'] != ''
+          remarks_mask = bank_sent_df['BANK_REMARKS_CLEAN'] != ''
           rect_df = (
-              bank_thrift_df[remarks_mask].copy()
+              bank_sent_df[remarks_mask].copy()
               if remarks_mask.sum() > 0
-              else bank_thrift_df.copy()
+              else bank_sent_df.copy()
           )
           record_count = len(rect_df)
 
@@ -376,43 +420,26 @@ def background_draft_task(data, app_context):
           export_df['Bank Action / Updated Details'] = ''
           export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
 
+          if not bank_not_sent_df.empty:
+            build_beneficiary_export_df(bank_not_sent_df).to_excel(
+                writer, sheet_name='Not_Sent_To_Bank', index=False
+            )
+
         else:
-          record_count = len(bank_thrift_df)
-          export_df = pd.DataFrame()
-          export_df['SNO'] = bank_thrift_df.get(
-              'BANK_SNO', bank_thrift_df.get('SNO', '')
-          )
-          export_df['Name Of Benificiary'] = bank_thrift_df.get(
-              'Name Of Benificiary', ''
-          )
-          export_df['Bank Account Number'] = bank_thrift_df.get(
-              'Bank Account Number', ''
-          ).apply(format_text)
-          export_df['RD-1 Account No'] = bank_thrift_df.get('RD 1', '').apply(
-              format_text
-          )
-          export_df['RD-2 Account No'] = bank_thrift_df.get('RD 2', '').apply(
-              format_text
-          )
-          export_df['Contact Number'] = (
-              bank_thrift_df.get('Contact Number', '').apply(format_text)
-              if 'Contact Number' in bank_thrift_df.columns
-              else ''
-          )
-          export_df['Nominee Name'] = bank_thrift_df.get(
-              'Nominee Name', ''
-          ).apply(format_text)
-          export_df['Relation'] = bank_thrift_df.get('Relation', '').apply(
-              format_text
-          )
-          export_df['Nominee DOB'] = bank_thrift_df.get(
-              'Nominee DOB', ''
-          ).apply(format_text)
-          export_df['Remarks'] = bank_thrift_df.get('BANK_REMARKS', '')
+          record_count = len(bank_sent_df)
+          export_df = build_beneficiary_export_df(bank_sent_df)
           export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
+
+          if not bank_not_sent_df.empty:
+            build_beneficiary_export_df(bank_not_sent_df).to_excel(
+                writer, sheet_name='Not_Sent_To_Bank', index=False
+            )
 
       cheque_amount = user_cheque_amount or str(total_govt_share)
 
+      # ========================================================
+      # Word Letter తయారీ (దశకు తగిన Template వాడుతూ)
+      # ========================================================
       letter_path = None
       doc_template_path = step_cfg['template']
       if not os.path.exists(doc_template_path):
@@ -468,6 +495,9 @@ def background_draft_task(data, app_context):
         )
         doc.save(letter_path)
 
+      # ========================================================
+      # Gmail Draft తయారీ (IMAP)
+      # ========================================================
       subject = f"{step_cfg['subject_prefix']} - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}"
 
       pending_notice_html = ''
