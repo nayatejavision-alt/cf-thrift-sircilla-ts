@@ -1,3 +1,4 @@
+import gc
 import io
 import json
 import logging
@@ -119,6 +120,16 @@ SCOPES = [
 ]
 
 
+def redirect_home():
+    """'bank_bp.home' లేదా 'home' ఎండ్‌పాయింట్‌కు BuildError రాకుండా సురక్షితంగా రీడైరెక్ట్ చేస్తుంది."""
+    for endpoint in ('bank_bp.home', 'home'):
+        try:
+            return redirect(url_for(endpoint))
+        except Exception:
+            continue
+    return redirect('/')
+
+
 def get_gspread_client():
     credentials_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
     if credentials_json_str:
@@ -130,8 +141,7 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 
-def gspread_call_with_retry(func, *args, max_retries=5, base_delay=2.0, **kwargs):
-    """Google Sheets API rate limits (429/503) వచ్చినప్పుడు రీట్రై చేస్తుంది."""
+def gspread_call_with_retry(func, *args, max_retries=4, base_delay=1.5, **kwargs):
     for attempt in range(max_retries):
         try:
             return func(*args, **kwargs)
@@ -174,27 +184,25 @@ def _clean_scalar(val):
 
 
 def df_to_sheet_values(df: pd.DataFrame):
-    """DataFrame ను JSON safe 2D list గా మారుస్తుంది."""
     if df is None or df.empty:
         return []
     headers = [str(c) for c in df.columns.tolist()]
-    rows = []
-    for row in df.itertuples(index=False, name=None):
-        rows.append([_clean_scalar(v) for v in row])
+    rows = [[_clean_scalar(v) for v in row] for row in df.itertuples(index=False, name=None)]
     return [headers] + rows
 
 
 def write_worksheet_safely(worksheet, values_2d):
-    """వర్క్‌షీట్‌ను క్లియర్ చేసి సురక్షితంగా అప్‌డేట్ చేస్తుంది."""
-    gspread_call_with_retry(worksheet.clear)
     if not values_2d:
         values_2d = [['No records found']]
-    needed_rows = len(values_2d) + 10
-    needed_cols = max((len(r) for r in values_2d), default=1) + 5
+
+    needed_rows = len(values_2d) + 5
+    needed_cols = max((len(r) for r in values_2d), default=1) + 2
     if worksheet.row_count < needed_rows:
-        gspread_call_with_retry(worksheet.add_rows, needed_rows - worksheet.row_count)
-    if worksheet.col_count < needed_cols:
-        gspread_call_with_retry(worksheet.add_cols, needed_cols - worksheet.col_count)
+        gspread_call_with_retry(worksheet.resize, rows=needed_rows, cols=max(worksheet.col_count, needed_cols))
+    elif worksheet.col_count < needed_cols:
+        gspread_call_with_retry(worksheet.resize, rows=worksheet.row_count, cols=needed_cols)
+
+    gspread_call_with_retry(worksheet.clear)
     gspread_call_with_retry(
         worksheet.update,
         range_name='A1',
@@ -204,7 +212,6 @@ def write_worksheet_safely(worksheet, values_2d):
 
 
 def combine_address_fields(df: pd.DataFrame, cols):
-    """ఇచ్చిన కాలమ్స్‌లోని విలువలను ఖాళీలు లేకుండా కామా(,) తో కలిపి ఒకే స్ట్రింగ్‌గా ఇస్తుంది."""
     existing_cols = [c for c in cols if c in df.columns]
     if not existing_cols:
         return pd.Series([''] * len(df), index=df.index)
@@ -228,23 +235,19 @@ def fetch_and_process_data(current_month: int):
     sh = gspread_call_with_retry(gc.open, SPREADSHEET_NAME)
 
     ws_trans = gspread_call_with_retry(sh.worksheet, 'Transactions_Year1')
-    trans_records = gspread_call_with_retry(ws_trans.get_all_records)
-    df_trans = pd.DataFrame(trans_records)
+    df_trans = pd.DataFrame(gspread_call_with_retry(ws_trans.get_all_records))
 
     ws_thrift = gspread_call_with_retry(sh.worksheet, 'NEW THRIFT DATA')
-    thrift_records = gspread_call_with_retry(ws_thrift.get_all_records)
-    df_thrift = pd.DataFrame(thrift_records)
+    df_thrift = pd.DataFrame(gspread_call_with_retry(ws_thrift.get_all_records))
 
     if df_thrift.empty:
         raise ValueError("'NEW THRIFT DATA' షీట్‌లో డేటా లేదు.")
 
-    # BANK SENT కాలమ్ తనిఖీ
     if 'BANK SENT' in df_thrift.columns:
         df_thrift['Is_Not_Sent'] = df_thrift['BANK SENT'].astype(str).str.strip().str.upper() == 'NOT SENT'
     else:
         df_thrift['Is_Not_Sent'] = False
 
-    # Transactions డేటా క్లీనింగ్
     if df_trans.empty:
         df_trans_month = pd.DataFrame(columns=['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER', 'FILE NAME'])
     else:
@@ -274,6 +277,9 @@ def fetch_and_process_data(current_month: int):
             subset=['MONTH_NUMBER', 'RD1_Clean'], keep='first'
         )
 
+    del df_trans
+    gc.collect()
+
     if 'RD 1' not in df_thrift.columns:
         raise KeyError("NEW THRIFT DATA లో 'RD 1' కాలమ్ కనిపించలేదు.")
 
@@ -287,6 +293,9 @@ def fetch_and_process_data(current_month: int):
         right_on='RD1_Clean',
         how='left'
     )
+
+    del df_thrift, df_trans_month
+    gc.collect()
 
     if 'Govt_Share' not in df_cross.columns:
         df_cross['Govt_Share'] = 0.0
@@ -312,6 +321,9 @@ def fetch_and_process_data(current_month: int):
     df_not_sent_all = df_cross[df_cross['Is_Not_Sent']].copy()
     df_sent_cross = df_cross[~df_cross['Is_Not_Sent']].copy()
 
+    del df_cross
+    gc.collect()
+
     return gc, df_sent_cross, df_not_sent_all, month_label
 
 
@@ -323,8 +335,8 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
     green_fill = PatternFill(start_color='008000', end_color='008000', fill_type='solid')
     orange_fill = PatternFill(start_color='D97706', end_color='D97706', fill_type='solid')
 
-    df_active_cf = group_df[group_df['Govt_Share'] > 0].copy() if not group_df.empty else pd.DataFrame()
-    df_missing_cf = group_df[group_df['Govt_Share'] == 0].copy() if not group_df.empty else pd.DataFrame()
+    df_active_cf = group_df[group_df['Govt_Share'] > 0] if not group_df.empty else pd.DataFrame()
+    df_missing_cf = group_df[group_df['Govt_Share'] == 0] if not group_df.empty else pd.DataFrame()
 
     # SHEET 1: ACTIVE
     ws1 = wb.active
@@ -480,10 +492,10 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     for ws in [ws1, ws2, ws3, ws4]:
         for col in ws.columns:
-            sample_cells = list(col)[:200]
+            sample_cells = list(col)[:100]
             max_len = max((len(str(cell.value or '')) for cell in sample_cells), default=10)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 16), 55)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 16), 50)
 
     output = io.BytesIO()
     wb.save(output)
@@ -498,21 +510,26 @@ def update_sheets():
     except (TypeError, ValueError):
         current_month = 1
 
+    target_cf = (request.form.get('cf_name') or '').strip().upper()
+
     try:
         gc, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
-        df_all_master_clean = df_sent_cross.fillna('').infer_objects(copy=False)
-        df_not_sent_clean_all = df_not_sent_all.fillna('').infer_objects(copy=False)
 
         cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
         if not cf_col:
             raise KeyError("డేటాలో 'NAME OF CF' లేదా 'CF NAME' కాలమ్ కనిపించలేదు.")
 
+        df_all_master_clean = df_sent_cross.fillna('').infer_objects(copy=False)
+        cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
+        master_values = df_to_sheet_values(df_all_master_clean[cols3].rename(columns=rename_all_map))
+        del df_all_master_clean
+
         grouped_cf = df_sent_cross.groupby(cf_col)
         has_not_sent_cf = (
-            not df_not_sent_clean_all.empty
-            and cf_col in df_not_sent_clean_all.columns
+            not df_not_sent_all.empty
+            and cf_col in df_not_sent_all.columns
         )
-        grouped_not_sent_cf = df_not_sent_clean_all.groupby(cf_col) if has_not_sent_cf else None
+        grouped_not_sent_cf = df_not_sent_all.groupby(cf_col) if has_not_sent_cf else None
 
         updated_count = 0
         failed_cfs = []
@@ -520,6 +537,8 @@ def update_sheets():
         for cf_name, group_df in grouped_cf:
             clean_cf_name = str(cf_name).strip()
             if clean_cf_name not in cf_sheet_ids:
+                continue
+            if target_cf and target_cf not in ('ALL', 'ALL CFS') and clean_cf_name.upper() != target_cf:
                 continue
 
             df_active_clean = group_df[group_df['Govt_Share'] > 0].fillna('').infer_objects(copy=False)
@@ -535,42 +554,33 @@ def update_sheets():
                 spreadsheet = gspread_call_with_retry(gc.open_by_key, sheet_id)
                 worksheets = gspread_call_with_retry(spreadsheet.worksheets)
 
-                # TAB 1: Sent_To_Bank_List
                 sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="30"
+                    spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="25"
                 )
                 cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
-                df_act_sel = df_active_clean[cols1].rename(columns=rename_active_map)
-                write_worksheet_safely(sh1, df_to_sheet_values(df_act_sel))
+                write_worksheet_safely(sh1, df_to_sheet_values(df_active_clean[cols1].rename(columns=rename_active_map)))
 
-                # TAB 2: Missing_or_Zero_List
                 sh2 = worksheets[1] if len(worksheets) > 1 else gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="30"
+                    spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="25"
                 )
                 cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
-                df_mis_sel = df_missing_clean[cols2].rename(columns=rename_missing_map)
-                write_worksheet_safely(sh2, df_to_sheet_values(df_mis_sel))
+                write_worksheet_safely(sh2, df_to_sheet_values(df_missing_clean[cols2].rename(columns=rename_missing_map)))
 
-                # TAB 3: All_Beneficiaries_Master
                 sh3 = worksheets[2] if len(worksheets) > 2 else gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="30"
+                    spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="25"
                 )
-                cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
-                df_all_sel = df_all_master_clean[cols3].rename(columns=rename_all_map)
-                write_worksheet_safely(sh3, df_to_sheet_values(df_all_sel))
+                write_worksheet_safely(sh3, master_values)
 
-                # TAB 4: Not_Sent_To_Bank_List
                 try:
                     sh4 = gspread_call_with_retry(spreadsheet.worksheet, "Not_Sent_To_Bank_List")
                 except gspread.WorksheetNotFound:
                     sh4 = gspread_call_with_retry(
-                        spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="30"
+                        spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="25"
                     )
 
                 if not df_cf_not_sent.empty:
                     cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
-                    df_ns_sel = df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)
-                    write_worksheet_safely(sh4, df_to_sheet_values(df_ns_sel))
+                    write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
                 else:
                     write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
 
@@ -579,7 +589,9 @@ def update_sheets():
                 logger.exception(f"Failed updating sheet for CF '{clean_cf_name}': {cf_err}")
                 failed_cfs.append(f"{clean_cf_name} ({cf_err})")
 
-            time.sleep(2.0)
+            del df_active_clean, df_missing_clean, df_cf_not_sent
+            gc.collect()
+            time.sleep(1.0)
 
         if failed_cfs and updated_count == 0:
             raise RuntimeError("అన్ని CF షీట్స్ అప్‌డేట్ చేయడంలో విఫలమైంది: " + "; ".join(failed_cfs))
@@ -593,7 +605,7 @@ def update_sheets():
         logger.exception("Error in /update_sheets")
         flash(f'❌ Error ఏర్పడింది: {str(e)}', 'danger')
 
-    return redirect(url_for('home'))
+    return redirect_home()
 
 
 @sheets_bp.route('/download_excel', methods=['POST'])
@@ -606,7 +618,7 @@ def download_excel():
     selected_cf = (request.form.get('cf_name') or '').strip()
     if not selected_cf:
         flash('❌ దయచేసి CF పేరు ఎంచుకోండి.', 'danger')
-        return redirect(url_for('home'))
+        return redirect_home()
 
     try:
         _, df_sent_cross, df_not_sent_all, month_label = fetch_and_process_data(current_month)
@@ -637,4 +649,4 @@ def download_excel():
     except Exception as e:
         logger.exception("Error in /download_excel")
         flash(f'❌ Excel డౌన్‌లోడ్‌లో సమస్య ఏర్పడింది: {str(e)}', 'danger')
-        return redirect(url_for('home'))
+        return redirect_home()
