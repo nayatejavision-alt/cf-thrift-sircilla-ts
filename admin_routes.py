@@ -46,18 +46,47 @@ def admin_dashboard():
         master_records = master_sheet.get_all_records()
         trans_records = trans_sheet.get_all_records()
         
-        df_master = pd.DataFrame(master_records)
+        df_master_all = pd.DataFrame(master_records)
         df_trans = pd.DataFrame(trans_records)
-        
-        # బ్యాంకుకు పంపని (NOT SENT) రికార్డులను ఫిల్టర్ చేసి తొలగించుట
-        if 'BANK SENT' in df_master.columns:
-            df_master = df_master[df_master['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT']
+
+        if df_master_all.empty:
+            return render_template('admin_dashboard.html', total=0, completed=0, pending=0, 
+                                   total_govt_share=0, batch_summary={}, bank_summary={}, 
+                                   batch_bank_summary={}, batch_wise_matrix={}, cf_bank_matrix={},
+                                   completed_batches_count=0, total_batches_count=0,
+                                   not_sent_count=0, not_sent_list=[])
+
+        # బ్యాంకుకు పంపని (NOT SENT) రికార్డులను వేరు చేయడం
+        if 'BANK SENT' in df_master_all.columns:
+            not_sent_mask = df_master_all['BANK SENT'].astype(str).str.strip().str.upper() == 'NOT SENT'
+            df_not_sent = df_master_all[not_sent_mask].copy()
+            df_master = df_master_all[~not_sent_mask].copy()
+        else:
+            df_not_sent = pd.DataFrame()
+            df_master = df_master_all.copy()
+
+        # Not Sent లిస్ట్ ను డాష్‌బోర్డ్ డిస్‌ప్లే కోసం సిద్ధం చేయడం
+        not_sent_list = []
+        if not df_not_sent.empty:
+            for idx, r in df_not_sent.iterrows():
+                not_sent_list.append({
+                    "sno": str(r.get('SNO') or r.get('BANK_SNO') or ''),
+                    "name": str(r.get('Name Of Benificiary') or '').strip(),
+                    "cf_name": str(r.get('NAME OF CF') or r.get('Name Of CF') or 'Unknown CF').strip(),
+                    "bank_name": str(r.get('FILE NAME') or r.get('Bank Name') or 'Other').strip(),
+                    "acc_no": str(r.get('Bank Account Number') or '').strip().lstrip("'"),
+                    "rd1": str(r.get('RD 1') or '').strip(),
+                    "remarks": str(r.get('BANK_REMARKS') or '').strip(),
+                    "bank_sent": str(r.get('BANK SENT') or 'NOT SENT').strip()
+                })
+        not_sent_count = len(not_sent_list)
 
         if df_master.empty:
             return render_template('admin_dashboard.html', total=0, completed=0, pending=0, 
                                    total_govt_share=0, batch_summary={}, bank_summary={}, 
                                    batch_bank_summary={}, batch_wise_matrix={}, cf_bank_matrix={},
-                                   completed_batches_count=0, total_batches_count=0)
+                                   completed_batches_count=0, total_batches_count=0,
+                                   not_sent_count=not_sent_count, not_sent_list=not_sent_list)
 
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[36])
         cf_col = 'NAME OF CF' if 'NAME OF CF' in df_master.columns else ('Name Of CF' if 'Name Of CF' in df_master.columns else df_master.columns[34])
@@ -188,7 +217,9 @@ def admin_dashboard():
                                batch_wise_matrix=batch_wise_matrix,
                                cf_bank_matrix=cf_bank_matrix,
                                completed_batches_count=completed_batches_count,
-                               total_batches_count=total_batches_count)
+                               total_batches_count=total_batches_count,
+                               not_sent_count=not_sent_count,
+                               not_sent_list=not_sent_list)
                                
     except Exception as e:
         print(f"Admin Dashboard Error with Pandas: {repr(e)}")
@@ -209,15 +240,23 @@ def export_admin_excel():
         master_sheet = spreadsheet.worksheet("NEW THRIFT DATA")
         trans_sheet = spreadsheet.worksheet("Transactions_Year1")
         
-        df_master = pd.DataFrame(master_sheet.get_all_records())
+        df_master_all = pd.DataFrame(master_sheet.get_all_records())
         df_trans = pd.DataFrame(trans_sheet.get_all_records())
-        
-        # బ్యాంకుకు పంపని (NOT SENT) రికార్డులను ఎక్సెల్ ఎగుమతిలో కూడా తొలగించుటకు
-        if 'BANK SENT' in df_master.columns:
-            df_master = df_master[df_master['BANK SENT'].astype(str).str.strip().str.upper() != 'NOT SENT']
+
+        if df_master_all.empty:
+            return "డేటా అందుబాటులో లేదు."
+
+        # BANK SENT == 'NOT SENT' రికార్డులను వేరు చేయడం
+        if 'BANK SENT' in df_master_all.columns:
+            not_sent_mask = df_master_all['BANK SENT'].astype(str).str.strip().str.upper() == 'NOT SENT'
+            df_not_sent = df_master_all[not_sent_mask].copy()
+            df_master = df_master_all[~not_sent_mask].copy()
+        else:
+            df_not_sent = pd.DataFrame()
+            df_master = df_master_all.copy()
 
         if df_master.empty:
-            return "డేటా అందుబాటులో లేదు."
+            return "బ్యాంకుకు పంపిన డేటా అందుబాటులో లేదు."
 
         bank_col = 'FILE NAME' if 'FILE NAME' in df_master.columns else ('File Name' if 'File Name' in df_master.columns else df_master.columns[0])
         cf_col = 'NAME OF CF' if 'NAME OF CF' in df_master.columns else ('Name Of CF' if 'Name Of CF' in df_master.columns else df_master.columns[34])
@@ -295,6 +334,7 @@ def export_admin_excel():
         f_hdr = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         f_bold = Font(name="Calibri", size=11, bold=True)
         fill_navy = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        fill_orange = PatternFill(start_color="D97706", end_color="D97706", fill_type="solid")
         fill_sub = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
         border_thin = Border(left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
                              top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9'))
@@ -428,6 +468,40 @@ def export_admin_excel():
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col[0].column)
             ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+        # --- Separate Sheet: Not Sent To Bank ---
+        ws_ns = wb.create_sheet(title="Not Sent To Bank")
+        ws_ns.views.sheetView[0].showGridLines = True
+        ws_ns['A1'] = f"Not Sent To Bank Beneficiaries ({len(df_not_sent)} Records)"
+        ws_ns['A1'].font = Font(name="Calibri", size=14, bold=True, color="D97706")
+
+        ns_headers = ["S.No", "Beneficiary Name", "CF Name", "Bank Name", "Bank Account No", "RD 1", "Bank Remarks", "BANK SENT"]
+        for col_idx, h in enumerate(ns_headers, 1):
+            cell = ws_ns.cell(row=3, column=col_idx, value=h)
+            cell.font, cell.fill = f_hdr, fill_orange
+            cell.alignment = Alignment(horizontal="center")
+
+        ns_r = 4
+        if not df_not_sent.empty:
+            for _, row in df_not_sent.iterrows():
+                ws_ns.cell(row=ns_r, column=1, value=str(row.get('SNO') or row.get('BANK_SNO') or ''))
+                ws_ns.cell(row=ns_r, column=2, value=str(row.get('Name Of Benificiary') or ''))
+                ws_ns.cell(row=ns_r, column=3, value=str(row.get('NAME OF CF') or row.get('Name Of CF') or ''))
+                ws_ns.cell(row=ns_r, column=4, value=str(row.get('FILE NAME') or row.get('Bank Name') or ''))
+                c_acc = ws_ns.cell(row=ns_r, column=5, value=str(row.get('Bank Account Number') or '').lstrip("'"))
+                c_acc.number_format = '@'
+                c_rd = ws_ns.cell(row=ns_r, column=6, value=str(row.get('RD 1') or ''))
+                c_rd.number_format = '@'
+                ws_ns.cell(row=ns_r, column=7, value=str(row.get('BANK_REMARKS') or ''))
+                ws_ns.cell(row=ns_r, column=8, value=str(row.get('BANK SENT') or 'NOT SENT'))
+                for c in range(1, 9):
+                    ws_ns.cell(row=ns_r, column=c).border = border_thin
+                ns_r += 1
+
+        for col in ws_ns.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws_ns.column_dimensions[col_letter].width = max(max_len + 4, 15)
 
         output = io.BytesIO()
         wb.save(output)
