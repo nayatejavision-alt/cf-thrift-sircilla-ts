@@ -1,16 +1,23 @@
 import io
+import json
+import logging
+import math
+import os
 import time
-from flask import Blueprint, request, send_file, flash, redirect, url_for
+
+from flask import Blueprint, flash, redirect, request, send_file, url_for
 from google.oauth2.service_account import Credentials
 import gspread
+from gspread.exceptions import APIError
+import numpy as np
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 import pandas as pd
-import os
 
 pd.set_option('future.no_silent_downcasting', True)
 
+logger = logging.getLogger(__name__)
 sheets_bp = Blueprint('sheets_bp', __name__)
 
 SPREADSHEET_NAME = 'NOT_BANK_SENT_FORM'
@@ -34,12 +41,11 @@ cf_sheet_ids = {
     'TEXTILE PARK': '1Y1YuE7adT1crmNSpiwIl3rAXDaX4Ag2orqhPXzWQKVU',
 }
 
-# కలిపిన కొత్త కాలమ్స్ ('Residential Address', 'Unit Address') ప్రకారం అప్‌డేట్ చేసిన లిస్ట్‌లు
 active_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-    'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-    'Govt_Share', 'Contact Number', 'Unit Address', 'BANK_REMARKS', 
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+    'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+    'Govt_Share', 'Contact Number', 'Unit Address', 'BANK_REMARKS',
     'NAME OF CF', 'FILE NAME_x', '8% Of Monthly Wages',
 ]
 rename_active_map = {
@@ -54,10 +60,10 @@ rename_active_map = {
 }
 
 missing_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-    'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-    '8% Of Monthly Wages', 'Contact Number', 'Unit Address', 'BANK_REMARKS', 
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+    'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+    '8% Of Monthly Wages', 'Contact Number', 'Unit Address', 'BANK_REMARKS',
     'NAME OF CF', 'FILE NAME_x',
 ]
 rename_missing_map = {
@@ -72,10 +78,10 @@ rename_missing_map = {
 }
 
 all_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-    'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-    'Govt_Share', 'Contact Number', 'Unit Address', 'BANK_REMARKS', 
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+    'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+    'Govt_Share', 'Contact Number', 'Unit Address', 'BANK_REMARKS',
     'NAME OF CF', 'FILE NAME_x', '8% Of Monthly Wages',
 ]
 rename_all_map = {
@@ -90,10 +96,10 @@ rename_all_map = {
 }
 
 not_sent_columns = [
-    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-    'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-    'Contact Number', 'Unit Address', 'BANK_REMARKS', 'NAME OF CF', 
+    'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+    'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+    'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+    'Contact Number', 'Unit Address', 'BANK_REMARKS', 'NAME OF CF',
     'FILE NAME_x', '8% Of Monthly Wages', 'BANK SENT',
 ]
 rename_not_sent_map = {
@@ -112,10 +118,10 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+
 def get_gspread_client():
     credentials_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
     if credentials_json_str:
-        import json
         info = json.loads(credentials_json_str)
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     else:
@@ -123,77 +129,191 @@ def get_gspread_client():
         creds = Credentials.from_service_account_file(cred_path, scopes=SCOPES)
     return gspread.authorize(creds)
 
-def combine_address_fields(df, cols):
+
+def gspread_call_with_retry(func, *args, max_retries=5, base_delay=2.0, **kwargs):
+    """Google Sheets API rate limits (429/503) వచ్చినప్పుడు రీట్రై చేస్తుంది."""
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except APIError as e:
+            status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+            if status_code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                sleep_time = base_delay * (2 ** attempt)
+                logger.warning(f"Sheets API status {status_code}. Retrying in {sleep_time:.1f}s...")
+                time.sleep(sleep_time)
+            else:
+                raise
+        except Exception:
+            if attempt < max_retries - 1:
+                sleep_time = base_delay * (2 ** attempt)
+                time.sleep(sleep_time)
+            else:
+                raise
+
+
+def _clean_scalar(val):
+    if val is None:
+        return ''
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            return ''
+        return val
+    try:
+        if pd.isna(val):
+            return ''
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        fval = float(val)
+        return '' if (math.isnan(fval) or math.isinf(fval)) else fval
+    if isinstance(val, (np.bool_,)):
+        return bool(val)
+    return val
+
+
+def df_to_sheet_values(df: pd.DataFrame):
+    """DataFrame ను JSON safe 2D list గా మారుస్తుంది."""
+    if df is None or df.empty:
+        return []
+    headers = [str(c) for c in df.columns.tolist()]
+    rows = []
+    for row in df.itertuples(index=False, name=None):
+        rows.append([_clean_scalar(v) for v in row])
+    return [headers] + rows
+
+
+def write_worksheet_safely(worksheet, values_2d):
+    """వర్క్‌షీట్‌ను క్లియర్ చేసి సురక్షితంగా అప్‌డేట్ చేస్తుంది."""
+    gspread_call_with_retry(worksheet.clear)
+    if not values_2d:
+        values_2d = [['No records found']]
+    needed_rows = len(values_2d) + 10
+    needed_cols = max((len(r) for r in values_2d), default=1) + 5
+    if worksheet.row_count < needed_rows:
+        gspread_call_with_retry(worksheet.add_rows, needed_rows - worksheet.row_count)
+    if worksheet.col_count < needed_cols:
+        gspread_call_with_retry(worksheet.add_cols, needed_cols - worksheet.col_count)
+    gspread_call_with_retry(
+        worksheet.update,
+        range_name='A1',
+        values=values_2d,
+        value_input_option='USER_ENTERED'
+    )
+
+
+def combine_address_fields(df: pd.DataFrame, cols):
     """ఇచ్చిన కాలమ్స్‌లోని విలువలను ఖాళీలు లేకుండా కామా(,) తో కలిపి ఒకే స్ట్రింగ్‌గా ఇస్తుంది."""
+    existing_cols = [c for c in cols if c in df.columns]
+    if not existing_cols:
+        return pd.Series([''] * len(df), index=df.index)
+
     def join_row(row):
         parts = []
-        for col in cols:
-            val = str(row.get(col, '')).strip()
-            if val and val.lower() not in ['nan', 'none', 'null']:
+        for col in existing_cols:
+            raw = row.get(col, '')
+            if pd.isna(raw):
+                continue
+            val = str(raw).strip()
+            if val and val.lower() not in ('nan', 'none', 'null', 'nat'):
                 parts.append(val)
         return ', '.join(parts)
+
     return df.apply(join_row, axis=1)
 
-def fetch_and_process_data(current_month):
+
+def fetch_and_process_data(current_month: int):
     gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
+    sh = gspread_call_with_retry(gc.open, SPREADSHEET_NAME)
 
-    ws_trans = sh.worksheet('Transactions_Year1')
-    df_trans = pd.DataFrame(ws_trans.get_all_records())
+    ws_trans = gspread_call_with_retry(sh.worksheet, 'Transactions_Year1')
+    trans_records = gspread_call_with_retry(ws_trans.get_all_records)
+    df_trans = pd.DataFrame(trans_records)
 
-    ws_thrift = sh.worksheet('NEW THRIFT DATA')
-    df_thrift = pd.DataFrame(ws_thrift.get_all_records())
+    ws_thrift = gspread_call_with_retry(sh.worksheet, 'NEW THRIFT DATA')
+    thrift_records = gspread_call_with_retry(ws_thrift.get_all_records)
+    df_thrift = pd.DataFrame(thrift_records)
 
-    # BANK SENT కాలమ్ ఉందో లేదో తనిఖీ చేసి ఫ్లాగ్ సెట్ చేయడం
+    if df_thrift.empty:
+        raise ValueError("'NEW THRIFT DATA' షీట్‌లో డేటా లేదు.")
+
+    # BANK SENT కాలమ్ తనిఖీ
     if 'BANK SENT' in df_thrift.columns:
         df_thrift['Is_Not_Sent'] = df_thrift['BANK SENT'].astype(str).str.strip().str.upper() == 'NOT SENT'
     else:
         df_thrift['Is_Not_Sent'] = False
 
-    df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
-    df_trans['MONTH_NUMBER'] = df_trans['MONTH_NUMBER'].astype(str).str.strip()
-    df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce').fillna(0).astype(int)
+    # Transactions డేటా క్లీనింగ్
+    if df_trans.empty:
+        df_trans_month = pd.DataFrame(columns=['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER', 'FILE NAME'])
+    else:
+        if 'Govt_Share' not in df_trans.columns:
+            df_trans['Govt_Share'] = 0.0
+        else:
+            df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0.0)
 
-    df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == int(current_month)].copy()
-    df_trans_month = df_trans_month.drop_duplicates(
-        subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'], keep='first'
-    )
+        if 'MONTH_NUMBER' not in df_trans.columns:
+            df_trans['MONTH_NUMBER'] = 0
+        else:
+            df_trans['MONTH_NUMBER'] = pd.to_numeric(
+                df_trans['MONTH_NUMBER'].astype(str).str.strip(), errors='coerce'
+            ).fillna(0).astype(int)
+
+        rd1_trans_col = 'RD ACCOUNT_1 (Beneficiary Contribution)'
+        if rd1_trans_col not in df_trans.columns:
+            raise KeyError(f"Transactions_Year1 లో '{rd1_trans_col}' కాలమ్ కనిపించలేదు.")
+
+        if 'FILE NAME' not in df_trans.columns:
+            df_trans['FILE NAME'] = ''
+
+        df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == int(current_month)].copy()
+        df_trans_month['RD1_Clean'] = df_trans_month[rd1_trans_col].astype(str).str.strip()
+        df_trans_month = df_trans_month[df_trans_month['RD1_Clean'] != '']
+        df_trans_month = df_trans_month.drop_duplicates(
+            subset=['MONTH_NUMBER', 'RD1_Clean'], keep='first'
+        )
+
+    if 'RD 1' not in df_thrift.columns:
+        raise KeyError("NEW THRIFT DATA లో 'RD 1' కాలమ్ కనిపించలేదు.")
 
     df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
-    df_trans_month['RD1_Clean'] = df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)'].astype(str).str.strip()
 
+    right_cols = [c for c in ['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER', 'FILE NAME'] if c in df_trans_month.columns]
     df_cross = pd.merge(
         df_thrift,
-        df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER', 'FILE NAME']],
-        left_on='RD 1_Clean', right_on='RD1_Clean', how='left'
+        df_trans_month[right_cols] if not df_trans_month.empty else pd.DataFrame(columns=['RD1_Clean', 'Govt_Share', 'FILE NAME']),
+        left_on='RD 1_Clean',
+        right_on='RD1_Clean',
+        how='left'
     )
 
-    df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
+    if 'Govt_Share' not in df_cross.columns:
+        df_cross['Govt_Share'] = 0.0
+    else:
+        df_cross['Govt_Share'] = pd.to_numeric(df_cross['Govt_Share'], errors='coerce').fillna(0.0)
+
     month_label = month_map.get(current_month, f"Month-{current_month}")
-    
+
     df_cross['Status'] = df_cross.apply(
-        lambda r: 'Not Sent to Bank' if r.get('Is_Not_Sent', False)
-        else (f'{month_label} Govt_Share Released' if r['Govt_Share'] > 0
+        lambda r: 'Not Sent to Bank' if bool(r.get('Is_Not_Sent', False))
+        else (f'{month_label} Govt_Share Released' if float(r.get('Govt_Share', 0.0)) > 0
               else f'Zero or missing transactions reported for {month_label}'),
         axis=1
     )
 
-    # 1. Residential Address కాలమ్ తయారీ
     df_cross['Residential Address'] = combine_address_fields(
         df_cross, ['H.NO. Residentional H.No', 'VILLAGE NAME', 'MANDAL NAME']
     )
-
-    # 2. Unit Address కాలమ్ తయారీ
     df_cross['Unit Address'] = combine_address_fields(
         df_cross, ['Unit Owner', 'H.NO. Unit H.No', 'Area', 'Village']
     )
 
-    # బ్యాంకుకు పంపనివారిని (Is_Not_Sent == True) విడిగా వేరు చేసి,
-    # మిగిలిన ప్రధాన డేటాను (df_sent_cross) బ్యాంకుకు పంపినవారి కోసం ఉంచుతాము
     df_not_sent_all = df_cross[df_cross['Is_Not_Sent']].copy()
     df_sent_cross = df_cross[~df_cross['Is_Not_Sent']].copy()
 
     return gc, df_sent_cross, df_not_sent_all, month_label
+
 
 def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_sent_group, current_month, month_label):
     wb = openpyxl.Workbook()
@@ -203,10 +323,10 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
     green_fill = PatternFill(start_color='008000', end_color='008000', fill_type='solid')
     orange_fill = PatternFill(start_color='D97706', end_color='D97706', fill_type='solid')
 
-    df_active_cf = group_df[group_df['Govt_Share'] > 0].copy()
-    df_missing_cf = group_df[group_df['Govt_Share'] == 0].copy()
+    df_active_cf = group_df[group_df['Govt_Share'] > 0].copy() if not group_df.empty else pd.DataFrame()
+    df_missing_cf = group_df[group_df['Govt_Share'] == 0].copy() if not group_df.empty else pd.DataFrame()
 
-    # SHEET 1: ACTIVE (19 కాలమ్స్ -> A1:S1)
+    # SHEET 1: ACTIVE
     ws1 = wb.active
     ws1.title = 'Sent_To_Bank_List'
     ws1.merge_cells('A1:S1')
@@ -217,10 +337,10 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     ws1.append([])
     headers_active = [
-        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-        'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-        'Bank / Branch Name', 'Govt Share Amount', 'Contact Number', 
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+        'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+        'Bank / Branch Name', 'Govt Share Amount', 'Contact Number',
         'Unit Address', 'BANK_REMARKS', 'NAME OF CF', 'Status'
     ]
     ws1.append(headers_active)
@@ -232,20 +352,21 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
     r_idx1 = 4
     for _, r in df_active_cf.iterrows():
         ws1.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
-            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
-            r.get('Caste', ''), r.get('Profession', ''), r.get('Residential Address', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), 
-            r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
-            r.get('FILE NAME_x', r.get('FILE NAME', '')), r.get('Govt_Share', 0),
-            r.get('Contact Number', ''), r.get('Unit Address', ''), 
-            r.get('BANK_REMARKS', ''), r.get('NAME OF CF', ''), 
+            _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
+            _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
+            _clean_scalar(r.get('Age', '')), _clean_scalar(r.get('Aadhar Number', '')),
+            _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
+            _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
+            _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
+            _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', ''))), _clean_scalar(r.get('Govt_Share', 0)),
+            _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
+            _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
             f'{month_label} Govt_Share Released'
         ])
         ws1.cell(row=r_idx1, column=14).number_format = '₹#,##0.00'
         r_idx1 += 1
 
-    # SHEET 2: MISSING (18 కాలమ్స్ -> A1:R1)
+    # SHEET 2: MISSING
     ws2 = wb.create_sheet(title='Missing_or_Zero_List')
     ws2.merge_cells('A1:R1')
     ws2['A1'] = f'{clean_cf_name} - MONTH {current_month} MISSING / ZERO SHARE ({len(df_missing_cf)} Records)'
@@ -255,10 +376,10 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     ws2.append([])
     headers_missing = [
-        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-        'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-        'Bank / Branch Name', 'Contact Number', 'Unit Address', 
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+        'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+        'Bank / Branch Name', 'Contact Number', 'Unit Address',
         'BANK_REMARKS', 'NAME OF CF', 'Status'
     ]
     ws2.append(headers_missing)
@@ -269,17 +390,19 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     for _, r in df_missing_cf.iterrows():
         ws2.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
-            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
-            r.get('Caste', ''), r.get('Profession', ''), r.get('Residential Address', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), 
-            r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
-            r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned')), r.get('Contact Number', ''),
-            r.get('Unit Address', ''), r.get('BANK_REMARKS', ''), 
-            r.get('NAME OF CF', ''), f'Zero or missing transactions reported for {month_label}'
+            _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
+            _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
+            _clean_scalar(r.get('Age', '')), _clean_scalar(r.get('Aadhar Number', '')),
+            _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
+            _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
+            _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
+            _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned'))),
+            _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
+            _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
+            f'Zero or missing transactions reported for {month_label}'
         ])
 
-    # SHEET 3: ALL BENEFICIARIES SENT TO BANK (19 కాలమ్స్ -> A1:S1)
+    # SHEET 3: MASTER
     ws3 = wb.create_sheet(title='All_Beneficiaries_Master')
     ws3.merge_cells('A1:S1')
     ws3['A1'] = f'PROJECT BANK SENT BENEFICIARIES MASTER DATA - MONTH {current_month} ({len(df_sent_cross)} Records)'
@@ -289,10 +412,10 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     ws3.append([])
     headers_all = [
-        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-        'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-        'Bank / Branch Name', 'Govt Share Amount', 'Contact Number', 
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+        'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+        'Bank / Branch Name', 'Govt Share Amount', 'Contact Number',
         'Unit Address', 'BANK_REMARKS', 'NAME OF CF', 'Status'
     ]
     ws3.append(headers_all)
@@ -304,19 +427,21 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
     r_idx3 = 4
     for _, r in df_sent_cross.iterrows():
         ws3.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
-            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
-            r.get('Caste', ''), r.get('Profession', ''), r.get('Residential Address', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), 
-            r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
-            r.get('FILE NAME_x', r.get('FILE NAME', '')), r.get('Govt_Share', 0),
-            r.get('Contact Number', ''), r.get('Unit Address', ''), 
-            r.get('BANK_REMARKS', ''), r.get('NAME OF CF', ''), r.get('Status', '')
+            _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
+            _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
+            _clean_scalar(r.get('Age', '')), _clean_scalar(r.get('Aadhar Number', '')),
+            _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
+            _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
+            _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
+            _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', ''))), _clean_scalar(r.get('Govt_Share', 0)),
+            _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
+            _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
+            _clean_scalar(r.get('Status', ''))
         ])
         ws3.cell(row=r_idx3, column=14).number_format = '₹#,##0.00'
         r_idx3 += 1
 
-    # SHEET 4: NOT SENT TO BANK LIST (సపరేట్ వర్క్ షీట్ టాబ్)
+    # SHEET 4: NOT SENT
     ws4 = wb.create_sheet(title='Not_Sent_To_Bank_List')
     ws4.merge_cells('A1:S1')
     ws4['A1'] = f'{clean_cf_name} - NOT SENT TO BANK LIST ({len(df_not_sent_group)} Records)'
@@ -326,10 +451,10 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     ws4.append([])
     headers_not_sent = [
-        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age', 
-        'Aadhar Number', 'Caste', 'Profession', 'Residential Address', 
-        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)', 
-        'Bank / Branch Name', 'Contact Number', 'Unit Address', 
+        'BANK_SNO', 'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
+        'Aadhar Number', 'Caste', 'Profession', 'Residential Address',
+        'Bank Account Number', 'RD 1', 'RD ACCOUNT_2 (Govt. Contribution)',
+        'Bank / Branch Name', 'Contact Number', 'Unit Address',
         'BANK_REMARKS', 'NAME OF CF', 'BANK SENT', 'Status'
     ]
     ws4.append(headers_not_sent)
@@ -338,42 +463,60 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
         c.font = header_font
         c.fill = orange_fill
 
-    for _, r in df_not_sent_group.iterrows():
-        ws4.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Father Name', ''),
-            r.get('Date OF Birth', ''), r.get('Age', ''), r.get('Aadhar Number', ''),
-            r.get('Caste', ''), r.get('Profession', ''), r.get('Residential Address', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), 
-            r.get('RD ACCOUNT_2 (Govt. Contribution)', ''),
-            r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned')), r.get('Contact Number', ''),
-            r.get('Unit Address', ''), r.get('BANK_REMARKS', ''), 
-            r.get('NAME OF CF', ''), r.get('BANK SENT', 'NOT SENT'), 'Not Sent to Bank'
-        ])
+    if not df_not_sent_group.empty:
+        for _, r in df_not_sent_group.iterrows():
+            ws4.append([
+                _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
+                _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
+                _clean_scalar(r.get('Age', '')), _clean_scalar(r.get('Aadhar Number', '')),
+                _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
+                _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
+                _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
+                _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned'))),
+                _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
+                _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
+                _clean_scalar(r.get('BANK SENT', 'NOT SENT')), 'Not Sent to Bank'
+            ])
 
     for ws in [ws1, ws2, ws3, ws4]:
         for col in ws.columns:
-            max_len = max(len(str(cell.value or '')) for cell in col)
+            sample_cells = list(col)[:200]
+            max_len = max((len(str(cell.value or '')) for cell in sample_cells), default=10)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 3, 16)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 16), 55)
 
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
     return output
 
+
 @sheets_bp.route('/update_sheets', methods=['POST'])
 def update_sheets():
-    current_month = int(request.form.get('month', 1))
+    try:
+        current_month = int(request.form.get('month', 1))
+    except (TypeError, ValueError):
+        current_month = 1
+
     try:
         gc, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
         df_all_master_clean = df_sent_cross.fillna('').infer_objects(copy=False)
         df_not_sent_clean_all = df_not_sent_all.fillna('').infer_objects(copy=False)
 
-        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else 'CF NAME'
+        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
+        if not cf_col:
+            raise KeyError("డేటాలో 'NAME OF CF' లేదా 'CF NAME' కాలమ్ కనిపించలేదు.")
+
         grouped_cf = df_sent_cross.groupby(cf_col)
-        grouped_not_sent_cf = df_not_sent_all.groupby(cf_col) if not df_not_sent_all.empty and cf_col in df_not_sent_all.columns else {}
+        has_not_sent_cf = (
+            not df_not_sent_clean_all.empty
+            and cf_col in df_not_sent_clean_all.columns
+        )
+        grouped_not_sent_cf = df_not_sent_clean_all.groupby(cf_col) if has_not_sent_cf else None
 
         updated_count = 0
+        failed_cfs = []
+
         for cf_name, group_df in grouped_cf:
             clean_cf_name = str(cf_name).strip()
             if clean_cf_name not in cf_sheet_ids:
@@ -382,82 +525,108 @@ def update_sheets():
             df_active_clean = group_df[group_df['Govt_Share'] > 0].fillna('').infer_objects(copy=False)
             df_missing_clean = group_df[group_df['Govt_Share'] == 0].fillna('').infer_objects(copy=False)
 
-            if isinstance(grouped_not_sent_cf, dict) or grouped_not_sent_cf.empty:
-                df_cf_not_sent = pd.DataFrame()
+            if grouped_not_sent_cf is not None and cf_name in grouped_not_sent_cf.groups:
+                df_cf_not_sent = grouped_not_sent_cf.get_group(cf_name).fillna('').infer_objects(copy=False)
             else:
-                try:
-                    df_cf_not_sent = grouped_not_sent_cf.get_group(cf_name).fillna('').infer_objects(copy=False)
-                except KeyError:
-                    df_cf_not_sent = pd.DataFrame()
+                df_cf_not_sent = pd.DataFrame()
 
             sheet_id = cf_sheet_ids[clean_cf_name]
-            for attempt in range(3):
+            try:
+                spreadsheet = gspread_call_with_retry(gc.open_by_key, sheet_id)
+                worksheets = gspread_call_with_retry(spreadsheet.worksheets)
+
+                # TAB 1: Sent_To_Bank_List
+                sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
+                    spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="30"
+                )
+                cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
+                df_act_sel = df_active_clean[cols1].rename(columns=rename_active_map)
+                write_worksheet_safely(sh1, df_to_sheet_values(df_act_sel))
+
+                # TAB 2: Missing_or_Zero_List
+                sh2 = worksheets[1] if len(worksheets) > 1 else gspread_call_with_retry(
+                    spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="30"
+                )
+                cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
+                df_mis_sel = df_missing_clean[cols2].rename(columns=rename_missing_map)
+                write_worksheet_safely(sh2, df_to_sheet_values(df_mis_sel))
+
+                # TAB 3: All_Beneficiaries_Master
+                sh3 = worksheets[2] if len(worksheets) > 2 else gspread_call_with_retry(
+                    spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="30"
+                )
+                cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
+                df_all_sel = df_all_master_clean[cols3].rename(columns=rename_all_map)
+                write_worksheet_safely(sh3, df_to_sheet_values(df_all_sel))
+
+                # TAB 4: Not_Sent_To_Bank_List
                 try:
-                    spreadsheet = gc.open_by_key(sheet_id)
-                    worksheets = spreadsheet.worksheets()
+                    sh4 = gspread_call_with_retry(spreadsheet.worksheet, "Not_Sent_To_Bank_List")
+                except gspread.WorksheetNotFound:
+                    sh4 = gspread_call_with_retry(
+                        spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="30"
+                    )
 
-                    # TAB 1: Sent_To_Bank_List
-                    sh1 = worksheets[0] if len(worksheets) > 0 else spreadsheet.add_worksheet(title="Sent_To_Bank_List", rows="1000", cols="30")
-                    sh1.clear()
-                    cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
-                    df_act_sel = df_active_clean[cols1].rename(columns=rename_active_map)
-                    sh1.update(range_name='A1', values=[df_act_sel.columns.values.tolist()] + df_act_sel.values.tolist())
+                if not df_cf_not_sent.empty:
+                    cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
+                    df_ns_sel = df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)
+                    write_worksheet_safely(sh4, df_to_sheet_values(df_ns_sel))
+                else:
+                    write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
 
-                    # TAB 2: Missing_or_Zero_List
-                    sh2 = worksheets[1] if len(worksheets) > 1 else spreadsheet.add_worksheet(title="Missing_or_Zero_List", rows="1000", cols="30")
-                    sh2.clear()
-                    cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
-                    df_mis_sel = df_missing_clean[cols2].rename(columns=rename_missing_map)
-                    sh2.update(range_name='A1', values=[df_mis_sel.columns.values.tolist()] + df_mis_sel.values.tolist())
+                updated_count += 1
+            except Exception as cf_err:
+                logger.exception(f"Failed updating sheet for CF '{clean_cf_name}': {cf_err}")
+                failed_cfs.append(f"{clean_cf_name} ({cf_err})")
 
-                    # TAB 3: All_Beneficiaries_Master (Bank Sent Only)
-                    sh3 = worksheets[2] if len(worksheets) > 2 else spreadsheet.add_worksheet(title="All_Beneficiaries_Master", rows="2000", cols="30")
-                    sh3.clear()
-                    cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
-                    df_all_sel = df_all_master_clean[cols3].rename(columns=rename_all_map)
-                    sh3.update(range_name='A1', values=[df_all_sel.columns.values.tolist()] + df_all_sel.values.tolist())
+            time.sleep(2.0)
 
-                    # TAB 4: Not_Sent_To_Bank_List (సపరేట్ టాబ్)
-                    try:
-                        sh4 = spreadsheet.worksheet("Not_Sent_To_Bank_List")
-                    except gspread.WorksheetNotFound:
-                        sh4 = spreadsheet.add_worksheet(title="Not_Sent_To_Bank_List", rows="1000", cols="30")
-                    sh4.clear()
-                    if not df_cf_not_sent.empty:
-                        cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
-                        df_ns_sel = df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)
-                        sh4.update(range_name='A1', values=[df_ns_sel.columns.values.tolist()] + df_ns_sel.values.tolist())
-                    else:
-                        sh4.update(range_name='A1', values=[["No Not-Sent records for this CF"]])
+        if failed_cfs and updated_count == 0:
+            raise RuntimeError("అన్ని CF షీట్స్ అప్‌డేట్ చేయడంలో విఫలమైంది: " + "; ".join(failed_cfs))
 
-                    updated_count += 1
-                    break
-                except Exception as e:
-                    if attempt == 2:
-                        raise e
-                    time.sleep(5)
-            time.sleep(1.5)
+        msg = f'✅ విజయవంతంగా Month {current_month} కోసం {updated_count} CF Google Sheets అప్‌డేట్ అయ్యాయి!'
+        if failed_cfs:
+            msg += f' (కొన్ని షీట్స్‌లో సమస్య: {", ".join(failed_cfs)})'
+        flash(msg, 'success' if not failed_cfs else 'warning')
 
-        flash(f'✅ విజయవంతంగా Month {current_month} కోసం {updated_count} CF Google Sheets అప్‌డేట్ అయ్యాయి (Not Sent లిస్ట్ విడి టాబ్‌లో చేర్చబడింది)!', 'success')
     except Exception as e:
+        logger.exception("Error in /update_sheets")
         flash(f'❌ Error ఏర్పడింది: {str(e)}', 'danger')
 
     return redirect(url_for('home'))
 
+
 @sheets_bp.route('/download_excel', methods=['POST'])
 def download_excel():
-    current_month = int(request.form.get('month', 1))
-    selected_cf = request.form.get('cf_name')
+    try:
+        current_month = int(request.form.get('month', 1))
+    except (TypeError, ValueError):
+        current_month = 1
+
+    selected_cf = (request.form.get('cf_name') or '').strip()
+    if not selected_cf:
+        flash('❌ దయచేసి CF పేరు ఎంచుకోండి.', 'danger')
+        return redirect(url_for('home'))
 
     try:
         _, df_sent_cross, df_not_sent_all, month_label = fetch_and_process_data(current_month)
-        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else 'CF NAME'
-        
-        group_df = df_sent_cross[df_sent_cross[cf_col].astype(str).str.strip() == selected_cf].copy()
-        not_sent_group_df = df_not_sent_all[df_not_sent_all[cf_col].astype(str).str.strip() == selected_cf].copy() if not df_not_sent_all.empty and cf_col in df_not_sent_all.columns else pd.DataFrame()
+        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
 
-        excel_stream = generate_cf_excel_in_memory(selected_cf, group_df, df_sent_cross, not_sent_group_df, current_month, month_label)
-        filename = f"{selected_cf}_Month_{current_month}_Report.xlsx"
+        if cf_col:
+            group_df = df_sent_cross[df_sent_cross[cf_col].astype(str).str.strip() == selected_cf].copy()
+            if not df_not_sent_all.empty and cf_col in df_not_sent_all.columns:
+                not_sent_group_df = df_not_sent_all[df_not_sent_all[cf_col].astype(str).str.strip() == selected_cf].copy()
+            else:
+                not_sent_group_df = pd.DataFrame()
+        else:
+            group_df = pd.DataFrame()
+            not_sent_group_df = pd.DataFrame()
+
+        excel_stream = generate_cf_excel_in_memory(
+            selected_cf, group_df, df_sent_cross, not_sent_group_df, current_month, month_label
+        )
+        safe_cf_filename = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in selected_cf).strip()
+        filename = f"{safe_cf_filename}_Month_{current_month}_Report.xlsx"
 
         return send_file(
             excel_stream,
@@ -466,5 +635,6 @@ def download_excel():
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
     except Exception as e:
+        logger.exception("Error in /download_excel")
         flash(f'❌ Excel డౌన్‌లోడ్‌లో సమస్య ఏర్పడింది: {str(e)}', 'danger')
         return redirect(url_for('home'))
