@@ -231,8 +231,8 @@ def combine_address_fields(df: pd.DataFrame, cols):
 
 
 def fetch_and_process_data(current_month: int):
-    gc = get_gspread_client()
-    sh = gspread_call_with_retry(gc.open, SPREADSHEET_NAME)
+    gspread_client = get_gspread_client()
+    sh = gspread_call_with_retry(gspread_client.open, SPREADSHEET_NAME)
 
     ws_trans = gspread_call_with_retry(sh.worksheet, 'Transactions_Year1')
     df_trans = pd.DataFrame(gspread_call_with_retry(ws_trans.get_all_records))
@@ -324,7 +324,7 @@ def fetch_and_process_data(current_month: int):
     del df_cross
     gc.collect()
 
-    return gc, df_sent_cross, df_not_sent_all, month_label
+    return gspread_client, df_sent_cross, df_not_sent_all, month_label
 
 
 def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_sent_group, current_month, month_label):
@@ -513,7 +513,7 @@ def update_sheets():
     target_cf = (request.form.get('cf_name') or '').strip().upper()
 
     try:
-        gc, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
+        gspread_client, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
 
         cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
         if not cf_col:
@@ -551,7 +551,7 @@ def update_sheets():
 
             sheet_id = cf_sheet_ids[clean_cf_name]
             try:
-                spreadsheet = gspread_call_with_retry(gc.open_by_key, sheet_id)
+                spreadsheet = gspread_call_with_retry(gspread_client.open_by_key, sheet_id)
                 worksheets = gspread_call_with_retry(spreadsheet.worksheets)
 
                 sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
