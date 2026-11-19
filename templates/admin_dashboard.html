@@ -16,18 +16,16 @@
             <button class="btn btn-outline-light btn-sm fw-bold" onclick="adminLogout()">
                 🚪 లాగౌట్ (Logout)
             </button>
-            
         </div>
     </nav>
 
     <div class="container my-4">
         
         <!-- Summary Cards (Grand Totals) -->
-        <!-- Summary Cards (Grand Totals) -->
         <div class="row g-3 mb-4">
             <div class="col-md">
                 <div class="card border-0 shadow-sm bg-primary text-white p-3 rounded-4">
-                    <h6 class="text-uppercase small">మొత్తం లబ్ధిదారులు</h6>
+                    <h6 class="text-uppercase small">మొత్తం లబ్ధిదారులు (Sent)</h6>
                     <h2 class="fw-bold mb-0">{{ total }}</h2>
                 </div>
             </div>
@@ -54,6 +52,14 @@
                     <h6 class="text-uppercase small">పూర్తయిన బ్యాచ్‌లు</h6>
                     <h2 class="fw-bold mb-0">{{ completed_batches_count }} / {{ total_batches_count }}</h2>
                 </div>
+            </div>
+            <div class="col-md">
+                <a href="#not-sent-section" class="text-decoration-none">
+                    <div class="card border-0 shadow-sm text-white p-3 rounded-4" style="background-color: #d97706;">
+                        <h6 class="text-uppercase small">బ్యాంకుకు పంపనివారు</h6>
+                        <h2 class="fw-bold mb-0">{{ not_sent_count }}</h2>
+                    </div>
+                </a>
             </div>
         </div>
 
@@ -274,9 +280,54 @@
                     </table>
                 </div>
             </div>
-        </div>  
-    
-    
+        </div>
+
+        <!-- 5. Not Sent To Bank List Section -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4" id="not-sent-section">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold" style="color: #d97706;">🚫 బ్యాంకుకు పంపని లబ్ధిదారుల జాబితా (Not Sent To Bank - {{ not_sent_count }})</h5>
+                <a href="{{ url_for('admin_bp.export_admin_excel') }}" class="btn btn-outline-warning text-dark btn-sm fw-bold">
+                    📥 Excel లో 'Not Sent To Bank' షీట్ పొందండి
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="table-warning text-dark">
+                            <tr>
+                                <th>S.No</th>
+                                <th class="text-start">లబ్ధిదారుని పేరు (Name)</th>
+                                <th>CF పేరు</th>
+                                <th class="text-start">బ్యాంక్ / ఫైల్ పేరు</th>
+                                <th>అకౌంట్ నెంబర్</th>
+                                <th>RD 1</th>
+                                <th>రిమార్క్స్ (Remarks)</th>
+                                <th>స్టేటస్</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in not_sent_list %}
+                            <tr>
+                                <td>{{ item.sno }}</td>
+                                <td class="text-start fw-semibold">{{ item.name }}</td>
+                                <td>{{ item.cf_name }}</td>
+                                <td class="text-start">{{ item.bank_name }}</td>
+                                <td>{{ item.acc_no }}</td>
+                                <td>{{ item.rd1 }}</td>
+                                <td>{{ item.remarks or '-' }}</td>
+                                <td><span class="badge bg-warning text-dark">{{ item.bank_sent }}</span></td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="8" class="text-muted py-3">బ్యాంకుకు పంపని రికార్డులు ఏవీ లేవు.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
