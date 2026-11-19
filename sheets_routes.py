@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 
 from flask import Blueprint, flash, redirect, request, send_file, url_for
@@ -22,6 +23,13 @@ logger = logging.getLogger(__name__)
 sheets_bp = Blueprint('sheets_bp', __name__)
 
 SPREADSHEET_NAME = 'NOT_BANK_SENT_FORM'
+
+_update_lock = threading.Lock()
+_update_status = {
+    "running": False,
+    "last_message": "",
+    "last_error": "",
+}
 
 month_map = {
     1: "June-2026", 2: "July-2026", 3: "August-2026", 4: "September-2026",
@@ -121,7 +129,6 @@ SCOPES = [
 
 
 def redirect_home():
-    """'bank_bp.home' లేదా 'home' ఎండ్‌పాయింట్‌కు BuildError రాకుండా సురక్షితంగా రీడైరెక్ట్ చేస్తుంది."""
     for endpoint in ('bank_bp.home', 'home'):
         try:
             return redirect(url_for(endpoint))
@@ -195,14 +202,20 @@ def write_worksheet_safely(worksheet, values_2d):
     if not values_2d:
         values_2d = [['No records found']]
 
-    needed_rows = len(values_2d) + 5
-    needed_cols = max((len(r) for r in values_2d), default=1) + 2
-    if worksheet.row_count < needed_rows:
-        gspread_call_with_retry(worksheet.resize, rows=needed_rows, cols=max(worksheet.col_count, needed_cols))
-    elif worksheet.col_count < needed_cols:
-        gspread_call_with_retry(worksheet.resize, rows=worksheet.row_count, cols=needed_cols)
+    needed_rows = len(values_2d) + 2
+    needed_cols = max((len(r) for r in values_2d), default=1) + 1
+    if worksheet.row_count < needed_rows or worksheet.col_count < needed_cols:
+        gspread_call_with_retry(
+            worksheet.resize,
+            rows=max(worksheet.row_count, needed_rows),
+            cols=max(worksheet.col_count, needed_cols)
+        )
 
-    gspread_call_with_retry(worksheet.clear)
+    # పాత అదనపు రోస్ ఉంటే మాత్రమే క్లియర్ చేసి ఓవర్‌రైట్ చేస్తాము (API calls తగ్గించడానికి)
+    if worksheet.row_count > len(values_2d):
+        end_col_letter = get_column_letter(max(worksheet.col_count, needed_cols))
+        gspread_call_with_retry(worksheet.batch_clear, [f"A1:{end_col_letter}{worksheet.row_count}"])
+
     gspread_call_with_retry(
         worksheet.update,
         range_name='A1',
@@ -235,10 +248,15 @@ def fetch_and_process_data(current_month: int):
     sh = gspread_call_with_retry(gspread_client.open, SPREADSHEET_NAME)
 
     ws_trans = gspread_call_with_retry(sh.worksheet, 'Transactions_Year1')
-    df_trans = pd.DataFrame(gspread_call_with_retry(ws_trans.get_all_records))
+    trans_records = gspread_call_with_retry(ws_trans.get_all_records)
+    df_trans = pd.DataFrame(trans_records)
+    del trans_records
 
     ws_thrift = gspread_call_with_retry(sh.worksheet, 'NEW THRIFT DATA')
-    df_thrift = pd.DataFrame(gspread_call_with_retry(ws_thrift.get_all_records))
+    thrift_records = gspread_call_with_retry(ws_thrift.get_all_records)
+    df_thrift = pd.DataFrame(thrift_records)
+    del thrift_records
+    gc.collect()
 
     if df_thrift.empty:
         raise ValueError("'NEW THRIFT DATA' షీట్‌లో డేటా లేదు.")
@@ -325,6 +343,114 @@ def fetch_and_process_data(current_month: int):
     gc.collect()
 
     return gspread_client, df_sent_cross, df_not_sent_all, month_label
+
+
+def _run_sheets_update(current_month: int, target_cf: str):
+    gspread_client, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
+
+    cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
+    if not cf_col:
+        raise KeyError("డేటాలో 'NAME OF CF' లేదా 'CF NAME' కాలమ్ కనిపించలేదు.")
+
+    df_all_master_clean = df_sent_cross.fillna('').infer_objects(copy=False)
+    cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
+    master_values = df_to_sheet_values(df_all_master_clean[cols3].rename(columns=rename_all_map))
+    del df_all_master_clean
+    gc.collect()
+
+    grouped_cf = df_sent_cross.groupby(cf_col)
+    has_not_sent_cf = (
+        not df_not_sent_all.empty
+        and cf_col in df_not_sent_all.columns
+    )
+    grouped_not_sent_cf = df_not_sent_all.groupby(cf_col) if has_not_sent_cf else None
+
+    updated_count = 0
+    failed_cfs = []
+
+    for cf_name, group_df in grouped_cf:
+        clean_cf_name = str(cf_name).strip()
+        if clean_cf_name not in cf_sheet_ids:
+            continue
+        if target_cf and target_cf not in ('ALL', 'ALL CFS') and clean_cf_name.upper() != target_cf:
+            continue
+
+        df_active_clean = group_df[group_df['Govt_Share'] > 0].fillna('').infer_objects(copy=False)
+        df_missing_clean = group_df[group_df['Govt_Share'] == 0].fillna('').infer_objects(copy=False)
+
+        if grouped_not_sent_cf is not None and cf_name in grouped_not_sent_cf.groups:
+            df_cf_not_sent = grouped_not_sent_cf.get_group(cf_name).fillna('').infer_objects(copy=False)
+        else:
+            df_cf_not_sent = pd.DataFrame()
+
+        sheet_id = cf_sheet_ids[clean_cf_name]
+        try:
+            spreadsheet = gspread_call_with_retry(gspread_client.open_by_key, sheet_id)
+            worksheets = gspread_call_with_retry(spreadsheet.worksheets)
+
+            sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
+                spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="25"
+            )
+            cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
+            write_worksheet_safely(sh1, df_to_sheet_values(df_active_clean[cols1].rename(columns=rename_active_map)))
+
+            sh2 = worksheets[1] if len(worksheets) > 1 else gspread_call_with_retry(
+                spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="25"
+            )
+            cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
+            write_worksheet_safely(sh2, df_to_sheet_values(df_missing_clean[cols2].rename(columns=rename_missing_map)))
+
+            sh3 = worksheets[2] if len(worksheets) > 2 else gspread_call_with_retry(
+                spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="25"
+            )
+            write_worksheet_safely(sh3, master_values)
+
+            try:
+                sh4 = gspread_call_with_retry(spreadsheet.worksheet, "Not_Sent_To_Bank_List")
+            except gspread.WorksheetNotFound:
+                sh4 = gspread_call_with_retry(
+                    spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="25"
+                )
+
+            if not df_cf_not_sent.empty:
+                cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
+                write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
+            else:
+                write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
+
+            updated_count += 1
+        except Exception as cf_err:
+            logger.exception(f"Failed updating sheet for CF '{clean_cf_name}': {cf_err}")
+            failed_cfs.append(f"{clean_cf_name} ({cf_err})")
+
+        del df_active_clean, df_missing_clean, df_cf_not_sent
+        gc.collect()
+        time.sleep(0.8)
+
+    del master_values, df_sent_cross, df_not_sent_all
+    gc.collect()
+
+    if failed_cfs and updated_count == 0:
+        raise RuntimeError("అన్ని CF షీట్స్ అప్‌డేట్ చేయడంలో విఫలమైంది: " + "; ".join(failed_cfs))
+
+    msg = f"✅ విజయవంతంగా Month {current_month} కోసం {updated_count} CF Google Sheets అప్‌డేట్ అయ్యాయి!"
+    if failed_cfs:
+        msg += f" (కొన్ని షీట్స్‌లో సమస్య: {', '.join(failed_cfs)})"
+    return msg, bool(failed_cfs)
+
+
+def _background_worker(current_month: int, target_cf: str):
+    try:
+        msg, _ = _run_sheets_update(current_month, target_cf)
+        _update_status["last_message"] = msg
+        _update_status["last_error"] = ""
+        logger.info(msg)
+    except Exception as exc:
+        logger.exception("Background sheet update failed")
+        _update_status["last_error"] = str(exc)
+    finally:
+        _update_status["running"] = False
+        gc.collect()
 
 
 def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_sent_group, current_month, month_label):
@@ -511,96 +637,32 @@ def update_sheets():
         current_month = 1
 
     target_cf = (request.form.get('cf_name') or '').strip().upper()
+    is_all_cfs = target_cf in ('', 'ALL', 'ALL CFS')
+
+    if is_all_cfs:
+        if _update_status["running"]:
+            flash('⏳ ఇప్పటికే అన్ని CF Google Sheets అప్‌డేట్ ప్రక్రియ బ్యాక్‌గ్రౌండ్‌లో నడుస్తోంది.', 'info')
+            return redirect_home()
+
+        with _update_lock:
+            if _update_status["running"]:
+                flash('⏳ ఇప్పటికే అన్ని CF Google Sheets అప్‌డేట్ ప్రక్రియ బ్యాక్‌గ్రౌండ్‌లో నడుస్తోంది.', 'info')
+                return redirect_home()
+            _update_status["running"] = True
+            _update_status["last_error"] = ""
+
+        t = threading.Thread(
+            target=_background_worker,
+            args=(current_month, 'ALL'),
+            daemon=True
+        )
+        t.start()
+        flash(f'🚀 Month {current_month} కోసం అన్ని CF Google Sheets అప్‌డేట్ బ్యాక్‌గ్రౌండ్‌లో ప్రారంభమైంది (Worker timeout రాకుండా).', 'success')
+        return redirect_home()
 
     try:
-        gspread_client, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
-
-        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
-        if not cf_col:
-            raise KeyError("డేటాలో 'NAME OF CF' లేదా 'CF NAME' కాలమ్ కనిపించలేదు.")
-
-        df_all_master_clean = df_sent_cross.fillna('').infer_objects(copy=False)
-        cols3 = [c for c in all_columns + ['Status'] if c in df_all_master_clean.columns]
-        master_values = df_to_sheet_values(df_all_master_clean[cols3].rename(columns=rename_all_map))
-        del df_all_master_clean
-
-        grouped_cf = df_sent_cross.groupby(cf_col)
-        has_not_sent_cf = (
-            not df_not_sent_all.empty
-            and cf_col in df_not_sent_all.columns
-        )
-        grouped_not_sent_cf = df_not_sent_all.groupby(cf_col) if has_not_sent_cf else None
-
-        updated_count = 0
-        failed_cfs = []
-
-        for cf_name, group_df in grouped_cf:
-            clean_cf_name = str(cf_name).strip()
-            if clean_cf_name not in cf_sheet_ids:
-                continue
-            if target_cf and target_cf not in ('ALL', 'ALL CFS') and clean_cf_name.upper() != target_cf:
-                continue
-
-            df_active_clean = group_df[group_df['Govt_Share'] > 0].fillna('').infer_objects(copy=False)
-            df_missing_clean = group_df[group_df['Govt_Share'] == 0].fillna('').infer_objects(copy=False)
-
-            if grouped_not_sent_cf is not None and cf_name in grouped_not_sent_cf.groups:
-                df_cf_not_sent = grouped_not_sent_cf.get_group(cf_name).fillna('').infer_objects(copy=False)
-            else:
-                df_cf_not_sent = pd.DataFrame()
-
-            sheet_id = cf_sheet_ids[clean_cf_name]
-            try:
-                spreadsheet = gspread_call_with_retry(gspread_client.open_by_key, sheet_id)
-                worksheets = gspread_call_with_retry(spreadsheet.worksheets)
-
-                sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="25"
-                )
-                cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
-                write_worksheet_safely(sh1, df_to_sheet_values(df_active_clean[cols1].rename(columns=rename_active_map)))
-
-                sh2 = worksheets[1] if len(worksheets) > 1 else gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="25"
-                )
-                cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
-                write_worksheet_safely(sh2, df_to_sheet_values(df_missing_clean[cols2].rename(columns=rename_missing_map)))
-
-                sh3 = worksheets[2] if len(worksheets) > 2 else gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="25"
-                )
-                write_worksheet_safely(sh3, master_values)
-
-                try:
-                    sh4 = gspread_call_with_retry(spreadsheet.worksheet, "Not_Sent_To_Bank_List")
-                except gspread.WorksheetNotFound:
-                    sh4 = gspread_call_with_retry(
-                        spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="25"
-                    )
-
-                if not df_cf_not_sent.empty:
-                    cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
-                    write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
-                else:
-                    write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
-
-                updated_count += 1
-            except Exception as cf_err:
-                logger.exception(f"Failed updating sheet for CF '{clean_cf_name}': {cf_err}")
-                failed_cfs.append(f"{clean_cf_name} ({cf_err})")
-
-            del df_active_clean, df_missing_clean, df_cf_not_sent
-            gc.collect()
-            time.sleep(1.0)
-
-        if failed_cfs and updated_count == 0:
-            raise RuntimeError("అన్ని CF షీట్స్ అప్‌డేట్ చేయడంలో విఫలమైంది: " + "; ".join(failed_cfs))
-
-        msg = f'✅ విజయవంతంగా Month {current_month} కోసం {updated_count} CF Google Sheets అప్‌డేట్ అయ్యాయి!'
-        if failed_cfs:
-            msg += f' (కొన్ని షీట్స్‌లో సమస్య: {", ".join(failed_cfs)})'
-        flash(msg, 'success' if not failed_cfs else 'warning')
-
+        msg, has_warnings = _run_sheets_update(current_month, target_cf)
+        flash(msg, 'warning' if has_warnings else 'success')
     except Exception as e:
         logger.exception("Error in /update_sheets")
         flash(f'❌ Error ఏర్పడింది: {str(e)}', 'danger')
