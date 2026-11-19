@@ -7,7 +7,7 @@ import os
 import threading
 import time
 
-from flask import Blueprint, flash, redirect, request, send_file, url_for
+from flask import Blueprint, flash, jsonify, redirect, request, send_file, url_for
 from google.oauth2.service_account import Credentials
 import gspread
 from gspread.exceptions import APIError
@@ -25,8 +25,12 @@ sheets_bp = Blueprint('sheets_bp', __name__)
 SPREADSHEET_NAME = 'NOT_BANK_SENT_FORM'
 
 _update_lock = threading.Lock()
-_update_status = {
+_update_state = {
     "running": False,
+    "month": None,
+    "completed_cfs": 0,
+    "total_cfs": 0,
+    "current_cf": "",
     "last_message": "",
     "last_error": "",
 }
@@ -148,7 +152,7 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 
-def gspread_call_with_retry(func, *args, max_retries=4, base_delay=1.5, **kwargs):
+def gspread_call_with_retry(func, *args, max_retries=5, base_delay=2.0, **kwargs):
     for attempt in range(max_retries):
         try:
             return func(*args, **kwargs)
@@ -211,7 +215,6 @@ def write_worksheet_safely(worksheet, values_2d):
             cols=max(worksheet.col_count, needed_cols)
         )
 
-    # పాత అదనపు రోస్ ఉంటే మాత్రమే క్లియర్ చేసి ఓవర్‌రైట్ చేస్తాము (API calls తగ్గించడానికి)
     if worksheet.row_count > len(values_2d):
         end_col_letter = get_column_letter(max(worksheet.col_count, needed_cols))
         gspread_call_with_retry(worksheet.batch_clear, [f"A1:{end_col_letter}{worksheet.row_count}"])
@@ -345,7 +348,48 @@ def fetch_and_process_data(current_month: int):
     return gspread_client, df_sent_cross, df_not_sent_all, month_label
 
 
-def _run_sheets_update(current_month: int, target_cf: str):
+def _update_single_cf_spreadsheet(gspread_client, clean_cf_name: str, sheet_id: str,
+                                  df_active_clean: pd.DataFrame, df_missing_clean: pd.DataFrame,
+                                  master_values: list, df_cf_not_sent: pd.DataFrame):
+    """ఒక్క CF స్ప్రెడ్‌షీట్‌లోని అన్ని టాబ్‌లను సురక్షితంగా అప్‌డేట్ చేస్తుంది."""
+    spreadsheet = gspread_call_with_retry(gspread_client.open_by_key, sheet_id)
+    worksheets = gspread_call_with_retry(spreadsheet.worksheets)
+
+    sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
+        spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="25"
+    )
+    cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
+    write_worksheet_safely(sh1, df_to_sheet_values(df_active_clean[cols1].rename(columns=rename_active_map)))
+    time.sleep(0.5)
+
+    sh2 = worksheets[1] if len(worksheets) > 1 else gspread_call_with_retry(
+        spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="25"
+    )
+    cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
+    write_worksheet_safely(sh2, df_to_sheet_values(df_missing_clean[cols2].rename(columns=rename_missing_map)))
+    time.sleep(0.5)
+
+    sh3 = worksheets[2] if len(worksheets) > 2 else gspread_call_with_retry(
+        spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="25"
+    )
+    write_worksheet_safely(sh3, master_values)
+    time.sleep(0.5)
+
+    try:
+        sh4 = gspread_call_with_retry(spreadsheet.worksheet, "Not_Sent_To_Bank_List")
+    except gspread.WorksheetNotFound:
+        sh4 = gspread_call_with_retry(
+            spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="25"
+        )
+
+    if not df_cf_not_sent.empty:
+        cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
+        write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
+    else:
+        write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
+
+
+def _run_all_cfs_update(current_month: int, target_cf: str = 'ALL', track_progress: bool = False):
     gspread_client, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
 
     cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
@@ -359,6 +403,17 @@ def _run_sheets_update(current_month: int, target_cf: str):
     gc.collect()
 
     grouped_cf = df_sent_cross.groupby(cf_col)
+    eligible_groups = [
+        (str(cf_name).strip(), cf_name, group_df)
+        for cf_name, group_df in grouped_cf
+        if str(cf_name).strip() in cf_sheet_ids
+        and (target_cf in ('', 'ALL', 'ALL CFS') or str(cf_name).strip().upper() == target_cf)
+    ]
+
+    if track_progress:
+        _update_state["total_cfs"] = len(eligible_groups)
+        _update_state["completed_cfs"] = 0
+
     has_not_sent_cf = (
         not df_not_sent_all.empty
         and cf_col in df_not_sent_all.columns
@@ -368,64 +423,39 @@ def _run_sheets_update(current_month: int, target_cf: str):
     updated_count = 0
     failed_cfs = []
 
-    for cf_name, group_df in grouped_cf:
-        clean_cf_name = str(cf_name).strip()
-        if clean_cf_name not in cf_sheet_ids:
-            continue
-        if target_cf and target_cf not in ('ALL', 'ALL CFS') and clean_cf_name.upper() != target_cf:
-            continue
+    for clean_cf_name, raw_cf_name, group_df in eligible_groups:
+        if track_progress:
+            _update_state["current_cf"] = clean_cf_name
 
         df_active_clean = group_df[group_df['Govt_Share'] > 0].fillna('').infer_objects(copy=False)
         df_missing_clean = group_df[group_df['Govt_Share'] == 0].fillna('').infer_objects(copy=False)
 
-        if grouped_not_sent_cf is not None and cf_name in grouped_not_sent_cf.groups:
-            df_cf_not_sent = grouped_not_sent_cf.get_group(cf_name).fillna('').infer_objects(copy=False)
+        if grouped_not_sent_cf is not None and raw_cf_name in grouped_not_sent_cf.groups:
+            df_cf_not_sent = grouped_not_sent_cf.get_group(raw_cf_name).fillna('').infer_objects(copy=False)
         else:
             df_cf_not_sent = pd.DataFrame()
 
         sheet_id = cf_sheet_ids[clean_cf_name]
         try:
-            spreadsheet = gspread_call_with_retry(gspread_client.open_by_key, sheet_id)
-            worksheets = gspread_call_with_retry(spreadsheet.worksheets)
-
-            sh1 = worksheets[0] if len(worksheets) > 0 else gspread_call_with_retry(
-                spreadsheet.add_worksheet, title="Sent_To_Bank_List", rows="1000", cols="25"
+            _update_single_cf_spreadsheet(
+                gspread_client=gspread_client,
+                clean_cf_name=clean_cf_name,
+                sheet_id=sheet_id,
+                df_active_clean=df_active_clean,
+                df_missing_clean=df_missing_clean,
+                master_values=master_values,
+                df_cf_not_sent=df_cf_not_sent,
             )
-            cols1 = [c for c in active_columns + ['Status'] if c in df_active_clean.columns]
-            write_worksheet_safely(sh1, df_to_sheet_values(df_active_clean[cols1].rename(columns=rename_active_map)))
-
-            sh2 = worksheets[1] if len(worksheets) > 1 else gspread_call_with_retry(
-                spreadsheet.add_worksheet, title="Missing_or_Zero_List", rows="1000", cols="25"
-            )
-            cols2 = [c for c in missing_columns + ['Status'] if c in df_missing_clean.columns]
-            write_worksheet_safely(sh2, df_to_sheet_values(df_missing_clean[cols2].rename(columns=rename_missing_map)))
-
-            sh3 = worksheets[2] if len(worksheets) > 2 else gspread_call_with_retry(
-                spreadsheet.add_worksheet, title="All_Beneficiaries_Master", rows="2000", cols="25"
-            )
-            write_worksheet_safely(sh3, master_values)
-
-            try:
-                sh4 = gspread_call_with_retry(spreadsheet.worksheet, "Not_Sent_To_Bank_List")
-            except gspread.WorksheetNotFound:
-                sh4 = gspread_call_with_retry(
-                    spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="25"
-                )
-
-            if not df_cf_not_sent.empty:
-                cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
-                write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
-            else:
-                write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
-
             updated_count += 1
+            if track_progress:
+                _update_state["completed_cfs"] = updated_count
         except Exception as cf_err:
             logger.exception(f"Failed updating sheet for CF '{clean_cf_name}': {cf_err}")
             failed_cfs.append(f"{clean_cf_name} ({cf_err})")
 
         del df_active_clean, df_missing_clean, df_cf_not_sent
         gc.collect()
-        time.sleep(0.8)
+        time.sleep(1.2)
 
     del master_values, df_sent_cross, df_not_sent_all
     gc.collect()
@@ -439,17 +469,18 @@ def _run_sheets_update(current_month: int, target_cf: str):
     return msg, bool(failed_cfs)
 
 
-def _background_worker(current_month: int, target_cf: str):
+def _background_all_cfs_worker(current_month: int):
     try:
-        msg, _ = _run_sheets_update(current_month, target_cf)
-        _update_status["last_message"] = msg
-        _update_status["last_error"] = ""
+        msg, _ = _run_all_cfs_update(current_month=current_month, target_cf='ALL', track_progress=True)
+        _update_state["last_message"] = msg
+        _update_state["last_error"] = ""
         logger.info(msg)
     except Exception as exc:
-        logger.exception("Background sheet update failed")
-        _update_status["last_error"] = str(exc)
+        logger.exception("Background update for ALL CFs failed")
+        _update_state["last_error"] = str(exc)
     finally:
-        _update_status["running"] = False
+        _update_state["running"] = False
+        _update_state["current_cf"] = ""
         gc.collect()
 
 
@@ -629,6 +660,11 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
     return output
 
 
+@sheets_bp.route('/update_status', methods=['GET'])
+def update_status():
+    return jsonify(_update_state)
+
+
 @sheets_bp.route('/update_sheets', methods=['POST'])
 def update_sheets():
     try:
@@ -640,28 +676,29 @@ def update_sheets():
     is_all_cfs = target_cf in ('', 'ALL', 'ALL CFS')
 
     if is_all_cfs:
-        if _update_status["running"]:
-            flash('⏳ ఇప్పటికే అన్ని CF Google Sheets అప్‌డేట్ ప్రక్రియ బ్యాక్‌గ్రౌండ్‌లో నడుస్తోంది.', 'info')
-            return redirect_home()
-
         with _update_lock:
-            if _update_status["running"]:
-                flash('⏳ ఇప్పటికే అన్ని CF Google Sheets అప్‌డేట్ ప్రక్రియ బ్యాక్‌గ్రౌండ్‌లో నడుస్తోంది.', 'info')
+            if _update_state["running"]:
+                flash('⏳ అన్ని CF Google Sheets అప్‌డేట్ ఇప్పటికే బ్యాక్‌గ్రౌండ్‌లో నడుస్తోంది.', 'info')
                 return redirect_home()
-            _update_status["running"] = True
-            _update_status["last_error"] = ""
 
-        t = threading.Thread(
-            target=_background_worker,
-            args=(current_month, 'ALL'),
+            _update_state["running"] = True
+            _update_state["month"] = current_month
+            _update_state["completed_cfs"] = 0
+            _update_state["total_cfs"] = len(cf_sheet_ids)
+            _update_state["current_cf"] = "Starting..."
+            _update_state["last_error"] = ""
+
+        worker = threading.Thread(
+            target=_background_all_cfs_worker,
+            args=(current_month,),
             daemon=True
         )
-        t.start()
-        flash(f'🚀 Month {current_month} కోసం అన్ని CF Google Sheets అప్‌డేట్ బ్యాక్‌గ్రౌండ్‌లో ప్రారంభమైంది (Worker timeout రాకుండా).', 'success')
+        worker.start()
+        flash(f'🚀 Month {current_month} కోసం ALL CFs అప్‌డేట్ బ్యాక్‌గ్రౌండ్‌లో ప్రారంభమైంది. Worker timeout రాకుండా అన్ని షీట్స్ అప్‌డేట్ అవుతాయి!', 'success')
         return redirect_home()
 
     try:
-        msg, has_warnings = _run_sheets_update(current_month, target_cf)
+        msg, has_warnings = _run_all_cfs_update(current_month=current_month, target_cf=target_cf, track_progress=False)
         flash(msg, 'warning' if has_warnings else 'success')
     except Exception as e:
         logger.exception("Error in /update_sheets")
