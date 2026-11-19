@@ -132,6 +132,39 @@ SCOPES = [
 ]
 
 
+def build_sample_record_df(clean_cf_name: str, status_text: str, template_df: pd.DataFrame = None) -> pd.DataFrame:
+    """ఏదైనా CF లేదా టాబ్‌లో రికార్డులు లేనప్పుడు AppSheet సజావుగా పనిచేయడానికి SAMPLE / NO RECORD రో ఇస్తుంది."""
+    sample_row = {
+        'BANK_SNO': 'SAMPLE',
+        'Name Of Benificiary': 'SAMPLE / NO RECORD',
+        'Father Name': 'SAMPLE / NO RECORD',
+        'Date OF Birth': '',
+        'Age': 0,
+        'Aadhar Number': '',
+        'Caste': '',
+        'Profession': '',
+        'Residential Address': '',
+        'Bank Account Number': '',
+        'RD 1': '',
+        'RD ACCOUNT_2 (Govt. Contribution)': '',
+        'Govt_Share': 0,
+        'Contact Number': '',
+        'Unit Address': '',
+        'BANK_REMARKS': 'SAMPLE / NO RECORD',
+        'NAME OF CF': clean_cf_name,
+        'FILE NAME_x': 'Not Assigned',
+        '8% Of Monthly Wages': 0,
+        'BANK SENT': 'SAMPLE / NO RECORD',
+        'Status': status_text,
+    }
+    if template_df is not None and not template_df.empty:
+        for col in template_df.columns:
+            if col not in sample_row:
+                sample_row[col] = ''
+        return pd.DataFrame([sample_row])[list(template_df.columns)]
+    return pd.DataFrame([sample_row])
+
+
 def redirect_home():
     for endpoint in ('bank_bp.home', 'home'):
         try:
@@ -382,15 +415,12 @@ def _update_single_cf_spreadsheet(gspread_client, clean_cf_name: str, sheet_id: 
             spreadsheet.add_worksheet, title="Not_Sent_To_Bank_List", rows="1000", cols="25"
         )
 
-    if not df_cf_not_sent.empty:
-        cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
-        write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
-    else:
-        write_worksheet_safely(sh4, [["No Not-Sent records for this CF"]])
+    cols4 = [c for c in not_sent_columns + ['Status'] if c in df_cf_not_sent.columns]
+    write_worksheet_safely(sh4, df_to_sheet_values(df_cf_not_sent[cols4].rename(columns=rename_not_sent_map)))
 
 
 def _run_all_cfs_update(current_month: int, target_cf: str = 'ALL', track_progress: bool = False):
-    gspread_client, df_sent_cross, df_not_sent_all, _ = fetch_and_process_data(current_month)
+    gspread_client, df_sent_cross, df_not_sent_all, month_label = fetch_and_process_data(current_month)
 
     cf_col = 'NAME OF CF' if 'NAME OF CF' in df_sent_cross.columns else ('CF NAME' if 'CF NAME' in df_sent_cross.columns else None)
     if not cf_col:
@@ -410,6 +440,13 @@ def _run_all_cfs_update(current_month: int, target_cf: str = 'ALL', track_progre
         and (target_cf in ('', 'ALL', 'ALL CFS') or str(cf_name).strip().upper() == target_cf)
     ]
 
+    # డేటాలో అసలు రికార్డులు లేని CF షీట్స్ కూడా SAMPLE / NO RECORD తో అప్‌డేట్ అయ్యేలా చేర్చడం
+    existing_clean_names = {name for name, _, _ in eligible_groups}
+    for mapped_cf_name in cf_sheet_ids.keys():
+        if mapped_cf_name not in existing_clean_names:
+            if target_cf in ('', 'ALL', 'ALL CFS') or mapped_cf_name.upper() == target_cf:
+                eligible_groups.append((mapped_cf_name, mapped_cf_name, pd.DataFrame(columns=df_sent_cross.columns)))
+
     if track_progress:
         _update_state["total_cfs"] = len(eligible_groups)
         _update_state["completed_cfs"] = 0
@@ -427,13 +464,29 @@ def _run_all_cfs_update(current_month: int, target_cf: str = 'ALL', track_progre
         if track_progress:
             _update_state["current_cf"] = clean_cf_name
 
-        df_active_clean = group_df[group_df['Govt_Share'] > 0].fillna('').infer_objects(copy=False)
-        df_missing_clean = group_df[group_df['Govt_Share'] == 0].fillna('').infer_objects(copy=False)
+        df_active_raw = group_df[group_df['Govt_Share'] > 0] if (not group_df.empty and 'Govt_Share' in group_df.columns) else pd.DataFrame()
+        df_missing_raw = group_df[group_df['Govt_Share'] == 0] if (not group_df.empty and 'Govt_Share' in group_df.columns) else pd.DataFrame()
+
+        if df_active_raw.empty:
+            df_active_clean = build_sample_record_df(
+                clean_cf_name, f'SAMPLE / NO RECORD ({month_label})', df_active_raw if not df_active_raw.empty else group_df
+            ).fillna('')
+        else:
+            df_active_clean = df_active_raw.fillna('').infer_objects(copy=False)
+
+        if df_missing_raw.empty:
+            df_missing_clean = build_sample_record_df(
+                clean_cf_name, f'SAMPLE / NO RECORD ({month_label})', df_missing_raw if not df_missing_raw.empty else group_df
+            ).fillna('')
+        else:
+            df_missing_clean = df_missing_raw.fillna('').infer_objects(copy=False)
 
         if grouped_not_sent_cf is not None and raw_cf_name in grouped_not_sent_cf.groups:
             df_cf_not_sent = grouped_not_sent_cf.get_group(raw_cf_name).fillna('').infer_objects(copy=False)
         else:
-            df_cf_not_sent = pd.DataFrame()
+            df_cf_not_sent = build_sample_record_df(
+                clean_cf_name, 'SAMPLE / NO RECORD', df_not_sent_all if not df_not_sent_all.empty else group_df
+            ).fillna('')
 
         sheet_id = cf_sheet_ids[clean_cf_name]
         try:
@@ -492,8 +545,15 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
     green_fill = PatternFill(start_color='008000', end_color='008000', fill_type='solid')
     orange_fill = PatternFill(start_color='D97706', end_color='D97706', fill_type='solid')
 
-    df_active_cf = group_df[group_df['Govt_Share'] > 0] if not group_df.empty else pd.DataFrame()
-    df_missing_cf = group_df[group_df['Govt_Share'] == 0] if not group_df.empty else pd.DataFrame()
+    df_active_cf = group_df[group_df['Govt_Share'] > 0] if (not group_df.empty and 'Govt_Share' in group_df.columns) else pd.DataFrame()
+    df_missing_cf = group_df[group_df['Govt_Share'] == 0] if (not group_df.empty and 'Govt_Share' in group_df.columns) else pd.DataFrame()
+
+    if df_active_cf.empty:
+        df_active_cf = build_sample_record_df(clean_cf_name, f'SAMPLE / NO RECORD ({month_label})')
+    if df_missing_cf.empty:
+        df_missing_cf = build_sample_record_df(clean_cf_name, f'SAMPLE / NO RECORD ({month_label})')
+    if df_not_sent_group is None or df_not_sent_group.empty:
+        df_not_sent_group = build_sample_record_df(clean_cf_name, 'SAMPLE / NO RECORD')
 
     # SHEET 1: ACTIVE
     ws1 = wb.active
@@ -520,6 +580,7 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
 
     r_idx1 = 4
     for _, r in df_active_cf.iterrows():
+        is_sample = str(r.get('Name Of Benificiary', '')).startswith('SAMPLE / NO RECORD')
         ws1.append([
             _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
             _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
@@ -527,10 +588,11 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
             _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
             _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
             _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
-            _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', ''))), _clean_scalar(r.get('Govt_Share', 0)),
+            _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', ''))),
+            0 if is_sample else _clean_scalar(r.get('Govt_Share', 0)),
             _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
             _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
-            f'{month_label} Govt_Share Released'
+            'SAMPLE / NO RECORD' if is_sample else f'{month_label} Govt_Share Released'
         ])
         ws1.cell(row=r_idx1, column=14).number_format = '₹#,##0.00'
         r_idx1 += 1
@@ -558,6 +620,7 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
         c.fill = red_fill
 
     for _, r in df_missing_cf.iterrows():
+        is_sample = str(r.get('Name Of Benificiary', '')).startswith('SAMPLE / NO RECORD')
         ws2.append([
             _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
             _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
@@ -568,7 +631,7 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
             _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned'))),
             _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
             _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
-            f'Zero or missing transactions reported for {month_label}'
+            'SAMPLE / NO RECORD' if is_sample else f'Zero or missing transactions reported for {month_label}'
         ])
 
     # SHEET 3: MASTER
@@ -632,20 +695,21 @@ def generate_cf_excel_in_memory(clean_cf_name, group_df, df_sent_cross, df_not_s
         c.font = header_font
         c.fill = orange_fill
 
-    if not df_not_sent_group.empty:
-        for _, r in df_not_sent_group.iterrows():
-            ws4.append([
-                _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
-                _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
-                _clean_scalar(r.get('Age', '')), _clean_scalar(r.get('Aadhar Number', '')),
-                _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
-                _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
-                _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
-                _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned'))),
-                _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
-                _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
-                _clean_scalar(r.get('BANK SENT', 'NOT SENT')), 'Not Sent to Bank'
-            ])
+    for _, r in df_not_sent_group.iterrows():
+        is_sample = str(r.get('Name Of Benificiary', '')).startswith('SAMPLE / NO RECORD')
+        ws4.append([
+            _clean_scalar(r.get('BANK_SNO', '')), _clean_scalar(r.get('Name Of Benificiary', '')),
+            _clean_scalar(r.get('Father Name', '')), _clean_scalar(r.get('Date OF Birth', '')),
+            _clean_scalar(r.get('Age', '')), _clean_scalar(r.get('Aadhar Number', '')),
+            _clean_scalar(r.get('Caste', '')), _clean_scalar(r.get('Profession', '')),
+            _clean_scalar(r.get('Residential Address', '')), _clean_scalar(r.get('Bank Account Number', '')),
+            _clean_scalar(r.get('RD 1', '')), _clean_scalar(r.get('RD ACCOUNT_2 (Govt. Contribution)', '')),
+            _clean_scalar(r.get('FILE NAME_x', r.get('FILE NAME', 'Not Assigned'))),
+            _clean_scalar(r.get('Contact Number', '')), _clean_scalar(r.get('Unit Address', '')),
+            _clean_scalar(r.get('BANK_REMARKS', '')), _clean_scalar(r.get('NAME OF CF', '')),
+            _clean_scalar(r.get('BANK SENT', 'SAMPLE / NO RECORD' if is_sample else 'NOT SENT')),
+            'SAMPLE / NO RECORD' if is_sample else 'Not Sent to Bank'
+        ])
 
     for ws in [ws1, ws2, ws3, ws4]:
         for col in ws.columns:
