@@ -48,6 +48,22 @@
             font-size: 0.95rem;
             padding: 8px 12px;
         }
+        .scan-canvas-wrap {
+            position: relative;
+            background: #111827;
+            border-radius: 10px;
+            overflow: hidden;
+            text-align: center;
+            border: 1px solid #cbd5e1;
+        }
+        #ocrImageCanvas {
+            max-width: 100%;
+            height: auto;
+            touch-action: none;
+            cursor: crosshair;
+            display: block;
+            margin: 0 auto;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -129,17 +145,31 @@
     <!-- దాచిన కెమెరా ఇన్‌పుట్ -->
     <input type="file" id="ocr_camera_input" accept="image/*" capture="environment" style="display: none;" onchange="handleCapturedImage(event)">
 
-    <!-- OCR నంబర్ సెలెక్షన్ Modal -->
+    <!-- ఇమేజ్ సెలెక్షన్ & OCR Modal -->
     <div class="modal fade" id="ocrSelectModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content rounded-4">
                 <div class="modal-header">
-                    <h5 class="modal-title fw-bold" id="ocrModalTitle">📷 నంబర్ ఎంచుకోండి</h5>
+                    <h5 class="modal-title fw-bold" id="ocrModalTitle">📷 ఇమేజ్‌లో నంబర్ సెలెక్ట్ చేయండి</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="ocrStatusBox" class="alert alert-info py-2 small mb-3">
-                        ఇమేజ్ నుండి నంబర్లను చదువుతోంది... దయచేసి వేచి ఉండండి.
+                    <div id="ocrStatusBox" class="alert alert-info py-2 small mb-2">
+                        ఫోటో మీద మీకు కావలసిన నంబర్ చుట్టూ వేలితో/మౌస్‌తో బాక్స్ లాగి సెలెక్ట్ చేయండి.
+                    </div>
+
+                    <!-- ఇమేజ్ సెలెక్షన్ కాన్వాస్ -->
+                    <div class="scan-canvas-wrap mb-2">
+                        <canvas id="ocrImageCanvas"></canvas>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-primary btn-sm fw-bold" onclick="scanSelectedBox()">✂️ సెలెక్ట్ చేసిన భాగం స్కాన్ చేయి</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" onclick="resetSelectionAndScanFull()">🔍 పూర్తి ఫోటో స్కాన్ చేయి</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm fw-bold" onclick="clearSelectionBox()">✖️ బాక్స్ క్లియర్</button>
+                        </div>
+                        <small class="text-muted">బాక్స్ లాగి వదిలితే ఆటోమేటిక్‌గా కూడా స్కాన్ అవుతుంది</small>
                     </div>
 
                     <div class="mb-3">
@@ -148,7 +178,7 @@
                     </div>
 
                     <div class="mb-2">
-                        <label class="form-label fw-semibold small text-secondary">లేదా నేరుగా ఇక్కడ సరిచూసి / సెలెక్ట్ చేసి వాడండి:</label>
+                        <label class="form-label fw-semibold small text-secondary">లేదా నేరుగా ఇక్కడ సరిచూసి ఫీల్డ్‌లో వేయండి:</label>
                         <div class="input-group">
                             <input type="text" id="ocrManualPickInput" class="form-control" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                             <button type="button" class="btn btn-success fw-bold" onclick="applyManualOcrValue()">ఫీల్డ్‌లో వేయి</button>
@@ -156,8 +186,8 @@
                     </div>
 
                     <details class="mt-3">
-                        <summary class="small text-muted" style="cursor: pointer;">చదివిన పూర్తి టెక్స్ట్ చూడండి</summary>
-                        <pre id="ocrRawText" class="bg-light p-2 rounded border mt-2 small" style="max-height: 140px; overflow-y: auto; white-space: pre-wrap;"></pre>
+                        <summary class="small text-muted" style="cursor: pointer;">చదివిన టెక్స్ట్ చూడండి</summary>
+                        <pre id="ocrRawText" class="bg-light p-2 rounded border mt-2 small" style="max-height: 120px; overflow-y: auto; white-space: pre-wrap;"></pre>
                     </details>
                 </div>
             </div>
@@ -170,6 +200,13 @@
         let activeScanTarget = { element: null, fieldName: '' };
         let ocrModalInstance = null;
 
+        // ఇమేజ్ & బాక్స్ సెలెక్షన్ స్టేట్
+        let loadedSourceImage = null;
+        let isDraggingBox = false;
+        let dragStartPt = { x: 0, y: 0 };
+        let currentSelRect = null; // { x, y, w, h } in canvas pixels
+        let isOcrBusy = false;
+
         const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
 
         // పేజీ లోడ్ అయిన వెంటనే బ్యాంక్ ఫైల్ నేమ్స్ మరియు వాటి IFSC కోడ్స్ లోడ్ చేయడం
@@ -178,6 +215,8 @@
             if (modalEl && window.bootstrap) {
                 ocrModalInstance = new bootstrap.Modal(modalEl);
             }
+
+            setupCanvasSelectionEvents();
 
             try {
                 const res = await fetch('/cf/get-bank-files');
@@ -210,29 +249,183 @@
             fileInput.click();
         }
 
-        // కెమెరా నుండి వచ్చిన ఫోటోను OCR చేసి నంబర్లను వెలికితీసే ఫంక్షన్
+        // కాన్వాస్ మీద డ్రాగ్ చేసి బాక్స్ సెలెక్ట్ చేసుకునే ఈవెంట్స్
+        function setupCanvasSelectionEvents() {
+            const canvas = document.getElementById('ocrImageCanvas');
+            if (!canvas) return;
+
+            function getCanvasCoords(e) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / (rect.width || 1);
+                const scaleY = canvas.height / (rect.height || 1);
+                const clientX = e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY;
+                return {
+                    x: Math.max(0, Math.min(canvas.width, (clientX - rect.left) * scaleX)),
+                    y: Math.max(0, Math.min(canvas.height, (clientY - rect.top) * scaleY))
+                };
+            }
+
+            function onStart(e) {
+                if (!loadedSourceImage || isOcrBusy) return;
+                e.preventDefault();
+                isDraggingBox = true;
+                dragStartPt = getCanvasCoords(e);
+                currentSelRect = { x: dragStartPt.x, y: dragStartPt.y, w: 0, h: 0 };
+                redrawCanvasWithBox();
+            }
+
+            function onMove(e) {
+                if (!isDraggingBox || !loadedSourceImage) return;
+                e.preventDefault();
+                const pt = getCanvasCoords(e);
+                const x = Math.min(dragStartPt.x, pt.x);
+                const y = Math.min(dragStartPt.y, pt.y);
+                const w = Math.abs(pt.x - dragStartPt.x);
+                const h = Math.abs(pt.y - dragStartPt.y);
+                currentSelRect = { x, y, w, h };
+                redrawCanvasWithBox();
+            }
+
+            async function onEnd(e) {
+                if (!isDraggingBox) return;
+                e.preventDefault();
+                isDraggingBox = false;
+                if (currentSelRect && currentSelRect.w > 18 && currentSelRect.h > 12) {
+                    await scanSelectedBox();
+                }
+            }
+
+            canvas.addEventListener('pointerdown', onStart);
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onEnd);
+        }
+
+        // ఇమేజ్ & సెలెక్ట్ చేసిన బాక్స్‌ను కాన్వాస్‌లో గీయడం
+        function redrawCanvasWithBox() {
+            const canvas = document.getElementById('ocrImageCanvas');
+            if (!canvas || !loadedSourceImage) return;
+            const ctx = canvas.getContext('2d');
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(loadedSourceImage, 0, 0, canvas.width, canvas.height);
+
+            if (currentSelRect && currentSelRect.w > 2 && currentSelRect.h > 2) {
+                // బయట భాగానికి కొద్దిగా డార్క్ షేడ్
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // సెలెక్ట్ చేసిన బాక్స్ లోపలి ఇమేజ్‌ను స్పష్టంగా చూపించడం
+                ctx.clearRect(currentSelRect.x, currentSelRect.y, currentSelRect.w, currentSelRect.h);
+                ctx.drawImage(
+                    loadedSourceImage,
+                    currentSelRect.x, currentSelRect.y, currentSelRect.w, currentSelRect.h,
+                    currentSelRect.x, currentSelRect.y, currentSelRect.w, currentSelRect.h
+                );
+
+                // బాక్స్ బోర్డర్
+                ctx.strokeStyle = '#22c55e';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(currentSelRect.x, currentSelRect.y, currentSelRect.w, currentSelRect.h);
+                ctx.restore();
+            }
+        }
+
+        // కెమెరా ఫోటోను లోడ్ చేసి కాన్వాస్‌లో చూపించడం
         async function handleCapturedImage(event) {
             const file = event.target.files && event.target.files[0];
             if (!file || !activeScanTarget.element) return;
 
             const fieldName = activeScanTarget.fieldName;
-            document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} - స్కాన్ ఫలితం`;
-            document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3';
-            document.getElementById('ocrStatusBox').textContent = 'కెమెరా ఫోటో నుండి నంబర్లను చదువుతోంది...';
+            document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} - ఇమేజ్‌లో సెలెక్ట్ చేయండి`;
+            document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-2';
+            document.getElementById('ocrStatusBox').textContent = 'ఫోటో మీద మీకు కావలసిన నంబర్ చుట్టూ బాక్స్ లాగండి (లేదా పూర్తి ఫోటో స్కాన్ చేయండి).';
             document.getElementById('ocrCandidatesList').innerHTML = '';
             document.getElementById('ocrManualPickInput').value = '';
             document.getElementById('ocrRawText').textContent = '';
+            currentSelRect = null;
 
-            if (ocrModalInstance) {
-                ocrModalInstance.show();
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const img = new Image();
+                img.onload = function() {
+                    loadedSourceImage = img;
+                    const canvas = document.getElementById('ocrImageCanvas');
+                    const maxWidth = 740;
+                    const scale = img.width > maxWidth ? (maxWidth / img.width) : 1;
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    redrawCanvasWithBox();
+
+                    if (ocrModalInstance) {
+                        ocrModalInstance.show();
+                    }
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // సెలెక్ట్ చేసిన బాక్స్ భాగాన్ని మాత్రమే క్రాప్ చేసి OCR చేయడం
+        async function scanSelectedBox() {
+            if (!loadedSourceImage || isOcrBusy) return;
+            const canvas = document.getElementById('ocrImageCanvas');
+
+            let sourceForOcr = canvas;
+            if (currentSelRect && currentSelRect.w > 12 && currentSelRect.h > 10) {
+                const cropCanvas = document.createElement('canvas');
+                // OCR ఖచ్చితత్వం కోసం క్రాప్ చేసిన భాగాన్ని 2x జూమ్ చేసి పంపడం
+                const zoom = 2;
+                cropCanvas.width = Math.round(currentSelRect.w * zoom);
+                cropCanvas.height = Math.round(currentSelRect.h * zoom);
+                const cctx = cropCanvas.getContext('2d');
+                cctx.imageSmoothingEnabled = true;
+                cctx.drawImage(
+                    canvas,
+                    currentSelRect.x, currentSelRect.y, currentSelRect.w, currentSelRect.h,
+                    0, 0, cropCanvas.width, cropCanvas.height
+                );
+                sourceForOcr = cropCanvas;
             }
+
+            await runOcrOnCanvas(sourceForOcr, 'సెలెక్ట్ చేసిన భాగం నుండి');
+        }
+
+        // పూర్తి ఫోటో స్కాన్ చేయడం
+        async function resetSelectionAndScanFull() {
+            currentSelRect = null;
+            redrawCanvasWithBox();
+            const canvas = document.getElementById('ocrImageCanvas');
+            if (canvas && loadedSourceImage) {
+                await runOcrOnCanvas(canvas, 'పూర్తి ఫోటో నుండి');
+            }
+        }
+
+        // బాక్స్ క్లియర్ చేయడం
+        function clearSelectionBox() {
+            currentSelRect = null;
+            redrawCanvasWithBox();
+            document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-2';
+            document.getElementById('ocrStatusBox').textContent = 'ఫోటో మీద కొత్త బాక్స్ లాగి నంబర్‌ను సెలెక్ట్ చేయండి.';
+        }
+
+        // OCR రన్ చేసి ఫలితాలను చూపించే ఫంక్షన్
+        async function runOcrOnCanvas(targetCanvas, sourceLabel) {
+            if (isOcrBusy) return;
+            isOcrBusy = true;
+
+            const fieldName = activeScanTarget.fieldName;
+            document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-2';
+            document.getElementById('ocrStatusBox').textContent = `${sourceLabel} నంబర్లను చదువుతోంది... దయచేసి వేచి ఉండండి.`;
+            document.getElementById('ocrCandidatesList').innerHTML = '';
 
             try {
                 const worker = await Tesseract.createWorker('eng');
                 await worker.setParameters({
                     tessedit_char_whitelist: '0123456789 '
                 });
-                const ret = await worker.recognize(file);
+                const ret = await worker.recognize(targetCanvas);
                 const rawText = (ret && ret.data && ret.data.text) ? ret.data.text.trim() : '';
                 await worker.terminate();
 
@@ -242,8 +435,8 @@
                 const listContainer = document.getElementById('ocrCandidatesList');
 
                 if (candidates.length > 0) {
-                    document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
-                    document.getElementById('ocrStatusBox').textContent = `${candidates.length} నంబర్(లు) గుర్తించబడ్డాయి. సరైన నంబర్‌పై ట్యాప్ చేయండి:`;
+                    document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-2';
+                    document.getElementById('ocrStatusBox').textContent = `${sourceLabel} ${candidates.length} నంబర్(లు) గుర్తించబడ్డాయి. సరైన దానిపై ట్యాప్ చేయండి:`;
 
                     document.getElementById('ocrManualPickInput').value = candidates[0];
 
@@ -256,16 +449,17 @@
                         listContainer.appendChild(btn);
                     });
                 } else {
-                    // ఏ సంఖ్యలూ ప్యాటర్న్‌కు సరిపోకపోతే మొత్తం అంకెలను తీసి ఇస్తుంది
                     const fallbackDigits = rawText.replace(/[^0-9]/g, '');
-                    document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-3';
-                    document.getElementById('ocrStatusBox').textContent = 'ఖచ్చితమైన నంబర్ ప్రత్యేకంగా వేరు కాలేదు. కింద ఉన్న బాక్స్‌లో సరిచూసి వాడండి:';
+                    document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-2';
+                    document.getElementById('ocrStatusBox').textContent = `${sourceLabel} నంబర్ స్పష్టంగా రాలేదు. మళ్లీ బాక్స్ లాగి స్కాన్ చేయండి లేదా కింద సరిచూసి వాడండి:`;
                     document.getElementById('ocrManualPickInput').value = fallbackDigits;
                 }
             } catch (err) {
                 console.error('OCR Error:', err);
-                document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
-                document.getElementById('ocrStatusBox').textContent = 'ఫోటో చదవడంలో సమస్య వచ్చింది. మళ్లీ స్పష్టమైన ఫోటో తీయండి.';
+                document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-2';
+                document.getElementById('ocrStatusBox').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించండి.';
+            } finally {
+                isOcrBusy = false;
             }
         }
 
@@ -273,20 +467,17 @@
         function extractCandidateNumbers(rawText, fieldName) {
             const found = new Set();
 
-            // 1. స్పేస్‌లు/హైఫన్‌లతో విడిగా ఉన్న 12 అంకెల ఆధార్ ప్యాటర్న్‌లు (ఉదా: 1234 5678 9012)
             const spacedAadhaarMatches = rawText.match(/\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b/g) || [];
             spacedAadhaarMatches.forEach(m => {
                 const clean = m.replace(/\D/g, '');
                 if (clean.length === 12) found.add(clean);
             });
 
-            // 2. వరుస అంకెల సమూహాలు (4 నుండి 18 అంకెలు)
             const digitGroups = rawText.match(/\d{4,18}/g) || [];
             digitGroups.forEach(g => found.add(g));
 
-            // 3. మొత్తం టెక్స్ట్‌లోని అంకెలన్నీ కలిపి కూడా చెక్ చేయడం
             const allDigitsOnly = rawText.replace(/\D/g, '');
-            if (allDigitsOnly.length >= 9 && allDigitsOnly.length <= 18) {
+            if (allDigitsOnly.length >= 4 && allDigitsOnly.length <= 18) {
                 found.add(allDigitsOnly);
             }
 
