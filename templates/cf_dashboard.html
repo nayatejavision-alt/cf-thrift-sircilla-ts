@@ -23,6 +23,20 @@
             align-items: center;
             gap: 8px;
         }
+        .dmy-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dmy-input {
+            text-align: center;
+        }
+        .dmy-day, .dmy-month {
+            max-width: 68px;
+        }
+        .dmy-year {
+            max-width: 95px;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -182,6 +196,112 @@
             }
         }
 
+        // ఏ తేదీ ఫార్మట్ నుంచైనా (YYYY-MM-DD లేదా DD/MM/YYYY) {dd, mm, yyyy} వేరు చేసే హెల్పర్
+        function parseDateParts(val) {
+            if (!val) return { dd: '', mm: '', yyyy: '' };
+            const s = String(val).trim().split(' ')[0];
+
+            // YYYY-MM-DD
+            let m1 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+            if (m1) {
+                return {
+                    yyyy: m1[1],
+                    mm: m1[2].padStart(2, '0'),
+                    dd: m1[3].padStart(2, '0')
+                };
+            }
+
+            // DD-MM-YYYY లేదా DD/MM/YYYY
+            let m2 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+            if (m2) {
+                return {
+                    dd: m2[1].padStart(2, '0'),
+                    mm: m2[2].padStart(2, '0'),
+                    yyyy: m2[3]
+                };
+            }
+
+            return { dd: '', mm: '', yyyy: '' };
+        }
+
+        // DD / MM / YYYY ఫార్మట్‌లో సులభంగా ఎంటర్ చేయడానికి ఇన్‌పుట్ HTML తయారు చేయడం
+        function createDateDmyHtml(colName, val) {
+            const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
+            const parts = parseDateParts(val);
+            const onChangeHook = (colName === 'Date OF Birth') ? `oninput="handleDmyInput('${safeKey}', true)"` : `oninput="handleDmyInput('${safeKey}', false)"`;
+
+            return `
+                <div class="dmy-group" data-dmy-col="${colName}" id="dmy_group_${safeKey}">
+                    <input type="text" class="form-control dmy-input dmy-day" id="dmy_dd_${safeKey}" value="${parts.dd}" placeholder="DD" maxlength="2" ${onChangeHook}>
+                    <span class="fw-bold text-muted">/</span>
+                    <input type="text" class="form-control dmy-input dmy-month" id="dmy_mm_${safeKey}" value="${parts.mm}" placeholder="MM" maxlength="2" ${onChangeHook}>
+                    <span class="fw-bold text-muted">/</span>
+                    <input type="text" class="form-control dmy-input dmy-year" id="dmy_yyyy_${safeKey}" value="${parts.yyyy}" placeholder="YYYY" maxlength="4" ${onChangeHook}>
+                </div>
+                <div class="form-text text-muted" style="font-size: 0.72rem;">డే / మంత్ / ఇయర్ (ఉదా: 15 / 08 / 1990)</div>
+            `;
+        }
+
+        // DD, MM, YYYY ఇన్‌పుట్‌లలో నంబర్లు మాత్రమే ఉండేలా చూసి, అవసరమైతే Age లెక్కించడం
+        function handleDmyInput(safeKey, isMainDob) {
+            const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
+            const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
+            const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
+
+            if (ddEl) ddEl.value = ddEl.value.replace(/[^0-9]/g, '');
+            if (mmEl) mmEl.value = mmEl.value.replace(/[^0-9]/g, '');
+            if (yyyyEl) yyyyEl.value = yyyyEl.value.replace(/[^0-9]/g, '');
+
+            if (isMainDob && yyyyEl && yyyyEl.value.length === 4) {
+                const dobYear = parseInt(yyyyEl.value, 10);
+                const currentYear = new Date().getFullYear();
+                const ageInput = document.getElementById('age_input');
+                if (ageInput && !isNaN(dobYear) && dobYear >= 1900 && dobYear <= currentYear) {
+                    ageInput.value = currentYear - dobYear;
+                }
+            }
+        }
+
+        // DD / MM / YYYY విలువలను YYYY-MM-DD (లేదా ఖాళీ అయితే "") గా మార్చడం
+        function readDmyAsIso(colName) {
+            const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
+            const ddRaw = (document.getElementById(`dmy_dd_${safeKey}`)?.value || '').trim();
+            const mmRaw = (document.getElementById(`dmy_mm_${safeKey}`)?.value || '').trim();
+            const yyyyRaw = (document.getElementById(`dmy_yyyy_${safeKey}`)?.value || '').trim();
+
+            if (!ddRaw && !mmRaw && !yyyyRaw) {
+                return { valid: true, isoValue: '', isEmpty: true };
+            }
+
+            const day = parseInt(ddRaw, 10);
+            const month = parseInt(mmRaw, 10);
+            const year = parseInt(yyyyRaw, 10);
+
+            if (
+                isNaN(day) || day < 1 || day > 31 ||
+                isNaN(month) || month < 1 || month > 12 ||
+                isNaN(year) || yyyyRaw.length !== 4 || year < 1900 || year > 2100
+            ) {
+                return { valid: false, isoValue: '', isEmpty: false };
+            }
+
+            // క్యాలెండర్ ప్రకారం ఆ తేదీ నిజంగా ఉందో లేదో తనిఖీ (ఉదా: Feb 30 రాకుండా)
+            const checkDate = new Date(year, month - 1, day);
+            if (
+                checkDate.getFullYear() !== year ||
+                checkDate.getMonth() !== (month - 1) ||
+                checkDate.getDate() !== day
+            ) {
+                return { valid: false, isoValue: '', isEmpty: false };
+            }
+
+            const ddStr = String(day).padStart(2, '0');
+            const mmStr = String(month).padStart(2, '0');
+            const yyyyStr = String(year).padStart(4, '0');
+
+            return { valid: true, isoValue: `${yyyyStr}-${mmStr}-${ddStr}`, isEmpty: false };
+        }
+
         // ప్రతి కాలమ్‌కు తగిన ఇన్‌పుట్ HTML తయారు చేసే హెల్పర్
         function createFieldHtml(col, data, aadhar, dropdowns, autoIfsc) {
             let val = (data && data[col] !== undefined && data[col] !== null) ? data[col] : '';
@@ -245,7 +365,7 @@
                 inputHtml = `<input type="text" class="form-control bg-light" id="monthly_wages_input" name="${col}" value="${val}" readonly>`;
             }
             else if (col === 'Date OF Birth' || col === 'Nominee DOB') {
-                inputHtml = `<input type="date" class="form-control" name="${col}" value="${val}" ${col === 'Date OF Birth' ? 'onchange="calculateAge(this.value)"' : ''}>`;
+                inputHtml = createDateDmyHtml(col, val);
             }
             else if (col === 'Age') {
                 inputHtml = `<input type="text" class="form-control bg-light" id="age_input" name="${col}" value="${val}" readonly>`;
@@ -304,7 +424,7 @@
                     title: '🏭 వర్కింగ్ ఏరియా సెక్షన్ (Working Area Section)',
                     headerClass: 'text-success',
                     fields: [
-                        'Caste', 'Profession', 'Contact Number','Village', 'Area', 'H.NO. Unit H.No', 'Unit Owner',
+                        'Caste', 'Profession', 'Contact Number', 'Village', 'Area', 'H.NO. Unit H.No', 'Unit Owner',
                         'GEO TAG NUMBER', '8% Of Monthly Wages', 'MONTHLY WAGES', 'NAME OF CF'
                     ]
                 },
@@ -368,16 +488,6 @@
             document.getElementById('form_container').style.display = 'block';
         }
 
-        // వయస్సు లెక్కింపు ఫంక్షన్ (Age = Current Year - DOB Year)
-        function calculateAge(dobValue) {
-            if (!dobValue) return;
-            const dobYear = new Date(dobValue).getFullYear();
-            const currentYear = new Date().getFullYear();
-            const age = currentYear - dobYear;
-            const ageInput = document.getElementById('age_input');
-            if (ageInput) ageInput.value = age >= 0 ? age : 0;
-        }
-
         // 8% వేతనాల ఆధారంగా MONTHLY WAGES లెక్కించడం
         function updateMonthlyWages(val) {
             const wages = Number(val);
@@ -410,6 +520,18 @@
                     formData[input.name] = input.value;
                 }
             });
+
+            // --- DD / MM / YYYY తేదీ కాలమ్స్ వాలిడేషన్ & కన్వర్షన్ ---
+            const dmyGroups = form.querySelectorAll('[data-dmy-col]');
+            for (const grp of dmyGroups) {
+                const colName = grp.getAttribute('data-dmy-col');
+                const parsed = readDmyAsIso(colName);
+                if (!parsed.valid) {
+                    alert(`${colName} కోసం సరైన డే / మంత్ / ఇయర్ (DD / MM / YYYY) తేదీని ఎంటర్ చేయండి!`);
+                    return;
+                }
+                formData[colName] = parsed.isoValue;
+            }
 
             const payload = {
                 action_type: document.getElementById('action_type').value,
