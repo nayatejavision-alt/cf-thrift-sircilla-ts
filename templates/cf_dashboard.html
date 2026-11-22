@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CF డాష్‌బోర్డ్ - రిపోర్ట్స్ డౌన్‌లోడ్</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Client-side OCR కోసం Tesseract.js -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         .section-card {
             border: 1px solid #e2e8f0;
@@ -36,6 +38,15 @@
         }
         .dmy-year {
             max-width: 95px;
+        }
+        .scan-btn {
+            white-space: nowrap;
+            font-weight: 600;
+        }
+        .candidate-chip {
+            cursor: pointer;
+            font-size: 0.95rem;
+            padding: 8px 12px;
         }
     </style>
 </head>
@@ -92,6 +103,7 @@
             <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ కోడ్ మార్పు -->
             <div class="input-group mb-3">
                 <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onkeypress="if(event.key === 'Enter') searchAadhar();">
+                <button class="btn btn-outline-secondary px-3 fw-bold" type="button" onclick="triggerCameraScan('search_aadhar', 'Aadhar Number')">📷 స్కాన్</button>
                 <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
             </div>
         </div>
@@ -114,11 +126,59 @@
         </div>
     </div>
 
+    <!-- దాచిన కెమెరా ఇన్‌పుట్ -->
+    <input type="file" id="ocr_camera_input" accept="image/*" capture="environment" style="display: none;" onchange="handleCapturedImage(event)">
+
+    <!-- OCR నంబర్ సెలెక్షన్ Modal -->
+    <div class="modal fade" id="ocrSelectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="ocrModalTitle">📷 నంబర్ ఎంచుకోండి</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="ocrStatusBox" class="alert alert-info py-2 small mb-3">
+                        ఇమేజ్ నుండి నంబర్లను చదువుతోంది... దయచేసి వేచి ఉండండి.
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-secondary">గుర్తించిన నంబర్లు (ఒకదానిపై ట్యాప్ చేయండి):</label>
+                        <div id="ocrCandidatesList" class="d-flex flex-wrap gap-2"></div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold small text-secondary">లేదా నేరుగా ఇక్కడ సరిచూసి / సెలెక్ట్ చేసి వాడండి:</label>
+                        <div class="input-group">
+                            <input type="text" id="ocrManualPickInput" class="form-control" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                            <button type="button" class="btn btn-success fw-bold" onclick="applyManualOcrValue()">ఫీల్డ్‌లో వేయి</button>
+                        </div>
+                    </div>
+
+                    <details class="mt-3">
+                        <summary class="small text-muted" style="cursor: pointer;">చదివిన పూర్తి టెక్స్ట్ చూడండి</summary>
+                        <pre id="ocrRawText" class="bg-light p-2 rounded border mt-2 small" style="max-height: 140px; overflow-y: auto; white-space: pre-wrap;"></pre>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let fileIfscMap = {};
+        let activeScanTarget = { element: null, fieldName: '' };
+        let ocrModalInstance = null;
+
+        const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
 
         // పేజీ లోడ్ అయిన వెంటనే బ్యాంక్ ఫైల్ నేమ్స్ మరియు వాటి IFSC కోడ్స్ లోడ్ చేయడం
         window.addEventListener('DOMContentLoaded', async () => {
+            const modalEl = document.getElementById('ocrSelectModal');
+            if (modalEl && window.bootstrap) {
+                ocrModalInstance = new bootstrap.Modal(modalEl);
+            }
+
             try {
                 const res = await fetch('/cf/get-bank-files');
                 const data = await res.json();
@@ -136,6 +196,134 @@
                 console.error("Error loading bank files", e);
             }
         });
+
+        // కెమెరా ఓపెన్ చేసే ఫంక్షన్
+        function triggerCameraScan(targetOrId, fieldName) {
+            const el = typeof targetOrId === 'string' ? document.getElementById(targetOrId) : targetOrId;
+            if (!el) {
+                alert('టార్గెట్ ఫీల్డ్ కనుగొనబడలేదు.');
+                return;
+            }
+            activeScanTarget = { element: el, fieldName: fieldName };
+            const fileInput = document.getElementById('ocr_camera_input');
+            fileInput.value = '';
+            fileInput.click();
+        }
+
+        // కెమెరా నుండి వచ్చిన ఫోటోను OCR చేసి నంబర్లను వెలికితీసే ఫంక్షన్
+        async function handleCapturedImage(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file || !activeScanTarget.element) return;
+
+            const fieldName = activeScanTarget.fieldName;
+            document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} - స్కాన్ ఫలితం`;
+            document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3';
+            document.getElementById('ocrStatusBox').textContent = 'కెమెరా ఫోటో నుండి నంబర్లను చదువుతోంది...';
+            document.getElementById('ocrCandidatesList').innerHTML = '';
+            document.getElementById('ocrManualPickInput').value = '';
+            document.getElementById('ocrRawText').textContent = '';
+
+            if (ocrModalInstance) {
+                ocrModalInstance.show();
+            }
+
+            try {
+                const worker = await Tesseract.createWorker('eng');
+                await worker.setParameters({
+                    tessedit_char_whitelist: '0123456789 '
+                });
+                const ret = await worker.recognize(file);
+                const rawText = (ret && ret.data && ret.data.text) ? ret.data.text.trim() : '';
+                await worker.terminate();
+
+                document.getElementById('ocrRawText').textContent = rawText || '(టెక్స్ట్ ఏమీ కనిపించలేదు)';
+
+                const candidates = extractCandidateNumbers(rawText, fieldName);
+                const listContainer = document.getElementById('ocrCandidatesList');
+
+                if (candidates.length > 0) {
+                    document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
+                    document.getElementById('ocrStatusBox').textContent = `${candidates.length} నంబర్(లు) గుర్తించబడ్డాయి. సరైన నంబర్‌పై ట్యాప్ చేయండి:`;
+
+                    document.getElementById('ocrManualPickInput').value = candidates[0];
+
+                    candidates.forEach(num => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'btn btn-outline-primary candidate-chip fw-bold';
+                        btn.textContent = num;
+                        btn.onclick = () => selectScannedNumber(num);
+                        listContainer.appendChild(btn);
+                    });
+                } else {
+                    // ఏ సంఖ్యలూ ప్యాటర్న్‌కు సరిపోకపోతే మొత్తం అంకెలను తీసి ఇస్తుంది
+                    const fallbackDigits = rawText.replace(/[^0-9]/g, '');
+                    document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-3';
+                    document.getElementById('ocrStatusBox').textContent = 'ఖచ్చితమైన నంబర్ ప్రత్యేకంగా వేరు కాలేదు. కింద ఉన్న బాక్స్‌లో సరిచూసి వాడండి:';
+                    document.getElementById('ocrManualPickInput').value = fallbackDigits;
+                }
+            } catch (err) {
+                console.error('OCR Error:', err);
+                document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
+                document.getElementById('ocrStatusBox').textContent = 'ఫోటో చదవడంలో సమస్య వచ్చింది. మళ్లీ స్పష్టమైన ఫోటో తీయండి.';
+            }
+        }
+
+        // ఫీల్డ్ రకానికి తగ్గట్టు నంబర్లను ఫిల్టర్ చేసే హెల్పర్
+        function extractCandidateNumbers(rawText, fieldName) {
+            const found = new Set();
+
+            // 1. స్పేస్‌లు/హైఫన్‌లతో విడిగా ఉన్న 12 అంకెల ఆధార్ ప్యాటర్న్‌లు (ఉదా: 1234 5678 9012)
+            const spacedAadhaarMatches = rawText.match(/\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b/g) || [];
+            spacedAadhaarMatches.forEach(m => {
+                const clean = m.replace(/\D/g, '');
+                if (clean.length === 12) found.add(clean);
+            });
+
+            // 2. వరుస అంకెల సమూహాలు (4 నుండి 18 అంకెలు)
+            const digitGroups = rawText.match(/\d{4,18}/g) || [];
+            digitGroups.forEach(g => found.add(g));
+
+            // 3. మొత్తం టెక్స్ట్‌లోని అంకెలన్నీ కలిపి కూడా చెక్ చేయడం
+            const allDigitsOnly = rawText.replace(/\D/g, '');
+            if (allDigitsOnly.length >= 9 && allDigitsOnly.length <= 18) {
+                found.add(allDigitsOnly);
+            }
+
+            let arr = Array.from(found);
+
+            if (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar') {
+                const exact12 = arr.filter(n => n.length === 12);
+                if (exact12.length > 0) return exact12;
+            } else if (fieldName === 'Contact Number') {
+                const exact10 = arr.filter(n => n.length === 10);
+                if (exact10.length > 0) return exact10;
+            } else if (fieldName === 'Bank Account Number') {
+                const accounts = arr.filter(n => n.length >= 9 && n.length <= 18);
+                if (accounts.length > 0) return accounts;
+            }
+
+            return arr;
+        }
+
+        // ఎంచుకున్న నంబర్‌ను టార్గెట్ ఇన్‌పుట్ ఫీల్డ్‌లోకి వేయడం
+        function selectScannedNumber(numStr) {
+            const cleanNum = String(numStr || '').replace(/[^0-9]/g, '');
+            if (!activeScanTarget.element || !cleanNum) return;
+
+            activeScanTarget.element.value = cleanNum;
+            activeScanTarget.element.dispatchEvent(new Event('input', { bubbles: true }));
+            activeScanTarget.element.dispatchEvent(new Event('change', { bubbles: true }));
+
+            if (ocrModalInstance) {
+                ocrModalInstance.hide();
+            }
+        }
+
+        function applyManualOcrValue() {
+            const val = document.getElementById('ocrManualPickInput').value;
+            selectScannedNumber(val);
+        }
 
         // File Name మారినప్పుడు ఫారమ్‌లోని IFSC code మరియు FILE NAME ను ఆటోమేటిక్‌గా అప్‌డేట్ చేయడం
         function onFileNameChanged() {
@@ -201,7 +389,6 @@
             if (!val) return { dd: '', mm: '', yyyy: '' };
             const s = String(val).trim().split(' ')[0];
 
-            // YYYY-MM-DD
             let m1 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
             if (m1) {
                 return {
@@ -211,7 +398,6 @@
                 };
             }
 
-            // DD-MM-YYYY లేదా DD/MM/YYYY
             let m2 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
             if (m2) {
                 return {
@@ -242,7 +428,6 @@
             `;
         }
 
-        // DD, MM, YYYY ఇన్‌పుట్‌లలో నంబర్లు మాత్రమే ఉండేలా చూసి, అవసరమైతే Age లెక్కించడం
         function handleDmyInput(safeKey, isMainDob) {
             const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
             const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
@@ -262,7 +447,6 @@
             }
         }
 
-        // DD / MM / YYYY విలువలను YYYY-MM-DD (లేదా ఖాళీ అయితే "") గా మార్చడం
         function readDmyAsIso(colName) {
             const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
             const ddRaw = (document.getElementById(`dmy_dd_${safeKey}`)?.value || '').trim();
@@ -285,7 +469,6 @@
                 return { valid: false, isoValue: '', isEmpty: false };
             }
 
-            // క్యాలెండర్ ప్రకారం ఆ తేదీ నిజంగా ఉందో లేదో తనిఖీ (ఉదా: Feb 30 రాకుండా)
             const checkDate = new Date(year, month - 1, day);
             if (
                 checkDate.getFullYear() !== year ||
@@ -388,7 +571,16 @@
                 }
                 inputHtml += `</datalist>`;
             }
-            else if (['Aadhar Number', 'BANK SENT', 'BANK_SNO', 'EMAIL ID', 'NAME OF CF', 'Bank Name', 'IFSC code', 'FILE NAME'].includes(col)) {
+            else if (SCANNABLE_FIELDS.includes(col)) {
+                const maxLen = (col === 'Aadhar Number' || col === 'Nominee Aadhar') ? 12 : (col === 'Contact Number' ? 10 : 18);
+                inputHtml = `
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="${col}" value="${val}" maxlength="${maxLen}" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                        <button type="button" class="btn btn-outline-primary scan-btn" onclick="triggerCameraScan(this.previousElementSibling, '${col}')">📷 స్కాన్</button>
+                    </div>
+                `;
+            }
+            else if (['BANK SENT', 'BANK_SNO', 'EMAIL ID', 'NAME OF CF', 'Bank Name', 'IFSC code', 'FILE NAME'].includes(col)) {
                 inputHtml = `<input type="text" class="form-control bg-light" name="${col}" value="${val}" readonly>`;
             }
             else {
@@ -415,7 +607,7 @@
                     headerClass: 'text-primary',
                     fields: [
                         'Name Of Benificiary', 'Father Name', 'Date OF Birth', 'Age',
-                        'Aadhar Number', 
+                        'Aadhar Number',
                         'DISTRICT NAME', 'MANDAL NAME', 'VILLAGE NAME', 'H.NO. Residentional H.No'
                     ]
                 },
@@ -470,7 +662,6 @@
                 grid.insertAdjacentHTML('beforeend', secHtml);
             });
 
-            // మిగిలిన ఏవైనా అదనపు కాలమ్స్ ఉంటే చివరలో అదనపు సెక్షన్ కింద చూపించడం
             const extraFields = columns.filter(col => !assignedFields.has(col));
             if (extraFields.length > 0) {
                 let extraHtml = `
