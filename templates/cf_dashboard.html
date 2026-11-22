@@ -169,7 +169,7 @@
         let activeScanTarget = { element: null, fieldName: '' };
         let ocrModalInstance = null;
 
-        // ఆధార్ స్కాన్ చేసినప్పుడు నింపడానికి పెండింగ్‌లో ఉంచే వివరాలు (ఫారమ్ తెరిచిన వెంటనే లేదా అప్పటికప్పుడు నిండుతాయి)
+        // ఆధార్ స్కాన్ చేసినప్పుడు నింపడానికి పెండింగ్‌లో ఉంచే వివరాలు
         let pendingScannedAadhaarDetails = null;
 
         const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
@@ -257,6 +257,41 @@
             return canvas;
         }
 
+        // లైన్‌ల నుండి లబ్ధిదారుని పేరును ఖచ్చితంగా వెలికితీసే హెల్పర్
+        function extractNameCandidate(lines) {
+            const ignoreLineRegex = /(government\s*of\s*india|unique\s*identification|authority\s*of\s*india|aadhaar|aadhar|year\s*of\s*birth|yob|dob|date\s*of\s*birth|male|female|transgender|भारत\s*सरकार|భారత\s*ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|camscanner|generated\s*by)/i;
+
+            // దశ 1: 2 లేదా అంతకంటే ఎక్కువ ఇంగ్లీష్ పదాలతో ఉన్న స్పష్టమైన పేరు లైన్
+            for (const ln of lines) {
+                if (ignoreLineRegex.test(ln)) continue;
+                const cleaned = ln.replace(/[^A-Za-z\s.]/g, ' ').replace(/\s+/g, ' ').trim();
+                const words = cleaned.split(' ').filter(w => w.length >= 2);
+                if (words.length >= 2 && words.length <= 6 && /^[A-Za-z\s.]+$/.test(cleaned)) {
+                    return cleaned.toUpperCase();
+                }
+            }
+
+            // దశ 2: ఒకే ఇంగ్లీష్ పదం (కనీసం 4 అక్షరాలు) లేదా అక్షరాల సమూహం ఉన్న లైన్
+            for (const ln of lines) {
+                if (ignoreLineRegex.test(ln)) continue;
+                const cleaned = ln.replace(/[^A-Za-z\s.]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (cleaned.length >= 4 && cleaned.length <= 45 && /^[A-Za-z\s.]+$/.test(cleaned)) {
+                    return cleaned.toUpperCase();
+                }
+            }
+
+            // దశ 3: ఏదైనా అక్షరాల లైన్ (సంఖ్యలు, గుర్తులు తీసేసిన తర్వాత కనీసం 3 అక్షరాలుంటే)
+            for (const ln of lines) {
+                if (ignoreLineRegex.test(ln)) continue;
+                const noDigits = ln.replace(/[0-9:|\/\-_~*]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (noDigits.length >= 3 && noDigits.length <= 45) {
+                    return noDigits;
+                }
+            }
+
+            return '';
+        }
+
         // ఆధార్ OCR టెక్స్ట్ నుండి పేరు, పుట్టిన సంవత్సరం / తేదీ మరియు ఆధార్ నంబర్‌లను వెలికితీసే ఫంక్షన్
         function parseAadhaarDetailsFromText(rawText, fieldName) {
             const spacedAadhaar = [];
@@ -288,9 +323,8 @@
 
             // 2. పుట్టిన సంవత్సరం (Year of Birth) లేదా పూర్తి DOB వెలికితీయడం
             let yob = '';
-            let dobFull = null; // { dd, mm, yyyy }
+            let dobFull = null;
 
-            // పూర్తి తేదీ DD/MM/YYYY లేదా DD-MM-YYYY ఉంటే
             const fullDateMatch = rawText.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
             if (fullDateMatch) {
                 const dNum = parseInt(fullDateMatch[1], 10);
@@ -306,7 +340,6 @@
                 }
             }
 
-            // "Year of Birth : 1997" లేదా "YOB : 1997" లేదా "పుట్టిన సంవత్సరం : 1997"
             if (!yob) {
                 for (const line of lines) {
                     if (/year\s*of\s*birth|yob|birth|సంవత్సరం|పుట్టిన/i.test(line)) {
@@ -323,33 +356,7 @@
             }
 
             // 3. పేరు (Name Of Benificiary) వెలికితీయడం
-            let extractedName = '';
-            const ignoreLineRegex = /(government\s*of\s*india|unique\s*identification|authority\s*of\s*india|aadhaar|aadhar|year\s*of\s*birth|dob|male|female|transgender|भारत\s*सरकार|భారత\s*ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|camscanner|generated\s*by)/i;
-
-            for (let i = 0; i < lines.length; i++) {
-                const ln = lines[i];
-                if (ignoreLineRegex.test(ln)) continue;
-
-                // ఇంగ్లీష్ అక్షరాలతో కూడిన పేరు లైన్ (ఉదా: "Bheemanathini Kavitha")
-                const englishNameCandidate = ln.replace(/[^A-Za-z\s.]/g, ' ').replace(/\s+/g, ' ').trim();
-                const words = englishNameCandidate.split(' ').filter(w => w.length >= 2);
-                if (words.length >= 2 && words.length <= 5 && /^[A-Za-z\s.]+$/.test(englishNameCandidate)) {
-                    extractedName = englishNameCandidate.toUpperCase();
-                    break;
-                }
-            }
-
-            // ఇంగ్లీష్ పేరు దొరక్కపోతే ఇతర అక్షరాల లైన్‌ను (నెంబర్లు/కీవర్డ్స్ లేనివి) తీసుకోవడం
-            if (!extractedName) {
-                for (const ln of lines) {
-                    if (ignoreLineRegex.test(ln)) continue;
-                    const noDigits = ln.replace(/[0-9:|\/\-]/g, '').trim();
-                    if (noDigits.length >= 3 && noDigits.length <= 45) {
-                        extractedName = noDigits;
-                        break;
-                    }
-                }
-            }
+            const extractedName = extractNameCandidate(lines);
 
             let numbers = Array.from(generalNumbers);
             let exact = false;
@@ -441,8 +448,15 @@
 
                     parsed.numbers.forEach(n => collectedNumbers.add(n));
 
-                    // మెరుగైన వివరాలను కలపడం
-                    if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
+                    // పేరు ఎక్కువ స్పష్టంగా (2+ పదాలు) ఉంటే దాన్ని ప్రాధాన్యంగా తీసుకోవడం
+                    if (parsed.name) {
+                        const currentWordCount = bestParsed.name ? bestParsed.name.split(' ').length : 0;
+                        const newWordCount = parsed.name.split(' ').length;
+                        if (!bestParsed.name || newWordCount > currentWordCount) {
+                            bestParsed.name = parsed.name;
+                        }
+                    }
+
                     if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
                     if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
 
@@ -463,7 +477,6 @@
                 const finalNumbers = bestParsed.numbers.length > 0 ? bestParsed.numbers : Array.from(collectedNumbers);
                 const isAadhaarScan = (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar');
 
-                // పేరు & పుట్టిన సంవత్సరం వివరాలు ఉన్నాయా చూపించడం మరియు నింపడం
                 if (isAadhaarScan && (bestParsed.name || bestParsed.yob)) {
                     pendingScannedAadhaarDetails = {
                         name: bestParsed.name,
@@ -481,7 +494,6 @@
                     `;
                 }
 
-                // ఒకే ఒక్క ఖచ్చితమైన నంబర్ దొరికితే నేరుగా ఫీల్డ్‌లో వేసి Modal క్లోజ్ చేస్తుంది!
                 if (bestParsed.exact && finalNumbers.length === 1) {
                     selectScannedNumber(finalNumbers[0]);
                     return;
