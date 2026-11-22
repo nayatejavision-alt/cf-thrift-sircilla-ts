@@ -257,35 +257,21 @@
             return canvas;
         }
 
-        // లైన్‌ల నుండి లబ్ధిదారుని పేరును ఖచ్చితంగా వెలికితీసే హెల్పర్
-        function extractNameCandidate(lines) {
-            const ignoreLineRegex = /(government\s*of\s*india|unique\s*identification|authority\s*of\s*india|aadhaar|aadhar|year\s*of\s*birth|yob|dob|date\s*of\s*birth|male|female|transgender|भारत\s*सरकार|భారత\s*ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|camscanner|generated\s*by)/i;
+        // ఆధార్ లైన్‌ల నుండి కచ్చితమైన ఇంగ్లీష్ పేరును మాత్రమే ఎంచుకునే ఫంక్షన్
+        function extractStrictAadhaarName(lines) {
+            const ignoreLineRegex = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|male|female|transgender|camscanner|generated|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం)/i;
 
-            // దశ 1: 2 లేదా అంతకంటే ఎక్కువ ఇంగ్లీష్ పదాలతో ఉన్న స్పష్టమైన పేరు లైన్
             for (const ln of lines) {
                 if (ignoreLineRegex.test(ln)) continue;
-                const cleaned = ln.replace(/[^A-Za-z\s.]/g, ' ').replace(/\s+/g, ' ').trim();
+                // అంకెలు లేదా ప్రత్యేక గుర్తులు ఎక్కువగా ఉంటే దాన్ని వదిలేయడం
+                if (/\d/.test(ln)) continue;
+
+                const cleaned = ln.replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
                 const words = cleaned.split(' ').filter(w => w.length >= 2);
-                if (words.length >= 2 && words.length <= 6 && /^[A-Za-z\s.]+$/.test(cleaned)) {
-                    return cleaned.toUpperCase();
-                }
-            }
 
-            // దశ 2: ఒకే ఇంగ్లీష్ పదం (కనీసం 4 అక్షరాలు) లేదా అక్షరాల సమూహం ఉన్న లైన్
-            for (const ln of lines) {
-                if (ignoreLineRegex.test(ln)) continue;
-                const cleaned = ln.replace(/[^A-Za-z\s.]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (cleaned.length >= 4 && cleaned.length <= 45 && /^[A-Za-z\s.]+$/.test(cleaned)) {
+                // కనీసం 2 పదాలు, గరిష్టంగా 4 పదాలు, ప్రతి పదం అక్షరాలతోనే ఉండాలి
+                if (words.length >= 2 && words.length <= 4 && /^[A-Za-z\s]+$/.test(cleaned) && cleaned.length >= 5 && cleaned.length <= 40) {
                     return cleaned.toUpperCase();
-                }
-            }
-
-            // దశ 3: ఏదైనా అక్షరాల లైన్ (సంఖ్యలు, గుర్తులు తీసేసిన తర్వాత కనీసం 3 అక్షరాలుంటే)
-            for (const ln of lines) {
-                if (ignoreLineRegex.test(ln)) continue;
-                const noDigits = ln.replace(/[0-9:|\/\-_~*]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (noDigits.length >= 3 && noDigits.length <= 45) {
-                    return noDigits;
                 }
             }
 
@@ -356,7 +342,7 @@
             }
 
             // 3. పేరు (Name Of Benificiary) వెలికితీయడం
-            const extractedName = extractNameCandidate(lines);
+            const extractedName = extractStrictAadhaarName(lines);
 
             let numbers = Array.from(generalNumbers);
             let exact = false;
@@ -404,7 +390,7 @@
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
             document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3 d-flex align-items-center gap-2';
             document.getElementById('ocrSpinner').style.display = 'inline-block';
-            document.getElementById('ocrStatusText').textContent = 'ఫోటో నుండి ఆధార్ నంబర్, పేరు, పుట్టిన సంవత్సరం చదువుతోంది...';
+            document.getElementById('ocrStatusText').textContent = 'ఫోటో నుండి వివరాలను ఆటోమేటిక్‌గా చదువుతోంది...';
             document.getElementById('ocrExtractedSummary').style.display = 'none';
             document.getElementById('ocrCandidatesSection').style.display = 'none';
             document.getElementById('ocrCandidatesList').innerHTML = '';
@@ -448,15 +434,7 @@
 
                     parsed.numbers.forEach(n => collectedNumbers.add(n));
 
-                    // పేరు ఎక్కువ స్పష్టంగా (2+ పదాలు) ఉంటే దాన్ని ప్రాధాన్యంగా తీసుకోవడం
-                    if (parsed.name) {
-                        const currentWordCount = bestParsed.name ? bestParsed.name.split(' ').length : 0;
-                        const newWordCount = parsed.name.split(' ').length;
-                        if (!bestParsed.name || newWordCount > currentWordCount) {
-                            bestParsed.name = parsed.name;
-                        }
-                    }
-
+                    if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
                     if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
                     if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
 
