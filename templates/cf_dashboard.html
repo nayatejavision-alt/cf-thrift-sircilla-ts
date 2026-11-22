@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CF డాష్‌బోర్డ్ - రిపోర్ట్స్ డౌన్‌లోడ్</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Client-side OCR కోసం Tesseract.js -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/tesseract.min.js"></script>
+    <!-- Client-side OCR కోసం Tesseract.js v5 -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
     <style>
         .section-card {
             border: 1px solid #e2e8f0;
@@ -101,7 +101,7 @@
                 </select>
             </div>
 
-            <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ కోడ్ మార్పు -->
+            <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ -->
             <div class="input-group mb-3">
                 <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, ''); pendingScannedAadhaarDetails = null;" onkeypress="if(event.key === 'Enter') searchAadhar();">
                 <button class="btn btn-outline-primary px-3 fw-bold" type="button" onclick="triggerCameraScan('search_aadhar', 'Aadhar Number')">📷 స్కాన్</button>
@@ -213,12 +213,14 @@
             fileInput.click();
         }
 
-        // ఇమేజ్‌ను రొటేట్ చేసి, హై-కాంట్రాస్ట్ గ్రేస్కేల్‌గా మార్చే హెల్పర్
+        // ఇమేజ్‌ను రొటేట్ చేసి, మెమరీ సేవ్ చేస్తూ హై-కాంట్రాస్ట్ గ్రేస్కేల్‌గా మార్చే హెల్పర్
         function buildProcessedCanvas(img, angleDeg) {
-            const maxDim = 1500;
-            const scale = Math.max(img.width, img.height) > maxDim ? (maxDim / Math.max(img.width, img.height)) : 1;
-            const w = Math.round(img.width * scale);
-            const h = Math.round(img.height * scale);
+            const maxDim = 1150; // మొబైల్ మెమరీ క్రాష్ కాకుండా ఆప్టిమల్ సైజ్
+            const origW = img.naturalWidth || img.width;
+            const origH = img.naturalHeight || img.height;
+            const scale = Math.max(origW, origH) > maxDim ? (maxDim / Math.max(origW, origH)) : 1;
+            const w = Math.max(1, Math.round(origW * scale));
+            const h = Math.max(1, Math.round(origH * scale));
 
             const canvas = document.createElement('canvas');
             if (angleDeg === 90 || angleDeg === 270) {
@@ -229,7 +231,7 @@
                 canvas.height = h;
             }
 
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -246,7 +248,7 @@
 
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const d = imgData.data;
-            const contrast = 1.4;
+            const contrast = 1.35;
             const intercept = 128 * (1 - contrast);
             for (let i = 0; i < d.length; i += 4) {
                 const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
@@ -258,44 +260,34 @@
             return canvas;
         }
 
-        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే మెరుగైన ఫంక్షన్
+        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్
         function extractAnchoredAadhaarName(lines) {
-            // 1. పేరు కాని పదాలు (Header, Gender, Address, Labels)
             const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు)/i;
-
-            // 2. తండ్రి/భర్త/సంరక్షకుల పేరును సూచించే పదాలు (S/O, D/O, W/O, C/O)
             const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co|son\s+of|daughter\s+of|wife\s+of|care\s+of)\b/i;
 
-            // ఒక లైన్ అసలైన మనిషి పేరు అవునా కాదా అని తనిఖీ చేసే హెల్పర్
             function isValidPersonName(rawLine) {
                 if (!rawLine) return '';
                 if (nonNameKeywords.test(rawLine)) return '';
                 if (relationPrefixRegex.test(rawLine)) return '';
-                if (/\d/.test(rawLine)) return ''; // అంకెలు ఉన్న లైన్ పేరు కాదు
+                if (/\d/.test(rawLine)) return '';
 
-                // ఇంగ్లీష్ అక్షరాలు మరియు ఖాళీలను మాత్రమే ఉంచడం
                 const cleaned = rawLine.replace(/[^A-Za-z\s\.]/g, ' ')
                                        .replace(/\./g, ' ')
                                        .replace(/\s+/g, ' ')
                                        .trim();
 
-                // పొడవు 3 నుండి 50 అక్షరాల మధ్య ఉండాలి
                 if (cleaned.length < 3 || cleaned.length > 50) return '';
                 if (!/^[A-Za-z\s]+$/.test(cleaned)) return '';
 
                 const words = cleaned.split(' ').filter(Boolean);
-                // కనీసం 1 నుండి 6 పదాలు ఉండాలి
                 if (words.length < 1 || words.length > 6) return '';
 
-                // OCR చెత్త అక్షరాలను (ఉదా: "A B C D" లాంటి సింగిల్ లెటర్స్ మాత్రమే ఉండటం) నివారించడానికి
-                // కనీసం ఒక పదమైనా 3 లేదా అంతకంటే ఎక్కువ అక్షరాలు కలిగి ఉండాలి
                 const hasSubstantialWord = words.some(w => w.length >= 3);
                 if (!hasSubstantialWord) return '';
 
                 return cleaned.toUpperCase();
             }
 
-            // విధానం A (Primary): "Government of India" లైన్ తర్వాత 1 నుండి 5 లైన్లలో వెతకడం
             let govAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/government\s*of\s*india|of\s*india/i.test(lines[i])) {
@@ -309,14 +301,10 @@
                 const endIdx = Math.min(lines.length, govAnchorIdx + 6);
                 for (let i = startIdx; i < endIdx; i++) {
                     const validName = isValidPersonName(lines[i]);
-                    if (validName) {
-                        return validName;
-                    }
+                    if (validName) return validName;
                 }
             }
 
-            // విధానం B (Fallback 1): DOB / Year of Birth లైన్‌కు వెంటనే పైనున్న 1 నుండి 3 లైన్లలో వెతకడం
-            // (ఆధార్ కార్డులో సాధారణంగా DOB/YOB లైన్‌కు సరిగ్గా పైన ఇంగ్లీష్ పేరు ఉంటుంది)
             let dobAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/issue\s*date/i.test(lines[i])) continue;
@@ -328,17 +316,13 @@
             }
 
             if (dobAnchorIdx > 0) {
-                // DOB లైన్‌కు సరిగ్గా పైనుండి (dobAnchorIdx - 1) పైకి 3 లైన్ల వరకు చెక్ చేయాలి
                 const minIdx = Math.max(0, dobAnchorIdx - 3);
                 for (let i = dobAnchorIdx - 1; i >= minIdx; i--) {
                     const validName = isValidPersonName(lines[i]);
-                    if (validName) {
-                        return validName;
-                    }
+                    if (validName) return validName;
                 }
             }
 
-            // విధానం C (Fallback 2): ఆధార్ నంబర్ (\d{4}\s?\d{4}\s?\d{4}) లైన్‌కు పైనున్న లైన్లలో వెతకడం
             let aadhaarAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 const digitsOnly = lines[i].replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -352,21 +336,18 @@
                 const minIdx = Math.max(0, aadhaarAnchorIdx - 6);
                 for (let i = aadhaarAnchorIdx - 1; i >= minIdx; i--) {
                     const validName = isValidPersonName(lines[i]);
-                    if (validName) {
-                        return validName;
-                    }
+                    if (validName) return validName;
                 }
             }
 
             return '';
         }
 
-        // ఆధార్ OCR టెక్స్ట్ నుండి పేరు, పుట్టిన సంవత్సరం / తేదీ మరియు ఆధార్ నంబర్‌లను వెలికితీసే ఫంక్షన్
+        // ఆధార్ OCR టెక్స్ట్ నుండి వివరాలు వెలికితీసే ఫంక్షన్
         function parseAadhaarDetailsFromText(rawText, fieldName) {
             const spacedAadhaar = [];
             const generalNumbers = new Set();
 
-            // 1. 4-4-4 ఆధార్ నంబర్ ప్యాటర్న్
             const aadhaarPattern = /\b(\d{4})[\s\-]+(\d{4})[\s\-]+(\d{4})\b/g;
             let match;
             while ((match = aadhaarPattern.exec(rawText)) !== null) {
@@ -390,7 +371,6 @@
                 groups.forEach(g => generalNumbers.add(g));
             }
 
-            // 2. పుట్టిన సంవత్సరం (Year of Birth) లేదా పూర్తి DOB వెలికితీయడం (Issue Date ను DOB గా తీసుకోకుండా జాగ్రత్త)
             let yob = '';
             let dobFull = null;
 
@@ -429,7 +409,6 @@
                 }
             }
 
-            // 3. పేరు వెలికితీయడం
             const extractedName = extractAnchoredAadhaarName(lines);
 
             let numbers = Array.from(generalNumbers);
@@ -469,7 +448,7 @@
             };
         }
 
-        // కెమెరా ఫోటో తీయగానే ఆటోమేటిక్‌గా 0°, 90°, 270° కోణాల్లో స్కాన్ చేసే ఫంక్షన్
+        // కెమెరా ఫోటో తీయగానే సురక్షితంగా స్కాన్ చేసే ఫంక్షన్ (Fixed Tesseract Worker & Memory)
         async function handleCapturedImage(event) {
             const file = event.target.files && event.target.files[0];
             if (!file || !activeScanTarget.element) return;
@@ -487,7 +466,7 @@
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
             document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3 d-flex align-items-center gap-2';
             document.getElementById('ocrSpinner').style.display = 'inline-block';
-            document.getElementById('ocrStatusText').textContent = 'ఫోటో నుండి వివరాలను ఆటోమేటిక్‌గా చదువుతోంది...';
+            document.getElementById('ocrStatusText').textContent = 'ఫోటో లోడ్ అవుతోంది, దయచేసి వేచి ఉండండి...';
             document.getElementById('ocrExtractedSummary').style.display = 'none';
             document.getElementById('ocrCandidatesSection').style.display = 'none';
             document.getElementById('ocrCandidatesList').innerHTML = '';
@@ -497,41 +476,62 @@
                 ocrModalInstance.show();
             }
 
-            const img = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => {
-                    const imageObj = new Image();
-                    imageObj.onload = () => resolve(imageObj);
-                    imageObj.onerror = reject;
-                    imageObj.src = e.target.result;
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            }).catch(() => null);
+            // URL.createObjectURL ద్వారా తక్కువ మెమరీతో ఇమేజ్ లోడ్ చేయడం
+            const objectUrl = URL.createObjectURL(file);
+            const img = await new Promise((resolve) => {
+                const imageObj = new Image();
+                imageObj.onload = () => resolve(imageObj);
+                imageObj.onerror = () => resolve(null);
+                imageObj.src = objectUrl;
+            });
 
             if (!img) {
+                URL.revokeObjectURL(objectUrl);
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
-                document.getElementById('ocrStatusText').textContent = 'ఫోటో లోడ్ చేయడంలో సమస్య వచ్చింది.';
+                document.getElementById('ocrStatusText').textContent = 'ఫోటో చదవలేకపోయాము. మళ్లీ ఫోటో తీయండి.';
+                return;
+            }
+
+            if (typeof Tesseract === 'undefined') {
+                URL.revokeObjectURL(objectUrl);
+                document.getElementById('ocrSpinner').style.display = 'none';
+                document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
+                document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ లోడ్ కాలేదు. మీ ఇంటర్నెట్ కనెక్షన్ చెక్ చేసి పేజీని రీలోడ్ చేయండి.';
                 return;
             }
 
             let worker = null;
             try {
-                worker = await Tesseract.createWorker('eng');
+                document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ సిద్ధమవుతోంది...';
+
+                // స్పష్టమైన CDN పాత్‌లతో Worker క్రియేట్ చేయడం (Error రాకుండా నివారిస్తుంది)
+                worker = await Tesseract.createWorker('eng', 1, {
+                    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+                    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
+                    langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+                });
+
                 const anglesToTry = [0, 90, 270];
                 let bestParsed = { exact: false, numbers: [], name: '', yob: '', dobFull: null, score: -1 };
                 const collectedNumbers = new Set();
 
-                for (const angle of anglesToTry) {
+                for (let idx = 0; idx < anglesToTry.length; idx++) {
+                    const angle = anglesToTry[idx];
+                    document.getElementById('ocrStatusText').textContent = `ఫోటో నుండి వివరాలను చదువుతోంది (${idx + 1}/${anglesToTry.length})...`;
+
                     const processedCanvas = buildProcessedCanvas(img, angle);
                     const ret = await worker.recognize(processedCanvas);
+                    
+                    // కాన్వాస్ మెమరీ వెంటనే ఫ్రీ చేయడం
+                    processedCanvas.width = 0;
+                    processedCanvas.height = 0;
+
                     const rawText = (ret && ret.data && ret.data.text) ? ret.data.text : '';
                     const parsed = parseAadhaarDetailsFromText(rawText, fieldName);
 
                     parsed.numbers.forEach(n => collectedNumbers.add(n));
 
-                    // ఏ కోణంలో ఎక్కువ ఖచ్చితమైన వివరాలు (Aadhaar Number + DOB + Name) దొరికాయో స్కోర్ లెక్కించడం
                     let angleScore = 0;
                     if (parsed.exact && parsed.numbers.length > 0) angleScore += 10;
                     if (parsed.yob || parsed.dobFull) angleScore += 5;
@@ -552,7 +552,6 @@
                         if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
                     }
 
-                    // సరైన కోణంలో నంబర్, పేరు, DOB అన్నీ దొరికితే తదుపరి కోణాలు తిప్పకుండా ఆపడం
                     if (bestParsed.exact && bestParsed.name && bestParsed.yob) {
                         break;
                     }
@@ -560,6 +559,7 @@
 
                 await worker.terminate();
                 worker = null;
+                URL.revokeObjectURL(objectUrl);
 
                 document.getElementById('ocrSpinner').style.display = 'none';
 
@@ -597,7 +597,6 @@
                     `;
                 }
 
-                // ఒకే ఒక్క ఖచ్చితమైన నంబర్ దొరికితే ఆటోమేటిక్‌గా ఫీల్డ్‌లో వేయడం
                 if (bestParsed.exact && finalNumbers.length === 1) {
                     selectScannedNumber(finalNumbers[0]);
                     return;
@@ -623,12 +622,14 @@
                     document.getElementById('ocrStatusText').textContent = 'నంబర్ స్పష్టంగా కనబడలేదు. దగ్గరగా, వెలుతురులో మళ్లీ ఫోటో తీయండి లేదా కింద టైప్ చేయండి.';
                 }
             } catch (err) {
+                console.error('OCR Error Details:', err);
+                URL.revokeObjectURL(objectUrl);
                 if (worker) {
                     try { await worker.terminate(); } catch (_) {}
                 }
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
-                document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించండి.';
+                document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది (ఇంటర్నెట్ లేదా కెమెరా ఫైల్ చెక్ చేయండి). మళ్లీ ప్రయత్నించండి లేదా కింద నంబర్ టైప్ చేయండి.';
             }
         }
 
@@ -759,7 +760,6 @@
                 return;
             }
 
-            // కొత్త సెర్చ్ చేసినప్పుడు పాత నామినీ స్కాన్ డేటాను క్లియర్ చేయడం
             pendingScannedNomineeDetails = null;
 
             try {
@@ -785,10 +785,9 @@
                     return;
                 }
 
-                // ఇప్పుడే స్కాన్ చేసిన ఆధార్ వివరాలు ఉంటే ఫారమ్‌లో నింపడం
                 if (pendingScannedAadhaarDetails) {
                     applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
-                    pendingScannedAadhaarDetails = null; // ఒకసారి వాడాక క్లియర్ చేయడం
+                    pendingScannedAadhaarDetails = null;
                 }
 
                 document.getElementById('form_container').style.display = 'block';
@@ -798,7 +797,6 @@
             }
         }
 
-        // ఏ తేదీ ఫార్మట్ నుంచైనా (YYYY-MM-DD లేదా DD/MM/YYYY) {dd, mm, yyyy} వేరు చేసే హెల్పర్
         function parseDateParts(val) {
             if (!val) return { dd: '', mm: '', yyyy: '' };
             const s = String(val).trim().split(' ')[0];
@@ -824,7 +822,6 @@
             return { dd: '', mm: '', yyyy: '' };
         }
 
-        // DD / MM / YYYY ఫార్మట్‌లో సులభంగా ఎంటర్ చేయడానికి ఇన్‌పుట్ HTML తయారు చేయడం
         function createDateDmyHtml(colName, val) {
             const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
             const parts = parseDateParts(val);
@@ -899,7 +896,6 @@
             return { valid: true, isoValue: `${yyyyStr}-${mmStr}-${ddStr}`, isEmpty: false };
         }
 
-        // ప్రతి కాలమ్‌కు తగిన ఇన్‌పుట్ HTML తయారు చేసే హెల్పర్
         function createFieldHtml(col, data, aadhar, dropdowns, autoIfsc) {
             let val = (data && data[col] !== undefined && data[col] !== null) ? data[col] : '';
             if (col === 'Aadhar Number') val = aadhar;
@@ -1009,7 +1005,6 @@
             `;
         }
 
-        // 4 సెక్షన్లతో డైనమిక్ ఫారమ్ నిర్మించే ఫంక్షన్
         function buildFormFields(columns, data, aadhar, dropdowns, autoIfsc = '') {
             const grid = document.getElementById('form_fields_grid');
             grid.innerHTML = '';
@@ -1093,7 +1088,6 @@
             document.getElementById('form_container').style.display = 'block';
         }
 
-        // 8% వేతనాల ఆధారంగా MONTHLY WAGES లెక్కించడం
         function updateMonthlyWages(val) {
             const wages = Number(val);
             const monthlyWagesInput = document.getElementById('monthly_wages_input');
@@ -1102,11 +1096,9 @@
             }
         }
 
-        // డేటా సేవ్ చేసే ఫంక్షన్
         async function saveBeneficiaryData() {
             const form = document.getElementById('dynamic_beneficiary_form');
             
-            // --- మొబైల్ నంబర్ వాలిడేషన్ (JavaScript) ---
             const contactInput = form.querySelector('input[name="Contact Number"]');
             if (contactInput) {
                 const contactVal = contactInput.value.trim();
@@ -1126,7 +1118,6 @@
                 }
             });
 
-            // --- DD / MM / YYYY తేదీ కాలమ్స్ వాలిడేషన్ & కన్వర్షన్ ---
             const dmyGroups = form.querySelectorAll('[data-dmy-col]');
             for (const grp of dmyGroups) {
                 const colName = grp.getAttribute('data-dmy-col');
@@ -1161,7 +1152,6 @@
             }
         }
 
-        // లాగౌట్ ఫంక్షన్
         async function cfLogout() {
             await fetch('/cf/logout', {method: 'POST'});
             window.location.href = '/cf/login';
