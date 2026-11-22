@@ -6,7 +6,7 @@
     <title>CF డాష్‌బోర్డ్ - రిపోర్ట్స్ డౌన్‌లోడ్</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Client-side OCR కోసం Tesseract.js -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/tesseract.min.js"></script>
     <style>
         .section-card {
             border: 1px solid #e2e8f0;
@@ -103,7 +103,7 @@
 
             <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ కోడ్ మార్పు -->
             <div class="input-group mb-3">
-                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onkeypress="if(event.key === 'Enter') searchAadhar();">
+                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, ''); pendingScannedAadhaarDetails = null;" onkeypress="if(event.key === 'Enter') searchAadhar();">
                 <button class="btn btn-outline-primary px-3 fw-bold" type="button" onclick="triggerCameraScan('search_aadhar', 'Aadhar Number')">📷 స్కాన్</button>
                 <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
             </div>
@@ -152,7 +152,7 @@
                     </div>
 
                     <div class="mb-2">
-                        <label class="form-label fw-semibold small text-secondary">సరిచూసుకోవడానికి / మార్చుకోవడానికి:</label>
+                        <label class="form-label fw-semibold small text-secondary">నంబర్ సరిచూసుకోవడానికి / మార్చుకోవడానికి:</label>
                         <div class="input-group">
                             <input type="text" id="ocrManualPickInput" class="form-control form-control-lg fw-bold" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                             <button type="button" class="btn btn-success fw-bold px-3" onclick="applyManualOcrValue()">ఫీల్డ్‌లో వేయి</button>
@@ -258,33 +258,103 @@
             return canvas;
         }
 
-        // "Government of India" లైన్ తర్వాత వచ్చే ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్
+        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే మెరుగైన ఫంక్షన్
         function extractAnchoredAadhaarName(lines) {
-            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|male|female|transgender|camscanner|generated|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు)/i;
+            // 1. పేరు కాని పదాలు (Header, Gender, Address, Labels)
+            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు)/i;
 
-            let anchorIdx = -1;
+            // 2. తండ్రి/భర్త/సంరక్షకుల పేరును సూచించే పదాలు (S/O, D/O, W/O, C/O)
+            const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co|son\s+of|daughter\s+of|wife\s+of|care\s+of)\b/i;
+
+            // ఒక లైన్ అసలైన మనిషి పేరు అవునా కాదా అని తనిఖీ చేసే హెల్పర్
+            function isValidPersonName(rawLine) {
+                if (!rawLine) return '';
+                if (nonNameKeywords.test(rawLine)) return '';
+                if (relationPrefixRegex.test(rawLine)) return '';
+                if (/\d/.test(rawLine)) return ''; // అంకెలు ఉన్న లైన్ పేరు కాదు
+
+                // ఇంగ్లీష్ అక్షరాలు మరియు ఖాళీలను మాత్రమే ఉంచడం
+                const cleaned = rawLine.replace(/[^A-Za-z\s\.]/g, ' ')
+                                       .replace(/\./g, ' ')
+                                       .replace(/\s+/g, ' ')
+                                       .trim();
+
+                // పొడవు 3 నుండి 50 అక్షరాల మధ్య ఉండాలి
+                if (cleaned.length < 3 || cleaned.length > 50) return '';
+                if (!/^[A-Za-z\s]+$/.test(cleaned)) return '';
+
+                const words = cleaned.split(' ').filter(Boolean);
+                // కనీసం 1 నుండి 6 పదాలు ఉండాలి
+                if (words.length < 1 || words.length > 6) return '';
+
+                // OCR చెత్త అక్షరాలను (ఉదా: "A B C D" లాంటి సింగిల్ లెటర్స్ మాత్రమే ఉండటం) నివారించడానికి
+                // కనీసం ఒక పదమైనా 3 లేదా అంతకంటే ఎక్కువ అక్షరాలు కలిగి ఉండాలి
+                const hasSubstantialWord = words.some(w => w.length >= 3);
+                if (!hasSubstantialWord) return '';
+
+                return cleaned.toUpperCase();
+            }
+
+            // విధానం A (Primary): "Government of India" లైన్ తర్వాత 1 నుండి 5 లైన్లలో వెతకడం
+            let govAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/government\s*of\s*india|of\s*india/i.test(lines[i])) {
-                    anchorIdx = i;
+                    govAnchorIdx = i;
                     break;
                 }
             }
 
-            // "Government of India" తర్వాత 1 నుండి 5 లైన్లలోపు పేరు ఉంటుంది
-            const startIdx = anchorIdx >= 0 ? anchorIdx + 1 : 0;
-            const endIdx = anchorIdx >= 0 ? Math.min(lines.length, anchorIdx + 6) : lines.length;
+            if (govAnchorIdx >= 0) {
+                const startIdx = govAnchorIdx + 1;
+                const endIdx = Math.min(lines.length, govAnchorIdx + 6);
+                for (let i = startIdx; i < endIdx; i++) {
+                    const validName = isValidPersonName(lines[i]);
+                    if (validName) {
+                        return validName;
+                    }
+                }
+            }
 
-            for (let i = startIdx; i < endIdx; i++) {
-                const ln = lines[i];
-                if (nonNameKeywords.test(ln)) continue;
-                if (/\d/.test(ln)) continue;
+            // విధానం B (Fallback 1): DOB / Year of Birth లైన్‌కు వెంటనే పైనున్న 1 నుండి 3 లైన్లలో వెతకడం
+            // (ఆధార్ కార్డులో సాధారణంగా DOB/YOB లైన్‌కు సరిగ్గా పైన ఇంగ్లీష్ పేరు ఉంటుంది)
+            let dobAnchorIdx = -1;
+            for (let i = 0; i < lines.length; i++) {
+                if (/issue\s*date/i.test(lines[i])) continue;
+                if (/(year\s*of\s*birth|yob|dob|date\s*of\s*birth|సంవత్సరం|పుట్టిన)/i.test(lines[i]) ||
+                    /\b\d{1,2}[\/\-]\d{1,2}[\/\-](19\d{2}|20\d{2})\b/.test(lines[i])) {
+                    dobAnchorIdx = i;
+                    break;
+                }
+            }
 
-                const cleaned = ln.replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                const words = cleaned.split(' ').filter(w => w.length >= 2);
+            if (dobAnchorIdx > 0) {
+                // DOB లైన్‌కు సరిగ్గా పైనుండి (dobAnchorIdx - 1) పైకి 3 లైన్ల వరకు చెక్ చేయాలి
+                const minIdx = Math.max(0, dobAnchorIdx - 3);
+                for (let i = dobAnchorIdx - 1; i >= minIdx; i--) {
+                    const validName = isValidPersonName(lines[i]);
+                    if (validName) {
+                        return validName;
+                    }
+                }
+            }
 
-                // కనీసం 2 పదాలు (ఉదా: "Gajula Himansh" లేదా "Bheemanathini Kavitha") ఉండాలి
-                if (words.length >= 2 && words.length <= 4 && /^[A-Za-z\s]+$/.test(cleaned) && cleaned.length >= 6 && cleaned.length <= 40) {
-                    return cleaned.toUpperCase();
+            // విధానం C (Fallback 2): ఆధార్ నంబర్ (\d{4}\s?\d{4}\s?\d{4}) లైన్‌కు పైనున్న లైన్లలో వెతకడం
+            let aadhaarAnchorIdx = -1;
+            for (let i = 0; i < lines.length; i++) {
+                const digitsOnly = lines[i].replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (/\b\d{4}\s?\d{4}\s?\d{4}\b/.test(digitsOnly)) {
+                    aadhaarAnchorIdx = i;
+                    break;
+                }
+            }
+
+            if (aadhaarAnchorIdx > 0) {
+                const minIdx = Math.max(0, aadhaarAnchorIdx - 6);
+                for (let i = aadhaarAnchorIdx - 1; i >= minIdx; i--) {
+                    const validName = isValidPersonName(lines[i]);
+                    if (validName) {
+                        return validName;
+                    }
                 }
             }
 
@@ -450,7 +520,7 @@
             try {
                 worker = await Tesseract.createWorker('eng');
                 const anglesToTry = [0, 90, 270];
-                let bestParsed = { exact: false, numbers: [], name: '', yob: '', dobFull: null };
+                let bestParsed = { exact: false, numbers: [], name: '', yob: '', dobFull: null, score: -1 };
                 const collectedNumbers = new Set();
 
                 for (const angle of anglesToTry) {
@@ -461,16 +531,30 @@
 
                     parsed.numbers.forEach(n => collectedNumbers.add(n));
 
-                    if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
-                    if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
-                    if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
+                    // ఏ కోణంలో ఎక్కువ ఖచ్చితమైన వివరాలు (Aadhaar Number + DOB + Name) దొరికాయో స్కోర్ లెక్కించడం
+                    let angleScore = 0;
+                    if (parsed.exact && parsed.numbers.length > 0) angleScore += 10;
+                    if (parsed.yob || parsed.dobFull) angleScore += 5;
+                    if (parsed.name) angleScore += 3;
 
-                    if (parsed.exact && parsed.numbers.length > 0) {
-                        bestParsed.numbers = parsed.numbers;
-                        bestParsed.exact = true;
-                        if (bestParsed.name && bestParsed.yob) {
-                            break;
-                        }
+                    if (angleScore > bestParsed.score) {
+                        bestParsed = {
+                            exact: parsed.exact,
+                            numbers: parsed.numbers,
+                            name: parsed.name,
+                            yob: parsed.yob,
+                            dobFull: parsed.dobFull,
+                            score: angleScore
+                        };
+                    } else if (angleScore === bestParsed.score) {
+                        if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
+                        if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
+                        if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
+                    }
+
+                    // సరైన కోణంలో నంబర్, పేరు, DOB అన్నీ దొరికితే తదుపరి కోణాలు తిప్పకుండా ఆపడం
+                    if (bestParsed.exact && bestParsed.name && bestParsed.yob) {
+                        break;
                     }
                 }
 
@@ -502,11 +586,18 @@
                     summaryBox.style.display = 'block';
                     summaryBox.innerHTML = `
                         <div class="fw-bold text-success mb-1">✅ ఆటోమేటిక్‌గా గుర్తించిన ${roleLabel} వివరాలు:</div>
-                        ${bestParsed.name ? `<div><strong>పేరు:</strong> ${bestParsed.name}</div>` : ''}
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold mb-1">పేరు (తప్పు ఉంటే ఇక్కడ సరిచేయవచ్చు):</label>
+                            <input type="text" class="form-control form-control-sm fw-bold text-uppercase" 
+                                   value="${bestParsed.name || ''}" 
+                                   placeholder="పేరు దొరకలేదు - ఇక్కడ టైప్ చేయవచ్చు"
+                                   oninput="updateEditedOcrName(this.value, ${isNomineeScan})">
+                        </div>
                         ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం / తేదీ:</strong> ${bestParsed.dobFull ? `${bestParsed.dobFull.dd}/${bestParsed.dobFull.mm}/${bestParsed.dobFull.yyyy}` : bestParsed.yob}</div>` : ''}
                     `;
                 }
 
+                // ఒకే ఒక్క ఖచ్చితమైన నంబర్ దొరికితే ఆటోమేటిక్‌గా ఫీల్డ్‌లో వేయడం
                 if (bestParsed.exact && finalNumbers.length === 1) {
                     selectScannedNumber(finalNumbers[0]);
                     return;
@@ -538,6 +629,20 @@
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
                 document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించండి.';
+            }
+        }
+
+        // మోడల్‌లో పేరును ఎడిట్ చేసినప్పుడు ఫారమ్ మరియు పెండింగ్ ఆబ్జెక్ట్‌లో అప్‌డేట్ చేసే ఫంక్షన్
+        function updateEditedOcrName(newName, isNominee) {
+            const cleaned = newName.toUpperCase();
+            if (isNominee) {
+                if (!pendingScannedNomineeDetails) pendingScannedNomineeDetails = {};
+                pendingScannedNomineeDetails.name = cleaned;
+                applyNomineeDetailsToForm(pendingScannedNomineeDetails);
+            } else {
+                if (!pendingScannedAadhaarDetails) pendingScannedAadhaarDetails = {};
+                pendingScannedAadhaarDetails.name = cleaned;
+                applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
             }
         }
 
@@ -654,6 +759,9 @@
                 return;
             }
 
+            // కొత్త సెర్చ్ చేసినప్పుడు పాత నామినీ స్కాన్ డేటాను క్లియర్ చేయడం
+            pendingScannedNomineeDetails = null;
+
             try {
                 const response = await fetch('/cf/search-beneficiary', {
                     method: 'POST',
@@ -674,13 +782,13 @@
                     buildFormFields(result.columns, result.data, aadhar, result.dropdown_data, result.auto_ifsc);
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
+                    return;
                 }
 
+                // ఇప్పుడే స్కాన్ చేసిన ఆధార్ వివరాలు ఉంటే ఫారమ్‌లో నింపడం
                 if (pendingScannedAadhaarDetails) {
                     applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
-                }
-                if (pendingScannedNomineeDetails) {
-                    applyNomineeDetailsToForm(pendingScannedNomineeDetails);
+                    pendingScannedAadhaarDetails = null; // ఒకసారి వాడాక క్లియర్ చేయడం
                 }
 
                 document.getElementById('form_container').style.display = 'block';
