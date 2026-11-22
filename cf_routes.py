@@ -29,6 +29,26 @@ CF_BANK_MAPPING = {
     "MARKANDEYULU": ["BOINPARI UNION BANK", "NIMMAPALLY"]
 }
 
+# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్
+FILE_NAME_IFSC_MAPPING = {
+    "12903_STATE BANK OF INDIA": "SBIN0012903",
+    "20140_STATE BANK OF INDIA": "SBIN0020140",
+    "20366_STATE BANK OF INDIA": "SBIN0020366",
+    "BANK OF BARODA": "BARB0SIRCIL",
+    "BANK OF INDIA": "BKID0005745",
+    "BOINPALLI UNION BANK": "UBIN0807486",
+    "BOINPALLE UNION BANK": "UBIN0807486",
+    "CANARA BANK": "CNRB0004170",
+    "CENTRAL BANK OF INDIA": "CBIN0285183",
+    "INDIAN BANK": "IDIB000S289",
+    "KDCCB": "TSAB0020033",
+    "NIMMAPALLY": "TGRB0000384",
+    "PUNJAB NATIONAL BANK": "PUNB0589900",
+    "SIRCILLA TELANGANA GRAMEENA BANK": "TGRB0000215",
+    "THANGALLAPALLY TELANGANA GRAMEENA BANK": "TGRB0000086",
+    "UNION BANK OF INDIA": "UBIN0805289"
+}
+
 # 🔑 CF పాస్‌వర్డ్స్ మ్యాపింగ్
 CF_PASSWORDS = {
     "NARESH": "naresh@2026",
@@ -135,6 +155,35 @@ AREA_CF_MAPPING = {
         "THADAGONDA", "VELJIPURAM"
     ]
 }
+
+# 🏦 FILE NAME ఆధారంగా IFSC కోడ్ కనుగొనే హెల్పర్ ఫంక్షన్
+def get_ifsc_for_file_name(file_name, records_list=None):
+    clean_file = re.sub(r'\s+', ' ', str(file_name or '').strip().upper())
+    if not clean_file or clean_file in ['NAN', 'NONE']:
+        return ""
+
+    # 1. షీట్ రికార్డ్స్ ఇస్తే, ఆ FILE NAME కు అత్యధికంగా ఉన్న సరైన IFSC code ను డైనమిక్‌గా తనిఖీ చేయడం
+    if records_list:
+        ifsc_counts = {}
+        for row in records_list:
+            r_file = re.sub(r'\s+', ' ', str(row.get('FILE NAME', '') or '').strip().upper())
+            r_ifsc = str(row.get('IFSC code', '') or row.get('IFSC CODE', '') or '').strip().upper()
+            # ప్రామాణిక 11-character IFSC ఫార్మాట్ తనిఖీ
+            if r_file == clean_file and re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', r_ifsc):
+                ifsc_counts[r_ifsc] = ifsc_counts.get(r_ifsc, 0) + 1
+        if ifsc_counts:
+            return max(ifsc_counts, key=ifsc_counts.get)
+
+    # 2. డైరెక్ట్ మ్యాపింగ్ చెక్ చేయడం
+    if clean_file in FILE_NAME_IFSC_MAPPING:
+        return FILE_NAME_IFSC_MAPPING[clean_file]
+
+    # 3. BOINPALLI / BOINPALLE స్పెల్లింగ్ తేడాలు ఉంటే మ్యాచ్ చేయడం
+    normalized_variant = clean_file.replace("BOINPALLE", "BOINPALLI")
+    if normalized_variant in FILE_NAME_IFSC_MAPPING:
+        return FILE_NAME_IFSC_MAPPING[normalized_variant]
+
+    return ""
 
 # 🔐 ఆధార్ నంబర్‌ను క్లీన్ చేసే హెల్పర్ ఫంక్షన్ (spaces/hyphens/decimal points తీసేసి కేవలం అంకెలు ఉంచుతుంది)
 def normalize_aadhar(val):
@@ -468,7 +517,7 @@ def cf_search_beneficiary():
             ws_email = spreadsheet.worksheet('Bank_Email_Ids')
             email_records = ws_email.get_all_records()
             for row in email_records:
-                if str(row.get('FILE NAME') or row.get('FILE_NAME', '')).strip().upper() == selected_file_name.upper():
+                if str(row.get('FILE_NAME') or row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
                     email_id = str(row.get('OFFICIAL_EMAIL', '')).strip()
                     break
         except Exception:
@@ -477,6 +526,9 @@ def cf_search_beneficiary():
         worksheet_new = spreadsheet.worksheet('NEW THRIFT DATA')
         records_new = worksheet_new.get_all_records()
         columns = worksheet_new.row_values(1)
+
+        # FILE NAME ఆధారంగా ఆటోమేటిక్ IFSC code పొందడం
+        auto_ifsc = get_ifsc_for_file_name(selected_file_name, records_new)
 
         matched_record = None
         source_sheet = None
@@ -535,10 +587,16 @@ def cf_search_beneficiary():
         bank_name = selected_file_name
 
         if matched_record and source_sheet == 'new':
+            # ఎంచుకున్న FILE NAME కు సరిపోయే IFSC ఖాళీగా ఉంటే ఆటో IFSC సెట్ చేయడం
+            current_ifsc = str(matched_record.get('IFSC code', '')).strip()
+            if not current_ifsc and auto_ifsc:
+                matched_record['IFSC code'] = auto_ifsc
+
             return jsonify({
                 "status": "existing",
                 "message": "రికార్డు కనుగొనబడింది - ఆధార్ ఆధారంగా సురక్షితంగా అప్‌డేట్ (Update) అవుతుంది",
                 "data": matched_record,
+                "auto_ifsc": auto_ifsc,
                 "columns": columns,
                 "dropdown_data": {
                     "professions": unique_professions,
@@ -556,6 +614,8 @@ def cf_search_beneficiary():
             base_data['BANK_SNO'] = next_bank_sno
             base_data['FILE NAME'] = selected_file_name
             base_data['Bank Name'] = bank_name
+            if auto_ifsc:
+                base_data['IFSC code'] = auto_ifsc
             base_data['Caste'] = 'BC'
             base_data['Profession'] = 'POWER LOOM WEAVER'
             base_data['DISTRICT NAME'] = 'RAJANNA SIRCILLA'
@@ -570,6 +630,7 @@ def cf_search_beneficiary():
                 "status": "new",
                 "message": "ఇది కొత్త ఎంట్రీ (New Entry) కింద చివరి డేటా రో కింద సురక్షితంగా సేవ్ అవుతుంది.",
                 "data": base_data,
+                "auto_ifsc": auto_ifsc,
                 "columns": columns,
                 "dropdown_data": {
                     "professions": unique_professions,
@@ -584,7 +645,7 @@ def cf_search_beneficiary():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
-# బ్రౌజర్ లో డ్రాప్-డౌన్ కోసం Bank_Email_Ids నుండి FILE NAME లను పంపే రౌట్
+# బ్రౌజర్ లో డ్రాప్-డౌన్ కోసం Bank_Email_Ids నుండి FILE NAME లను మరియు వాటి IFSC కోడ్‌లను పంపే రౌట్
 @cf_bp.route('/cf/get-bank-files', methods=['GET'])
 def cf_get_bank_files():
     if not session.get('cf_logged_in'):
@@ -595,10 +656,29 @@ def cf_get_bank_files():
         spreadsheet = client.open(SPREADSHEET_NAME)
         ws = spreadsheet.worksheet('Bank_Email_Ids')
         records = ws.get_all_records()
-        file_names = [str(r.get('FILE_NAME')).strip() for r in records if r.get('FILE_NAME')]
-        return jsonify({"status": "success", "file_names": file_names})
+
+        records_new = []
+        try:
+            records_new = spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
+        except Exception:
+            pass
+
+        file_names = []
+        file_ifsc_map = {}
+
+        for r in records:
+            f_name = str(r.get('FILE_NAME') or r.get('FILE NAME') or '').strip()
+            if f_name:
+                file_names.append(f_name)
+                file_ifsc_map[f_name] = get_ifsc_for_file_name(f_name, records_new)
+
+        return jsonify({
+            "status": "success",
+            "file_names": file_names,
+            "file_ifsc_map": file_ifsc_map
+        })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e), "file_names": []})
+        return jsonify({"status": "error", "message": str(e), "file_names": [], "file_ifsc_map": {}})
 
 # 6. row_index వాడకుండా ఆధార్ ఆధారంగా డేటాను సురక్షితంగా Update లేదా Insert చేయడం
 @cf_bp.route('/cf/save-beneficiary', methods=['POST'])
@@ -642,6 +722,14 @@ def cf_save_beneficiary():
         aadhar_col_idx = headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
         if aadhar_col_idx == -1:
             return jsonify({"status": "error", "message": "షీట్‌లో 'Aadhar Number' కాలమ్ కనుగొనబడలేదు!"})
+
+        # 🏦 FILE NAME ఆధారంగా తప్పులు రాకుండా IFSC code ను ఆటోమేటిక్‌గా సెట్ చేయడం
+        records_new = worksheet.get_all_records()
+        selected_file = str(form_data.get('FILE NAME', '')).strip()
+        if selected_file:
+            auto_ifsc = get_ifsc_for_file_name(selected_file, records_new)
+            if auto_ifsc:
+                form_data['IFSC code'] = auto_ifsc
 
         # row_index ని పూర్తిగా విస్మరించి, ఆధార్ నంబర్ ఆధారంగా మాత్రమే అసలు రో కనుగొనడం
         matched_row_num, all_aadhars = find_row_by_aadhar(worksheet, aadhar_col_idx, form_aadhar_clean)
@@ -698,7 +786,7 @@ def cf_save_beneficiary():
 
             return jsonify({
                 "status": "success",
-                "message": f"డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది (Backup సేవ్ చేయబడింది)! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
+                "message": f"డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది (IFSC ఆటో-సెట్ & Backup సేవ్ చేయబడింది)! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
             })
 
         # ==================== INSERT LOGIC (NO row_index / NO HIDDEN-ROW MISMATCH) ====================
@@ -734,7 +822,7 @@ def cf_save_beneficiary():
 
             return jsonify({
                 "status": "success",
-                "message": f"కొత్త రికార్డు చివరి రో లో సురక్షితంగా సేవ్ చేయబడింది! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
+                "message": f"కొత్త రికార్డు చివరి రో లో సురక్షితంగా సేవ్ చేయబడింది (IFSC ఆటో-సెట్)! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
             })
 
         return jsonify({"status": "error", "message": "సరికైన యాక్షన్ రాలేదు!"})
