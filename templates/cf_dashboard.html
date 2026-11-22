@@ -169,8 +169,9 @@
         let activeScanTarget = { element: null, fieldName: '' };
         let ocrModalInstance = null;
 
-        // ఆధార్ స్కాన్ చేసినప్పుడు నింపడానికి పెండింగ్‌లో ఉంచే వివరాలు
+        // లబ్ధిదారుడు మరియు నామినీ కోసం వేర్వేరు పెండింగ్ ఆధార్ వివరాలు
         let pendingScannedAadhaarDetails = null;
+        let pendingScannedNomineeDetails = null;
 
         const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
 
@@ -358,7 +359,7 @@
                 }
             }
 
-            // 3. పేరు (Name Of Benificiary) వెలికితీయడం
+            // 3. పేరు వెలికితీయడం
             const extractedName = extractAnchoredAadhaarName(lines);
 
             let numbers = Array.from(generalNumbers);
@@ -403,9 +404,16 @@
             const file = event.target.files && event.target.files[0];
             if (!file || !activeScanTarget.element) return;
 
-            pendingScannedAadhaarDetails = null;
-
             const fieldName = activeScanTarget.fieldName;
+            const isNomineeScan = (fieldName === 'Nominee Aadhar');
+            const isBeneficiaryAadhaarScan = (fieldName === 'Aadhar Number');
+
+            if (isNomineeScan) {
+                pendingScannedNomineeDetails = null;
+            } else if (isBeneficiaryAadhaarScan) {
+                pendingScannedAadhaarDetails = null;
+            }
+
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
             document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3 d-flex align-items-center gap-2';
             document.getElementById('ocrSpinner').style.display = 'inline-block';
@@ -472,20 +480,28 @@
                 document.getElementById('ocrSpinner').style.display = 'none';
 
                 const finalNumbers = bestParsed.numbers.length > 0 ? bestParsed.numbers : Array.from(collectedNumbers);
-                const isAadhaarScan = (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar');
+                const isAadhaarScan = (isBeneficiaryAadhaarScan || isNomineeScan);
 
                 if (isAadhaarScan && (bestParsed.name || bestParsed.yob)) {
-                    pendingScannedAadhaarDetails = {
+                    const detailsObj = {
                         name: bestParsed.name,
                         yob: bestParsed.yob,
                         dobFull: bestParsed.dobFull
                     };
-                    applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
 
+                    if (isNomineeScan) {
+                        pendingScannedNomineeDetails = detailsObj;
+                        applyNomineeDetailsToForm(pendingScannedNomineeDetails);
+                    } else {
+                        pendingScannedAadhaarDetails = detailsObj;
+                        applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
+                    }
+
+                    const roleLabel = isNomineeScan ? 'నామినీ' : 'లబ్ధిదారుని';
                     const summaryBox = document.getElementById('ocrExtractedSummary');
                     summaryBox.style.display = 'block';
                     summaryBox.innerHTML = `
-                        <div class="fw-bold text-success mb-1">✅ ఆటోమేటిక్‌గా గుర్తించిన వివరాలు:</div>
+                        <div class="fw-bold text-success mb-1">✅ ఆటోమేటిక్‌గా గుర్తించిన ${roleLabel} వివరాలు:</div>
                         ${bestParsed.name ? `<div><strong>పేరు:</strong> ${bestParsed.name}</div>` : ''}
                         ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం / తేదీ:</strong> ${bestParsed.dobFull ? `${bestParsed.dobFull.dd}/${bestParsed.dobFull.mm}/${bestParsed.dobFull.yyyy}` : bestParsed.yob}</div>` : ''}
                     `;
@@ -525,7 +541,7 @@
             }
         }
 
-        // గుర్తించిన పేరు మరియు పుట్టిన సంవత్సరం/తేదీని ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
+        // లబ్ధిదారుని పేరు మరియు పుట్టిన సంవత్సరం/తేదీని ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
         function applyAadhaarDetailsToForm(details) {
             if (!details) return;
             const form = document.getElementById('dynamic_beneficiary_form');
@@ -554,6 +570,38 @@
                 }
 
                 handleDmyInput(safeKey, true);
+            }
+        }
+
+        // నామినీ పేరు మరియు నామినీ DOB ను ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
+        function applyNomineeDetailsToForm(details) {
+            if (!details) return;
+            const form = document.getElementById('dynamic_beneficiary_form');
+            if (!form) return;
+
+            if (details.name) {
+                const nomineeNameInput = form.querySelector('input[name="Nominee Name"]');
+                if (nomineeNameInput) {
+                    nomineeNameInput.value = details.name;
+                    nomineeNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
+            if (details.dobFull || details.yob) {
+                const safeKey = 'Nominee_DOB';
+                const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
+                const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
+                const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
+
+                if (details.dobFull) {
+                    if (ddEl) ddEl.value = details.dobFull.dd;
+                    if (mmEl) mmEl.value = details.dobFull.mm;
+                    if (yyyyEl) yyyyEl.value = details.dobFull.yyyy;
+                } else if (details.yob && yyyyEl) {
+                    yyyyEl.value = details.yob;
+                }
+
+                handleDmyInput(safeKey, false);
             }
         }
 
@@ -630,6 +678,9 @@
 
                 if (pendingScannedAadhaarDetails) {
                     applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
+                }
+                if (pendingScannedNomineeDetails) {
+                    applyNomineeDetailsToForm(pendingScannedNomineeDetails);
                 }
 
                 document.getElementById('form_container').style.display = 'block';
