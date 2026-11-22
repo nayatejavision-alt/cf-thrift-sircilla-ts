@@ -130,19 +130,21 @@
     <!-- దాచిన కెమెరా ఇన్‌పుట్ -->
     <input type="file" id="ocr_camera_input" accept="image/*" capture="environment" style="display: none;" onchange="handleCapturedImage(event)">
 
-    <!-- సింపుల్ ఆటో-స్కాన్ Modal -->
+    <!-- స్కాన్ ఫలితాల Modal -->
     <div class="modal fade" id="ocrSelectModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content rounded-4">
                 <div class="modal-header">
-                    <h5 class="modal-title fw-bold" id="ocrModalTitle">📷 నంబర్ స్కాన్ అవుతోంది...</h5>
+                    <h5 class="modal-title fw-bold" id="ocrModalTitle">📷 స్కాన్ అవుతోంది...</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <div id="ocrStatusBox" class="alert alert-info py-2 small mb-3 d-flex align-items-center gap-2">
                         <div class="spinner-border spinner-border-sm text-primary" id="ocrSpinner" role="status"></div>
-                        <span id="ocrStatusText">ఫోటో నుండి నంబర్లను ఆటోమేటిక్‌గా చదువుతోంది...</span>
+                        <span id="ocrStatusText">ఫోటో నుండి వివరాలను ఆటోమేటిక్‌గా చదువుతోంది...</span>
                     </div>
+
+                    <div id="ocrExtractedSummary" class="bg-light border rounded-3 p-3 mb-3 small" style="display: none;"></div>
 
                     <div id="ocrCandidatesSection" style="display: none;" class="mb-3">
                         <label class="form-label fw-semibold small text-secondary">గుర్తించిన నంబర్లు (ఒక్క ట్యాప్‌తో ఫీల్డ్‌లో పడుతుంది):</label>
@@ -166,6 +168,9 @@
         let fileIfscMap = {};
         let activeScanTarget = { element: null, fieldName: '' };
         let ocrModalInstance = null;
+
+        // ఆధార్ స్కాన్ చేసినప్పుడు నింపడానికి పెండింగ్‌లో ఉంచే వివరాలు (ఫారమ్ తెరిచిన వెంటనే లేదా అప్పటికప్పుడు నిండుతాయి)
+        let pendingScannedAadhaarDetails = null;
 
         const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
 
@@ -207,9 +212,9 @@
             fileInput.click();
         }
 
-        // ఇమేజ్‌ను రొటేట్ చేసి, హై-కాంట్రాస్ట్ గ్రేస్కేల్‌గా మార్చే హెల్పర్ (నిలువు/అడ్డ ఫోటోల కోసం)
+        // ఇమేజ్‌ను రొటేట్ చేసి, హై-కాంట్రాస్ట్ గ్రేస్కేల్‌గా మార్చే హెల్పర్
         function buildProcessedCanvas(img, angleDeg) {
-            const maxDim = 1400;
+            const maxDim = 1500;
             const scale = Math.max(img.width, img.height) > maxDim ? (maxDim / Math.max(img.width, img.height)) : 1;
             const w = Math.round(img.width * scale);
             const h = Math.round(img.height * scale);
@@ -238,10 +243,9 @@
             ctx.drawImage(img, 0, 0, w, h);
             ctx.restore();
 
-            // Grayscale + Contrast enhancement (మసకబారిన లేదా తక్కువ వెలుతురు ఫోటోలు కూడా స్పష్టంగా చదవడానికి)
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const d = imgData.data;
-            const contrast = 1.45;
+            const contrast = 1.4;
             const intercept = 128 * (1 - contrast);
             for (let i = 0; i < d.length; i += 4) {
                 const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
@@ -253,12 +257,12 @@
             return canvas;
         }
 
-        // టెక్స్ట్ నుండి 4-4-4 ఆధార్ / అకౌంట్ / ఫోన్ నంబర్లను ఖచ్చితంగా వెలికితీసే ఫంక్షన్
-        function extractSmartMatches(rawText, fieldName) {
+        // ఆధార్ OCR టెక్స్ట్ నుండి పేరు, పుట్టిన సంవత్సరం / తేదీ మరియు ఆధార్ నంబర్‌లను వెలికితీసే ఫంక్షన్
+        function parseAadhaarDetailsFromText(rawText, fieldName) {
             const spacedAadhaar = [];
             const generalNumbers = new Set();
 
-            // 1. "6639 9779 8460" లాగా 4-4-4 స్పేస్‌లతో ఉన్న ఆధార్ ప్యాటర్న్ (అత్యధిక ప్రాధాన్యత)
+            // 1. 4-4-4 ఆధార్ నంబర్ ప్యాటర్న్
             const aadhaarPattern = /\b(\d{4})[\s\-]+(\d{4})[\s\-]+(\d{4})\b/g;
             let match;
             while ((match = aadhaarPattern.exec(rawText)) !== null) {
@@ -269,8 +273,7 @@
                 generalNumbers.add(clean12);
             }
 
-            // 2. ప్రతి లైన్‌ను విడిగా పరిశీలించి అంకెలను తీయడం (బార్‌కోడ్ నాయిస్ కలవకుండా)
-            const lines = rawText.split(/\r?\n/);
+            const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
             for (const line of lines) {
                 const lineSpaced = line.replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
                 const mLine = lineSpaced.match(/\b(\d{4})\s+(\d{4})\s+(\d{4})\b/);
@@ -279,36 +282,113 @@
                     if (!spacedAadhaar.includes(c)) spacedAadhaar.push(c);
                     generalNumbers.add(c);
                 }
-
-                // లైన్‌లోని విడి అంకెల సమూహాలు
                 const groups = line.match(/\d{6,18}/g) || [];
                 groups.forEach(g => generalNumbers.add(g));
             }
 
-            const allArr = Array.from(generalNumbers);
+            // 2. పుట్టిన సంవత్సరం (Year of Birth) లేదా పూర్తి DOB వెలికితీయడం
+            let yob = '';
+            let dobFull = null; // { dd, mm, yyyy }
+
+            // పూర్తి తేదీ DD/MM/YYYY లేదా DD-MM-YYYY ఉంటే
+            const fullDateMatch = rawText.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
+            if (fullDateMatch) {
+                const dNum = parseInt(fullDateMatch[1], 10);
+                const mNum = parseInt(fullDateMatch[2], 10);
+                const yNum = parseInt(fullDateMatch[3], 10);
+                if (dNum >= 1 && dNum <= 31 && mNum >= 1 && mNum <= 12 && yNum >= 1915 && yNum <= 2025) {
+                    dobFull = {
+                        dd: String(dNum).padStart(2, '0'),
+                        mm: String(mNum).padStart(2, '0'),
+                        yyyy: String(yNum)
+                    };
+                    yob = String(yNum);
+                }
+            }
+
+            // "Year of Birth : 1997" లేదా "YOB : 1997" లేదా "పుట్టిన సంవత్సరం : 1997"
+            if (!yob) {
+                for (const line of lines) {
+                    if (/year\s*of\s*birth|yob|birth|సంవత్సరం|పుట్టిన/i.test(line)) {
+                        const yrMatch = line.match(/\b(19\d{2}|20\d{2})\b/);
+                        if (yrMatch) {
+                            const yCandidate = parseInt(yrMatch[1], 10);
+                            if (yCandidate >= 1915 && yCandidate <= 2025) {
+                                yob = String(yCandidate);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. పేరు (Name Of Benificiary) వెలికితీయడం
+            let extractedName = '';
+            const ignoreLineRegex = /(government\s*of\s*india|unique\s*identification|authority\s*of\s*india|aadhaar|aadhar|year\s*of\s*birth|dob|male|female|transgender|भारत\s*सरकार|భారత\s*ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|camscanner|generated\s*by)/i;
+
+            for (let i = 0; i < lines.length; i++) {
+                const ln = lines[i];
+                if (ignoreLineRegex.test(ln)) continue;
+
+                // ఇంగ్లీష్ అక్షరాలతో కూడిన పేరు లైన్ (ఉదా: "Bheemanathini Kavitha")
+                const englishNameCandidate = ln.replace(/[^A-Za-z\s.]/g, ' ').replace(/\s+/g, ' ').trim();
+                const words = englishNameCandidate.split(' ').filter(w => w.length >= 2);
+                if (words.length >= 2 && words.length <= 5 && /^[A-Za-z\s.]+$/.test(englishNameCandidate)) {
+                    extractedName = englishNameCandidate.toUpperCase();
+                    break;
+                }
+            }
+
+            // ఇంగ్లీష్ పేరు దొరక్కపోతే ఇతర అక్షరాల లైన్‌ను (నెంబర్లు/కీవర్డ్స్ లేనివి) తీసుకోవడం
+            if (!extractedName) {
+                for (const ln of lines) {
+                    if (ignoreLineRegex.test(ln)) continue;
+                    const noDigits = ln.replace(/[0-9:|\/\-]/g, '').trim();
+                    if (noDigits.length >= 3 && noDigits.length <= 45) {
+                        extractedName = noDigits;
+                        break;
+                    }
+                }
+            }
+
+            let numbers = Array.from(generalNumbers);
+            let exact = false;
 
             if (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar') {
                 if (spacedAadhaar.length > 0) {
-                    return { exact: true, numbers: spacedAadhaar };
-                }
-                const exact12 = allArr.filter(n => n.length === 12);
-                if (exact12.length > 0) {
-                    return { exact: true, numbers: exact12 };
+                    numbers = spacedAadhaar;
+                    exact = true;
+                } else {
+                    const exact12 = numbers.filter(n => n.length === 12);
+                    if (exact12.length > 0) {
+                        numbers = exact12;
+                        exact = true;
+                    }
                 }
             } else if (fieldName === 'Contact Number') {
-                const exact10 = allArr.filter(n => n.length === 10 && /^[6-9]/.test(n));
-                if (exact10.length > 0) return { exact: true, numbers: exact10 };
-                const any10 = allArr.filter(n => n.length === 10);
-                if (any10.length > 0) return { exact: true, numbers: any10 };
+                const exact10 = numbers.filter(n => n.length === 10);
+                if (exact10.length > 0) {
+                    numbers = exact10;
+                    exact = true;
+                }
             } else if (fieldName === 'Bank Account Number') {
-                const accounts = allArr.filter(n => n.length >= 9 && n.length <= 18);
-                if (accounts.length > 0) return { exact: true, numbers: accounts };
+                const accounts = numbers.filter(n => n.length >= 9 && n.length <= 18);
+                if (accounts.length > 0) {
+                    numbers = accounts;
+                    exact = true;
+                }
             }
 
-            return { exact: false, numbers: allArr };
+            return {
+                exact,
+                numbers,
+                name: extractedName,
+                yob,
+                dobFull
+            };
         }
 
-        // కెమెరా ఫోటో తీయగానే ఆటోమేటిక్‌గా 0°, 270°, 90° కోణాల్లో స్కాన్ చేసి ఫలితం ఇచ్చే ఫంక్షన్
+        // కెమెరా ఫోటో తీయగానే ఆటోమేటిక్‌గా 0°, 270°, 90° కోణాల్లో స్కాన్ చేసే ఫంక్షన్
         async function handleCapturedImage(event) {
             const file = event.target.files && event.target.files[0];
             if (!file || !activeScanTarget.element) return;
@@ -317,7 +397,8 @@
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
             document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3 d-flex align-items-center gap-2';
             document.getElementById('ocrSpinner').style.display = 'inline-block';
-            document.getElementById('ocrStatusText').textContent = 'ఫోటో నుండి నంబర్‌ను ఆటోమేటిక్‌గా గుర్తిస్తోంది...';
+            document.getElementById('ocrStatusText').textContent = 'ఫోటో నుండి ఆధార్ నంబర్, పేరు, పుట్టిన సంవత్సరం చదువుతోంది...';
+            document.getElementById('ocrExtractedSummary').style.display = 'none';
             document.getElementById('ocrCandidatesSection').style.display = 'none';
             document.getElementById('ocrCandidatesList').innerHTML = '';
             document.getElementById('ocrManualPickInput').value = '';
@@ -348,26 +429,29 @@
             let worker = null;
             try {
                 worker = await Tesseract.createWorker('eng');
-                await worker.setParameters({
-                    tessedit_char_whitelist: '0123456789 '
-                });
-
-                // ఫోటో అడ్డంగా (0°) లేదా నిలువుగా (270° / 90° - మొబైల్ కెమెరాలో సాధారణం) ఉన్నా ఆటో-డిటెక్ట్ చేయడం
                 const anglesToTry = [0, 270, 90];
-                let bestResult = { exact: false, numbers: [] };
-                const collectedFallback = new Set();
+                let bestParsed = { exact: false, numbers: [], name: '', yob: '', dobFull: null };
+                const collectedNumbers = new Set();
 
                 for (const angle of anglesToTry) {
                     const processedCanvas = buildProcessedCanvas(img, angle);
                     const ret = await worker.recognize(processedCanvas);
                     const rawText = (ret && ret.data && ret.data.text) ? ret.data.text : '';
-                    const parsed = extractSmartMatches(rawText, fieldName);
+                    const parsed = parseAadhaarDetailsFromText(rawText, fieldName);
 
-                    parsed.numbers.forEach(n => collectedFallback.add(n));
+                    parsed.numbers.forEach(n => collectedNumbers.add(n));
+
+                    // మెరుగైన వివరాలను కలపడం
+                    if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
+                    if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
+                    if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
 
                     if (parsed.exact && parsed.numbers.length > 0) {
-                        bestResult = parsed;
-                        break; // ఖచ్చితమైన నంబర్ దొరకగానే మిగతా యాంగిల్స్ ఆపేస్తుంది (వేగంగా ఉంటుంది)
+                        bestParsed.numbers = parsed.numbers;
+                        bestParsed.exact = true;
+                        if (bestParsed.name && bestParsed.yob) {
+                            break;
+                        }
                     }
                 }
 
@@ -376,10 +460,29 @@
 
                 document.getElementById('ocrSpinner').style.display = 'none';
 
-                const finalNumbers = bestResult.numbers.length > 0 ? bestResult.numbers : Array.from(collectedFallback);
+                const finalNumbers = bestParsed.numbers.length > 0 ? bestParsed.numbers : Array.from(collectedNumbers);
+                const isAadhaarScan = (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar');
 
-                // ఒకే ఒక్క ఖచ్చితమైన నంబర్ దొరికితే యూజర్‌కు శ్రమ లేకుండా నేరుగా ఫీల్డ్‌లో వేసి Modal క్లోజ్ చేస్తుంది!
-                if (bestResult.exact && finalNumbers.length === 1) {
+                // పేరు & పుట్టిన సంవత్సరం వివరాలు ఉన్నాయా చూపించడం మరియు నింపడం
+                if (isAadhaarScan && (bestParsed.name || bestParsed.yob)) {
+                    pendingScannedAadhaarDetails = {
+                        name: bestParsed.name,
+                        yob: bestParsed.yob,
+                        dobFull: bestParsed.dobFull
+                    };
+                    applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
+
+                    const summaryBox = document.getElementById('ocrExtractedSummary');
+                    summaryBox.style.display = 'block';
+                    summaryBox.innerHTML = `
+                        <div class="fw-bold text-success mb-1">✅ ఆటోమేటిక్‌గా గుర్తించిన వివరాలు:</div>
+                        ${bestParsed.name ? `<div><strong>పేరు:</strong> ${bestParsed.name}</div>` : ''}
+                        ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం:</strong> ${bestParsed.yob}</div>` : ''}
+                    `;
+                }
+
+                // ఒకే ఒక్క ఖచ్చితమైన నంబర్ దొరికితే నేరుగా ఫీల్డ్‌లో వేసి Modal క్లోజ్ చేస్తుంది!
+                if (bestParsed.exact && finalNumbers.length === 1) {
                     selectScannedNumber(finalNumbers[0]);
                     return;
                 }
@@ -395,7 +498,6 @@
                         const btn = document.createElement('button');
                         btn.type = 'button';
                         btn.className = 'btn btn-outline-primary candidate-chip fw-bold';
-                        // ఆధార్ నంబర్ అయితే చదవడానికి వీలుగా 4-4-4 స్పేస్‌తో బటన్ మీద చూపిస్తుంది
                         btn.textContent = num.length === 12 ? `${num.slice(0,4)} ${num.slice(4,8)} ${num.slice(8,12)}` : num;
                         btn.onclick = () => selectScannedNumber(num);
                         listContainer.appendChild(btn);
@@ -411,6 +513,38 @@
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
                 document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించండి.';
+            }
+        }
+
+        // గుర్తించిన పేరు మరియు పుట్టిన సంవత్సరం/తేదీని ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
+        function applyAadhaarDetailsToForm(details) {
+            if (!details) return;
+            const form = document.getElementById('dynamic_beneficiary_form');
+            if (!form) return;
+
+            if (details.name) {
+                const nameInput = form.querySelector('input[name="Name Of Benificiary"]');
+                if (nameInput) {
+                    nameInput.value = details.name;
+                    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
+            if (details.dobFull || details.yob) {
+                const safeKey = 'Date_OF_Birth';
+                const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
+                const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
+                const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
+
+                if (details.dobFull) {
+                    if (ddEl) ddEl.value = details.dobFull.dd;
+                    if (mmEl) mmEl.value = details.dobFull.mm;
+                    if (yyyyEl) yyyyEl.value = details.dobFull.yyyy;
+                } else if (details.yob && yyyyEl) {
+                    yyyyEl.value = details.yob;
+                }
+
+                handleDmyInput(safeKey, true);
             }
         }
 
@@ -483,6 +617,11 @@
                     buildFormFields(result.columns, result.data, aadhar, result.dropdown_data, result.auto_ifsc);
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
+                }
+
+                // ఇంతకుముందు స్కాన్ చేసిన పేరు / పుట్టిన సంవత్సరం ఉంటే ఫారమ్‌లో నింపడం
+                if (pendingScannedAadhaarDetails) {
+                    applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
                 }
 
                 document.getElementById('form_container').style.display = 'block';
