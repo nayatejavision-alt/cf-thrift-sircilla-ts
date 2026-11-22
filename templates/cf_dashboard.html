@@ -257,20 +257,32 @@
             return canvas;
         }
 
-        // ఆధార్ లైన్‌ల నుండి కచ్చితమైన ఇంగ్లీష్ పేరును మాత్రమే ఎంచుకునే ఫంక్షన్
-        function extractStrictAadhaarName(lines) {
-            const ignoreLineRegex = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|male|female|transgender|camscanner|generated|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం)/i;
+        // "Government of India" లైన్ తర్వాత వచ్చే ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్
+        function extractAnchoredAadhaarName(lines) {
+            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|male|female|transgender|camscanner|generated|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు)/i;
 
-            for (const ln of lines) {
-                if (ignoreLineRegex.test(ln)) continue;
-                // అంకెలు లేదా ప్రత్యేక గుర్తులు ఎక్కువగా ఉంటే దాన్ని వదిలేయడం
+            let anchorIdx = -1;
+            for (let i = 0; i < lines.length; i++) {
+                if (/government\s*of\s*india|of\s*india/i.test(lines[i])) {
+                    anchorIdx = i;
+                    break;
+                }
+            }
+
+            // "Government of India" తర్వాత 1 నుండి 5 లైన్లలోపు పేరు ఉంటుంది
+            const startIdx = anchorIdx >= 0 ? anchorIdx + 1 : 0;
+            const endIdx = anchorIdx >= 0 ? Math.min(lines.length, anchorIdx + 6) : lines.length;
+
+            for (let i = startIdx; i < endIdx; i++) {
+                const ln = lines[i];
+                if (nonNameKeywords.test(ln)) continue;
                 if (/\d/.test(ln)) continue;
 
                 const cleaned = ln.replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
                 const words = cleaned.split(' ').filter(w => w.length >= 2);
 
-                // కనీసం 2 పదాలు, గరిష్టంగా 4 పదాలు, ప్రతి పదం అక్షరాలతోనే ఉండాలి
-                if (words.length >= 2 && words.length <= 4 && /^[A-Za-z\s]+$/.test(cleaned) && cleaned.length >= 5 && cleaned.length <= 40) {
+                // కనీసం 2 పదాలు (ఉదా: "Gajula Himansh" లేదా "Bheemanathini Kavitha") ఉండాలి
+                if (words.length >= 2 && words.length <= 4 && /^[A-Za-z\s]+$/.test(cleaned) && cleaned.length >= 6 && cleaned.length <= 40) {
                     return cleaned.toUpperCase();
                 }
             }
@@ -307,28 +319,33 @@
                 groups.forEach(g => generalNumbers.add(g));
             }
 
-            // 2. పుట్టిన సంవత్సరం (Year of Birth) లేదా పూర్తి DOB వెలికితీయడం
+            // 2. పుట్టిన సంవత్సరం (Year of Birth) లేదా పూర్తి DOB వెలికితీయడం (Issue Date ను DOB గా తీసుకోకుండా జాగ్రత్త)
             let yob = '';
             let dobFull = null;
 
-            const fullDateMatch = rawText.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
-            if (fullDateMatch) {
-                const dNum = parseInt(fullDateMatch[1], 10);
-                const mNum = parseInt(fullDateMatch[2], 10);
-                const yNum = parseInt(fullDateMatch[3], 10);
-                if (dNum >= 1 && dNum <= 31 && mNum >= 1 && mNum <= 12 && yNum >= 1915 && yNum <= 2025) {
-                    dobFull = {
-                        dd: String(dNum).padStart(2, '0'),
-                        mm: String(mNum).padStart(2, '0'),
-                        yyyy: String(yNum)
-                    };
-                    yob = String(yNum);
+            for (const line of lines) {
+                if (/issue\s*date/i.test(line)) continue;
+                const dMatch = line.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
+                if (dMatch) {
+                    const dNum = parseInt(dMatch[1], 10);
+                    const mNum = parseInt(dMatch[2], 10);
+                    const yNum = parseInt(dMatch[3], 10);
+                    if (dNum >= 1 && dNum <= 31 && mNum >= 1 && mNum <= 12 && yNum >= 1915 && yNum <= 2025) {
+                        dobFull = {
+                            dd: String(dNum).padStart(2, '0'),
+                            mm: String(mNum).padStart(2, '0'),
+                            yyyy: String(yNum)
+                        };
+                        yob = String(yNum);
+                        break;
+                    }
                 }
             }
 
             if (!yob) {
                 for (const line of lines) {
-                    if (/year\s*of\s*birth|yob|birth|సంవత్సరం|పుట్టిన/i.test(line)) {
+                    if (/issue\s*date/i.test(line)) continue;
+                    if (/year\s*of\s*birth|yob|birth|dob|సంవత్సరం|పుట్టిన/i.test(line)) {
                         const yrMatch = line.match(/\b(19\d{2}|20\d{2})\b/);
                         if (yrMatch) {
                             const yCandidate = parseInt(yrMatch[1], 10);
@@ -342,7 +359,7 @@
             }
 
             // 3. పేరు (Name Of Benificiary) వెలికితీయడం
-            const extractedName = extractStrictAadhaarName(lines);
+            const extractedName = extractAnchoredAadhaarName(lines);
 
             let numbers = Array.from(generalNumbers);
             let exact = false;
@@ -381,10 +398,12 @@
             };
         }
 
-        // కెమెరా ఫోటో తీయగానే ఆటోమేటిక్‌గా 0°, 270°, 90° కోణాల్లో స్కాన్ చేసే ఫంక్షన్
+        // కెమెరా ఫోటో తీయగానే ఆటోమేటిక్‌గా 0°, 90°, 270° కోణాల్లో స్కాన్ చేసే ఫంక్షన్
         async function handleCapturedImage(event) {
             const file = event.target.files && event.target.files[0];
             if (!file || !activeScanTarget.element) return;
+
+            pendingScannedAadhaarDetails = null;
 
             const fieldName = activeScanTarget.fieldName;
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
@@ -422,7 +441,7 @@
             let worker = null;
             try {
                 worker = await Tesseract.createWorker('eng');
-                const anglesToTry = [0, 270, 90];
+                const anglesToTry = [0, 90, 270];
                 let bestParsed = { exact: false, numbers: [], name: '', yob: '', dobFull: null };
                 const collectedNumbers = new Set();
 
@@ -468,7 +487,7 @@
                     summaryBox.innerHTML = `
                         <div class="fw-bold text-success mb-1">✅ ఆటోమేటిక్‌గా గుర్తించిన వివరాలు:</div>
                         ${bestParsed.name ? `<div><strong>పేరు:</strong> ${bestParsed.name}</div>` : ''}
-                        ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం:</strong> ${bestParsed.yob}</div>` : ''}
+                        ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం / తేదీ:</strong> ${bestParsed.dobFull ? `${bestParsed.dobFull.dd}/${bestParsed.dobFull.mm}/${bestParsed.dobFull.yyyy}` : bestParsed.yob}</div>` : ''}
                     `;
                 }
 
@@ -609,7 +628,6 @@
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
                 }
 
-                // ఇంతకుముందు స్కాన్ చేసిన పేరు / పుట్టిన సంవత్సరం ఉంటే ఫారమ్‌లో నింపడం
                 if (pendingScannedAadhaarDetails) {
                     applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
                 }
