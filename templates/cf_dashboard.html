@@ -103,7 +103,7 @@
 
             <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ -->
             <div class="input-group mb-3">
-                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="this.value = this.value.replace(/[^0-9]/g, ''); pendingScannedAadhaarDetails = null;" onkeypress="if(event.key === 'Enter') searchAadhar();">
+                <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="handleSearchAadharManualInput(this)" onkeypress="if(event.key === 'Enter') searchAadhar();">
                 <button class="btn btn-outline-primary px-3 fw-bold" type="button" onclick="triggerCameraScan('search_aadhar', 'Aadhar Number')">📷 స్కాన్</button>
                 <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
             </div>
@@ -168,6 +168,7 @@
         let fileIfscMap = {};
         let activeScanTarget = { element: null, fieldName: '' };
         let ocrModalInstance = null;
+        let isProgrammaticValueSet = false;
 
         // లబ్ధిదారుడు మరియు నామినీ కోసం వేర్వేరు పెండింగ్ ఆధార్ వివరాలు
         let pendingScannedAadhaarDetails = null;
@@ -200,6 +201,13 @@
             }
         });
 
+        function handleSearchAadharManualInput(inputEl) {
+            inputEl.value = inputEl.value.replace(/[^0-9]/g, '');
+            if (!isProgrammaticValueSet) {
+                pendingScannedAadhaarDetails = null;
+            }
+        }
+
         // కెమెరా ఓపెన్ చేసే ఫంక్షన్
         function triggerCameraScan(targetOrId, fieldName) {
             const el = typeof targetOrId === 'string' ? document.getElementById(targetOrId) : targetOrId;
@@ -215,7 +223,7 @@
 
         // ఇమేజ్‌ను రొటేట్ చేసి, మెమరీ సేవ్ చేస్తూ హై-కాంట్రాస్ట్ గ్రేస్కేల్‌గా మార్చే హెల్పర్
         function buildProcessedCanvas(img, angleDeg) {
-            const maxDim = 1150; // మొబైల్ మెమరీ క్రాష్ కాకుండా ఆప్టిమల్ సైజ్
+            const maxDim = 1200;
             const origW = img.naturalWidth || img.width;
             const origH = img.naturalHeight || img.height;
             const scale = Math.max(origW, origH) > maxDim ? (maxDim / Math.max(origW, origH)) : 1;
@@ -260,9 +268,9 @@
             return canvas;
         }
 
-        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్
+        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్ (ఇంగ్లీష్ + తెలుగు లైన్లను హ్యాండిల్ చేస్తుంది)
         function extractAnchoredAadhaarName(lines) {
-            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు)/i;
+            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు|విశిష్ట|ప్రాధికార|సంస్థ)/i;
             const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co|son\s+of|daughter\s+of|wife\s+of|care\s+of)\b/i;
 
             function isValidPersonName(rawLine) {
@@ -270,6 +278,10 @@
                 if (nonNameKeywords.test(rawLine)) return '';
                 if (relationPrefixRegex.test(rawLine)) return '';
                 if (/\d/.test(rawLine)) return '';
+
+                // తెలుగు లేదా ఇతర నాన్-ఇంగ్లీష్ అక్షరాలు ఎక్కువగా ఉంటే దాన్ని ఇంగ్లీష్ పేరుగా తీసుకోకూడదు
+                const englishLettersOnly = rawLine.replace(/[^A-Za-z]/g, '');
+                if (englishLettersOnly.length < 3) return '';
 
                 const cleaned = rawLine.replace(/[^A-Za-z\s\.]/g, ' ')
                                        .replace(/\./g, ' ')
@@ -288,9 +300,10 @@
                 return cleaned.toUpperCase();
             }
 
+            // 1. "Government of India" లైన్ తర్వాత వెతకడం
             let govAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
-                if (/government\s*of\s*india|of\s*india/i.test(lines[i])) {
+                if (/government\s*of\s*india|of\s*india|భారత\s*ప్రభుత్వం/i.test(lines[i])) {
                     govAnchorIdx = i;
                     break;
                 }
@@ -298,13 +311,14 @@
 
             if (govAnchorIdx >= 0) {
                 const startIdx = govAnchorIdx + 1;
-                const endIdx = Math.min(lines.length, govAnchorIdx + 6);
+                const endIdx = Math.min(lines.length, govAnchorIdx + 7);
                 for (let i = startIdx; i < endIdx; i++) {
                     const validName = isValidPersonName(lines[i]);
                     if (validName) return validName;
                 }
             }
 
+            // 2. DOB / Year of Birth లైన్‌కు పైనున్న లైన్లలో వెతకడం
             let dobAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/issue\s*date/i.test(lines[i])) continue;
@@ -316,13 +330,14 @@
             }
 
             if (dobAnchorIdx > 0) {
-                const minIdx = Math.max(0, dobAnchorIdx - 3);
+                const minIdx = Math.max(0, dobAnchorIdx - 4);
                 for (let i = dobAnchorIdx - 1; i >= minIdx; i--) {
                     const validName = isValidPersonName(lines[i]);
                     if (validName) return validName;
                 }
             }
 
+            // 3. 12 అంకెల ఆధార్ నంబర్‌కు పైనున్న లైన్లలో వెతకడం
             let aadhaarAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 const digitsOnly = lines[i].replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -333,7 +348,7 @@
             }
 
             if (aadhaarAnchorIdx > 0) {
-                const minIdx = Math.max(0, aadhaarAnchorIdx - 6);
+                const minIdx = Math.max(0, aadhaarAnchorIdx - 7);
                 for (let i = aadhaarAnchorIdx - 1; i >= minIdx; i--) {
                     const validName = isValidPersonName(lines[i]);
                     if (validName) return validName;
@@ -448,7 +463,7 @@
             };
         }
 
-        // కెమెరా ఫోటో తీయగానే సురక్షితంగా స్కాన్ చేసే ఫంక్షన్ (Fixed Tesseract Worker & Memory)
+        // కెమెరా ఫోటో తీయగానే సురక్షితంగా స్కాన్ చేసే ఫంక్షన్
         async function handleCapturedImage(event) {
             const file = event.target.files && event.target.files[0];
             if (!file || !activeScanTarget.element) return;
@@ -476,7 +491,6 @@
                 ocrModalInstance.show();
             }
 
-            // URL.createObjectURL ద్వారా తక్కువ మెమరీతో ఇమేజ్ లోడ్ చేయడం
             const objectUrl = URL.createObjectURL(file);
             const img = await new Promise((resolve) => {
                 const imageObj = new Image();
@@ -505,8 +519,8 @@
             try {
                 document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ సిద్ధమవుతోంది...';
 
-                // స్పష్టమైన CDN పాత్‌లతో Worker క్రియేట్ చేయడం (Error రాకుండా నివారిస్తుంది)
-                worker = await Tesseract.createWorker('eng', 1, {
+                // ఇంగ్లీష్ + తెలుగు (eng+tel) లోడ్ చేయడం ద్వారా తెలుగు ఆధార్ కార్డులను కూడా సరిగ్గా చదువుతుంది
+                worker = await Tesseract.createWorker('eng+tel', 1, {
                     workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
                     corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
                     langPath: 'https://tessdata.projectnaptha.com/4.0.0'
@@ -523,7 +537,6 @@
                     const processedCanvas = buildProcessedCanvas(img, angle);
                     const ret = await worker.recognize(processedCanvas);
                     
-                    // కాన్వాస్ మెమరీ వెంటనే ఫ్రీ చేయడం
                     processedCanvas.width = 0;
                     processedCanvas.height = 0;
 
@@ -535,18 +548,18 @@
                     let angleScore = 0;
                     if (parsed.exact && parsed.numbers.length > 0) angleScore += 10;
                     if (parsed.yob || parsed.dobFull) angleScore += 5;
-                    if (parsed.name) angleScore += 3;
+                    if (parsed.name) angleScore += 4;
 
                     if (angleScore > bestParsed.score) {
                         bestParsed = {
                             exact: parsed.exact,
                             numbers: parsed.numbers,
-                            name: parsed.name,
-                            yob: parsed.yob,
-                            dobFull: parsed.dobFull,
+                            name: parsed.name || bestParsed.name,
+                            yob: parsed.yob || bestParsed.yob,
+                            dobFull: parsed.dobFull || bestParsed.dobFull,
                             score: angleScore
                         };
-                    } else if (angleScore === bestParsed.score) {
+                    } else {
                         if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
                         if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
                         if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
@@ -566,11 +579,11 @@
                 const finalNumbers = bestParsed.numbers.length > 0 ? bestParsed.numbers : Array.from(collectedNumbers);
                 const isAadhaarScan = (isBeneficiaryAadhaarScan || isNomineeScan);
 
-                if (isAadhaarScan && (bestParsed.name || bestParsed.yob)) {
+                if (isAadhaarScan) {
                     const detailsObj = {
-                        name: bestParsed.name,
-                        yob: bestParsed.yob,
-                        dobFull: bestParsed.dobFull
+                        name: bestParsed.name || '',
+                        yob: bestParsed.yob || '',
+                        dobFull: bestParsed.dobFull || null
                     };
 
                     if (isNomineeScan) {
@@ -578,26 +591,35 @@
                         applyNomineeDetailsToForm(pendingScannedNomineeDetails);
                     } else {
                         pendingScannedAadhaarDetails = detailsObj;
-                        applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
+                        // ఫారమ్ ఇప్పటికే ఓపెన్ అయి ఉంటే వెంటనే నింపుతుంది, లేదంటే సెర్చ్ నొక్కినప్పుడు నింపుతుంది
+                        applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, false);
                     }
 
                     const roleLabel = isNomineeScan ? 'నామినీ' : 'లబ్ధిదారుని';
                     const summaryBox = document.getElementById('ocrExtractedSummary');
                     summaryBox.style.display = 'block';
                     summaryBox.innerHTML = `
-                        <div class="fw-bold text-success mb-1">✅ ఆటోమేటిక్‌గా గుర్తించిన ${roleLabel} వివరాలు:</div>
+                        <div class="fw-bold text-success mb-1">✅ గుర్తించిన ${roleLabel} వివరాలు (సెర్చ్ నొక్కినప్పుడు కొత్త ఫారమ్‌లో ఆటోమేటిక్‌గా ఫిల్ అవుతాయి):</div>
                         <div class="mb-2">
-                            <label class="form-label small fw-bold mb-1">పేరు (తప్పు ఉంటే ఇక్కడ సరిచేయవచ్చు):</label>
+                            <label class="form-label small fw-bold mb-1">పేరు (సరిచేసుకోవడానికి / టైప్ చేయడానికి):</label>
                             <input type="text" class="form-control form-control-sm fw-bold text-uppercase" 
                                    value="${bestParsed.name || ''}" 
-                                   placeholder="పేరు దొరకలేదు - ఇక్కడ టైప్ చేయవచ్చు"
+                                   placeholder="పేరు ఇక్కడ టైప్ చేయవచ్చు"
                                    oninput="updateEditedOcrName(this.value, ${isNomineeScan})">
                         </div>
                         ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం / తేదీ:</strong> ${bestParsed.dobFull ? `${bestParsed.dobFull.dd}/${bestParsed.dobFull.mm}/${bestParsed.dobFull.yyyy}` : bestParsed.yob}</div>` : ''}
                     `;
                 }
 
+                // ఒకే ఒక్క నంబర్ దొరికినా, పేరు సరిచూసుకోవడానికి వీలుగా కనీసం 1.2 సెకన్లు చూపించి ఆటో-సెలెక్ట్ చేస్తుంది (లేదా పేరు దొరకకపోతే మోడల్ ఉంచుతుంది)
                 if (bestParsed.exact && finalNumbers.length === 1) {
+                    if (isAadhaarScan && !bestParsed.name) {
+                        // పేరు దొరకకపోతే యూజర్ మోడల్‌లో పేరు టైప్ చేసి సెలెక్ట్ చేసేలా ఉంచడం
+                        document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
+                        document.getElementById('ocrStatusText').textContent = 'ఆధార్ నంబర్ గుర్తించబడింది! పైన పేరు సరిచూసి కింది బటన్ నొక్కండి:';
+                        document.getElementById('ocrManualPickInput').value = finalNumbers[0];
+                        return;
+                    }
                     selectScannedNumber(finalNumbers[0]);
                     return;
                 }
@@ -629,7 +651,7 @@
                 }
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
-                document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది (ఇంటర్నెట్ లేదా కెమెరా ఫైల్ చెక్ చేయండి). మళ్లీ ప్రయత్నించండి లేదా కింద నంబర్ టైప్ చేయండి.';
+                document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది (ఇంటర్నెట్ చెక్ చేయండి). మళ్లీ ప్రయత్నించండి లేదా కింద నంబర్ టైప్ చేయండి.';
             }
         }
 
@@ -643,39 +665,79 @@
             } else {
                 if (!pendingScannedAadhaarDetails) pendingScannedAadhaarDetails = {};
                 pendingScannedAadhaarDetails.name = cleaned;
-                applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
+                applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, false);
             }
         }
 
+        // ఫారమ్‌లో పేరు ఇన్‌పుట్ ఫీల్డ్‌ను ఫ్లెక్సిబుల్‌గా కనుగొనే హెల్పర్
+        function findFormInputByKeywords(form, exactNames, keywordRegex) {
+            for (const name of exactNames) {
+                const exactEl = form.querySelector(`input[name="${name}"]`);
+                if (exactEl) return exactEl;
+            }
+            const allInputs = form.querySelectorAll('input[name]');
+            for (const inp of allInputs) {
+                if (keywordRegex.test(inp.name)) return inp;
+            }
+            return null;
+        }
+
         // లబ్ధిదారుని పేరు మరియు పుట్టిన సంవత్సరం/తేదీని ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
-        function applyAadhaarDetailsToForm(details) {
+        function applyAadhaarDetailsToForm(details, onlyIfEmpty = false) {
             if (!details) return;
             const form = document.getElementById('dynamic_beneficiary_form');
-            if (!form) return;
+            const formContainer = document.getElementById('form_container');
+            if (!form || !formContainer || formContainer.style.display === 'none') return;
 
             if (details.name) {
-                const nameInput = form.querySelector('input[name="Name Of Benificiary"]');
-                if (nameInput) {
+                const nameInput = findFormInputByKeywords(
+                    form,
+                    ['Name Of Benificiary', 'Name Of Beneficiary', 'Beneficiary Name', 'Benificiary Name'],
+                    /(benificiary|beneficiary).*name|name.*(benificiary|beneficiary)/i
+                );
+                if (nameInput && (!onlyIfEmpty || !nameInput.value.trim())) {
                     nameInput.value = details.name;
                     nameInput.dispatchEvent(new Event('input', { bubbles: true }));
                 }
             }
 
             if (details.dobFull || details.yob) {
-                const safeKey = 'Date_OF_Birth';
-                const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
-                const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
-                const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
+                // Date OF Birth లేదా DOB గ్రూప్‌ను కనుగొనడం
+                let dmyGroup = form.querySelector('[data-dmy-col="Date OF Birth"]') ||
+                               form.querySelector('[data-dmy-col="Date of Birth"]') ||
+                               form.querySelector('[data-dmy-col="DOB"]');
 
-                if (details.dobFull) {
-                    if (ddEl) ddEl.value = details.dobFull.dd;
-                    if (mmEl) mmEl.value = details.dobFull.mm;
-                    if (yyyyEl) yyyyEl.value = details.dobFull.yyyy;
-                } else if (details.yob && yyyyEl) {
-                    yyyyEl.value = details.yob;
+                if (!dmyGroup) {
+                    const allGroups = form.querySelectorAll('[data-dmy-col]');
+                    for (const grp of allGroups) {
+                        const col = grp.getAttribute('data-dmy-col') || '';
+                        if (!/nominee/i.test(col) && /(birth|dob)/i.test(col)) {
+                            dmyGroup = grp;
+                            break;
+                        }
+                    }
                 }
 
-                handleDmyInput(safeKey, true);
+                if (dmyGroup) {
+                    const colName = dmyGroup.getAttribute('data-dmy-col');
+                    const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
+                    const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
+                    const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
+                    const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
+
+                    const hasExistingDob = (ddEl && ddEl.value.trim()) || (mmEl && mmEl.value.trim()) || (yyyyEl && yyyyEl.value.trim());
+
+                    if (!onlyIfEmpty || !hasExistingDob) {
+                        if (details.dobFull) {
+                            if (ddEl) ddEl.value = details.dobFull.dd;
+                            if (mmEl) mmEl.value = details.dobFull.mm;
+                            if (yyyyEl) yyyyEl.value = details.dobFull.yyyy;
+                        } else if (details.yob && yyyyEl) {
+                            yyyyEl.value = details.yob;
+                        }
+                        handleDmyInput(safeKey, true);
+                    }
+                }
             }
         }
 
@@ -686,7 +748,11 @@
             if (!form) return;
 
             if (details.name) {
-                const nomineeNameInput = form.querySelector('input[name="Nominee Name"]');
+                const nomineeNameInput = findFormInputByKeywords(
+                    form,
+                    ['Nominee Name'],
+                    /nominee.*name/i
+                );
                 if (nomineeNameInput) {
                     nomineeNameInput.value = details.name;
                     nomineeNameInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -694,31 +760,38 @@
             }
 
             if (details.dobFull || details.yob) {
-                const safeKey = 'Nominee_DOB';
-                const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
-                const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
-                const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
+                const dmyGroup = form.querySelector('[data-dmy-col="Nominee DOB"]') ||
+                                 form.querySelector('[data-dmy-col*="Nominee"]');
+                if (dmyGroup) {
+                    const colName = dmyGroup.getAttribute('data-dmy-col');
+                    const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
+                    const ddEl = document.getElementById(`dmy_dd_${safeKey}`);
+                    const mmEl = document.getElementById(`dmy_mm_${safeKey}`);
+                    const yyyyEl = document.getElementById(`dmy_yyyy_${safeKey}`);
 
-                if (details.dobFull) {
-                    if (ddEl) ddEl.value = details.dobFull.dd;
-                    if (mmEl) mmEl.value = details.dobFull.mm;
-                    if (yyyyEl) yyyyEl.value = details.dobFull.yyyy;
-                } else if (details.yob && yyyyEl) {
-                    yyyyEl.value = details.yob;
+                    if (details.dobFull) {
+                        if (ddEl) ddEl.value = details.dobFull.dd;
+                        if (mmEl) mmEl.value = details.dobFull.mm;
+                        if (yyyyEl) yyyyEl.value = details.dobFull.yyyy;
+                    } else if (details.yob && yyyyEl) {
+                        yyyyEl.value = details.yob;
+                    }
+
+                    handleDmyInput(safeKey, false);
                 }
-
-                handleDmyInput(safeKey, false);
             }
         }
 
-        // ఎంచుకున్న నంబర్‌ను టార్గెట్ ఇన్‌పుట్ ఫీల్డ్‌లోకి వేయడం
+        // ఎంచుకున్న నంబర్‌ను టార్గెట్ ఇన్‌పుట్ ఫీల్డ్‌లోకి వేయడం (pendingScannedAadhaarDetails ను క్లియర్ చేయకుండా!)
         function selectScannedNumber(numStr) {
             const cleanNum = String(numStr || '').replace(/[^0-9]/g, '');
             if (!activeScanTarget.element || !cleanNum) return;
 
+            isProgrammaticValueSet = true;
             activeScanTarget.element.value = cleanNum;
             activeScanTarget.element.dispatchEvent(new Event('input', { bubbles: true }));
             activeScanTarget.element.dispatchEvent(new Event('change', { bubbles: true }));
+            isProgrammaticValueSet = false;
 
             if (ocrModalInstance) {
                 ocrModalInstance.hide();
@@ -775,19 +848,26 @@
                     document.getElementById('action_type').value = 'update';
                     document.getElementById('row_index').value = result.row_index || '';
                     buildFormFields(result.columns, result.data, aadhar, result.dropdown_data, result.auto_ifsc);
+                    
+                    // పాత రికార్డులో పేరు/DOB ఖాళీగా ఉంటే మాత్రమే స్కాన్ వివరాలు నింపడం
+                    if (pendingScannedAadhaarDetails) {
+                        applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, true);
+                        pendingScannedAadhaarDetails = null;
+                    }
                 } else if (result.status === 'new') {
                     document.getElementById('form_title').innerHTML = `<span class="text-primary">➕ ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. వివరాలు సరిచూసుకొని మార్పులు చేయవచ్చు.</span>`;
                     document.getElementById('action_type').value = 'insert';
                     document.getElementById('row_index').value = '';
                     buildFormFields(result.columns, result.data, aadhar, result.dropdown_data, result.auto_ifsc);
+
+                    // కొత్త ఎంట్రీలో స్కాన్ చేసిన పేరు మరియు DOB కచ్చితంగా నింపడం
+                    if (pendingScannedAadhaarDetails) {
+                        applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, false);
+                        pendingScannedAadhaarDetails = null;
+                    }
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
                     return;
-                }
-
-                if (pendingScannedAadhaarDetails) {
-                    applyAadhaarDetailsToForm(pendingScannedAadhaarDetails);
-                    pendingScannedAadhaarDetails = null;
                 }
 
                 document.getElementById('form_container').style.display = 'block';
@@ -825,7 +905,8 @@
         function createDateDmyHtml(colName, val) {
             const safeKey = colName.replace(/[^a-zA-Z0-9]/g, '_');
             const parts = parseDateParts(val);
-            const onChangeHook = (colName === 'Date OF Birth') ? `oninput="handleDmyInput('${safeKey}', true)"` : `oninput="handleDmyInput('${safeKey}', false)"`;
+            const isMainDob = !/nominee/i.test(colName) && /(birth|dob)/i.test(colName);
+            const onChangeHook = isMainDob ? `oninput="handleDmyInput('${safeKey}', true)"` : `oninput="handleDmyInput('${safeKey}', false)"`;
 
             return `
                 <div class="dmy-group" data-dmy-col="${colName}" id="dmy_group_${safeKey}">
@@ -957,7 +1038,7 @@
                 if (!val && data['8% Of Monthly Wages']) val = Number(data['8% Of Monthly Wages']) * 100 / 8;
                 inputHtml = `<input type="text" class="form-control bg-light" id="monthly_wages_input" name="${col}" value="${val}" readonly>`;
             }
-            else if (col === 'Date OF Birth' || col === 'Nominee DOB') {
+            else if (col === 'Date OF Birth' || col === 'Nominee DOB' || /(birth|dob)/i.test(col)) {
                 inputHtml = createDateDmyHtml(col, val);
             }
             else if (col === 'Age') {
