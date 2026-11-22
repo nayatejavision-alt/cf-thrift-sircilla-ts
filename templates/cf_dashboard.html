@@ -151,7 +151,7 @@
                         <div id="ocrCandidatesList" class="d-flex flex-wrap gap-2"></div>
                     </div>
 
-                    <div class="mb-2">
+                    <div id="ocrManualNumberBox" class="mb-2">
                         <label class="form-label fw-semibold small text-secondary">నంబర్ సరిచూసుకోవడానికి / మార్చుకోవడానికి:</label>
                         <div class="input-group">
                             <input type="text" id="ocrManualPickInput" class="form-control form-control-lg fw-bold" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
@@ -170,11 +170,23 @@
         let ocrModalInstance = null;
         let isProgrammaticValueSet = false;
 
-        // లబ్ధిదారుడు మరియు నామినీ కోసం వేర్వేరు పెండింగ్ ఆధార్ వివరాలు
+        // లబ్ధిదారుడు, నామినీ మరియు అడ్రస్ కోసం పెండింగ్ వివరాలు
         let pendingScannedAadhaarDetails = null;
         let pendingScannedNomineeDetails = null;
+        let pendingScannedAddressDetails = null;
 
         const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
+
+        const KNOWN_DISTRICTS = [
+            'RAJANNA SIRCILLA', 'HYDERABAD', 'KARIMNAGAR', 'WARANGAL', 'NIZAMABAD',
+            'KHAMMAM', 'NALGONDA', 'MEDAK', 'ADILABAD', 'MAHABUBNAGAR',
+            'RANGAREDDY', 'SANGAREDDY', 'SIDDIPET', 'JAGTIAL', 'PEDDAPALLI', 'KAMARREDDY'
+        ];
+
+        const KNOWN_MANDALS = [
+            'SIRCILLA', 'YELLAREDDIPET', 'MUSTABAD', 'GAMBHIRAOPET', 'VEERANAPET',
+            'ELLANTHAKUNTA', 'BOINPALLE', 'THANGALLAPALLY', 'CHANDURTHY', 'RUDRANGI', 'MEERPET'
+        ];
 
         // పేజీ లోడ్ అయిన వెంటనే బ్యాంక్ ఫైల్ నేమ్స్ మరియు వాటి IFSC కోడ్స్ లోడ్ చేయడం
         window.addEventListener('DOMContentLoaded', async () => {
@@ -205,6 +217,7 @@
             inputEl.value = inputEl.value.replace(/[^0-9]/g, '');
             if (!isProgrammaticValueSet) {
                 pendingScannedAadhaarDetails = null;
+                pendingScannedAddressDetails = null;
             }
         }
 
@@ -268,7 +281,7 @@
             return canvas;
         }
 
-        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్ (ఇంగ్లీష్ + తెలుగు లైన్లను హ్యాండిల్ చేస్తుంది)
+        // ఆధార్ కార్డు నుండి ఖచ్చితమైన పేరును వెలికితీసే ఫంక్షన్
         function extractAnchoredAadhaarName(lines) {
             const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు|విశిష్ట|ప్రాధికార|సంస్థ)/i;
             const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co|son\s+of|daughter\s+of|wife\s+of|care\s+of)\b/i;
@@ -279,7 +292,6 @@
                 if (relationPrefixRegex.test(rawLine)) return '';
                 if (/\d/.test(rawLine)) return '';
 
-                // తెలుగు లేదా ఇతర నాన్-ఇంగ్లీష్ అక్షరాలు ఎక్కువగా ఉంటే దాన్ని ఇంగ్లీష్ పేరుగా తీసుకోకూడదు
                 const englishLettersOnly = rawLine.replace(/[^A-Za-z]/g, '');
                 if (englishLettersOnly.length < 3) return '';
 
@@ -300,7 +312,6 @@
                 return cleaned.toUpperCase();
             }
 
-            // 1. "Government of India" లైన్ తర్వాత వెతకడం
             let govAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/government\s*of\s*india|of\s*india|భారత\s*ప్రభుత్వం/i.test(lines[i])) {
@@ -318,7 +329,6 @@
                 }
             }
 
-            // 2. DOB / Year of Birth లైన్‌కు పైనున్న లైన్లలో వెతకడం
             let dobAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/issue\s*date/i.test(lines[i])) continue;
@@ -337,7 +347,6 @@
                 }
             }
 
-            // 3. 12 అంకెల ఆధార్ నంబర్‌కు పైనున్న లైన్లలో వెతకడం
             let aadhaarAnchorIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 const digitsOnly = lines[i].replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -356,6 +365,139 @@
             }
 
             return '';
+        }
+
+        // ఆధార్ వెనుక వైపు (లేదా పూర్తి కార్డు) నుండి అడ్రస్ వివరాలను వెలికితీసే ఫంక్షన్
+        function parseAddressDetailsFromText(rawText) {
+            const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            const joinedUpper = rawText.toUpperCase();
+
+            let houseNo = '';
+            let fatherName = '';
+            let village = '';
+            let mandal = '';
+            let district = '';
+
+            // 1. District గుర్తించడం
+            for (const dist of KNOWN_DISTRICTS) {
+                if (joinedUpper.includes(dist)) {
+                    district = dist;
+                    break;
+                }
+            }
+            if (!district && /SIRCILLA/i.test(joinedUpper)) {
+                district = 'RAJANNA SIRCILLA';
+            }
+
+            // 2. Mandal గుర్తించడం
+            for (const mnd of KNOWN_MANDALS) {
+                const regex = new RegExp(`\\b${mnd}\\b`, 'i');
+                if (regex.test(joinedUpper)) {
+                    mandal = mnd;
+                    break;
+                }
+            }
+
+            // 3. S/O, D/O, W/O, C/O మరియు House No వెలికితీయడం
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+
+                // Father / Husband name (ఉదా: S/O: RAMESH లేదా S/O RAMESH)
+                if (!fatherName) {
+                    const relMatch = line.match(/\b(?:s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|son\s+of|daughter\s+of|wife\s+of|care\s+of)\s*[:\-]?\s*([A-Za-z\s\.]{3,40})/i);
+                    if (relMatch && relMatch[1]) {
+                        const cleanRelName = relMatch[1]
+                            .split(/[,:\-\/]/)[0]
+                            .replace(/[^A-Za-z\s]/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                            .toUpperCase();
+                        if (cleanRelName.length >= 3 && !/(HOUSE|NO|VILLAGE|MANDAL|DISTRICT|PIN|TELANGANA|INDIA)/i.test(cleanRelName)) {
+                            fatherName = cleanRelName;
+                        }
+                    }
+                }
+
+                // House No (ఉదా: 1-23, 4-56/1, H.No 2-10, 12-34A)
+                if (!houseNo) {
+                    const hnoMatch = line.match(/\b(?:h\s*\.?\s*no\.?|house\s*no\.?|d\s*\.?\s*no\.?)?\s*[:\-]?\s*(\d{1,4}[\-\/]\d{1,4}[A-Za-z0-9\/\-]*)\b/i);
+                    if (hnoMatch && hnoMatch[1]) {
+                        // PIN కోడ్ లేదా తేదీ కాకుండా జాగ్రత్త పడటం
+                        const candidateHno = hnoMatch[1].trim();
+                        if (!/^(19\d{2}|20\d{2}|50\d{4})$/.test(candidateHno)) {
+                            houseNo = candidateHno.toUpperCase();
+                        }
+                    }
+                }
+            }
+
+            // House No ఇంకా దొరక్కపోతే అడ్రస్ లైన్లలో మొట్టమొదట వచ్చే చిన్న నంబర్ ప్యాటర్న్ చూడటం
+            if (!houseNo) {
+                for (const line of lines) {
+                    if (/address|చిరునామా|uidai|aadhaar/i.test(line)) continue;
+                    const m = line.match(/\b(\d{1,3}\s*[\-\/]\s*\d{1,3}[A-Za-z0-9\/\-]*)\b/);
+                    if (m && m[1]) {
+                        houseNo = m[1].replace(/\s+/g, '').toUpperCase();
+                        break;
+                    }
+                }
+            }
+
+            // 4. Village / Town Name వెలికితీయడం
+            // ముందుగా Mandal లేదా District ఉన్న లైన్‌కు ముందున్న ఇంగ్లీష్ పదాన్ని లేదా 'Village:' / 'Vill:' పక్కన ఉన్న పేరును చూడటం
+            for (const line of lines) {
+                const villLabelMatch = line.match(/\b(?:vill(?:age)?|town|ward|gp|grama\s*panchayat)\s*[:\-]?\s*([A-Za-z\s]{3,30})/i);
+                if (villLabelMatch && villLabelMatch[1]) {
+                    const vClean = villLabelMatch[1].split(/[,:\-]/)[0].replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+                    if (vClean.length >= 3 && !/(MANDAL|DISTRICT|TELANGANA|INDIA|PIN)/i.test(vClean)) {
+                        village = vClean;
+                        break;
+                    }
+                }
+            }
+
+            if (!village && mandal) {
+                // Mandal కనుగొనబడితే, అదే లైన్‌లో లేదా ముందు లైన్‌లో ఉన్న ఊరు పేరును తీసుకోవడం
+                for (let i = 0; i < lines.length; i++) {
+                    if (new RegExp(`\\b${mandal}\\b`, 'i').test(lines[i])) {
+                        const wordsBefore = lines[i].split(new RegExp(`\\b${mandal}\\b`, 'i'))[0]
+                            .replace(/[^A-Za-z\s]/g, ' ')
+                            .trim()
+                            .split(/\s+/)
+                            .filter(w => w.length >= 3 && !/^(MANDAL|MDL|DIST|DISTRICT|VILL|VILLAGE|WARD|NO|SO|DO|WO|CO)$/i.test(w));
+                        if (wordsBefore.length > 0) {
+                            village = wordsBefore[wordsBefore.length - 1].toUpperCase();
+                            break;
+                        }
+                        if (i > 0) {
+                            const prevWords = lines[i - 1]
+                                .replace(/[^A-Za-z\s]/g, ' ')
+                                .trim()
+                                .split(/\s+/)
+                                .filter(w => w.length >= 3 && !/^(MANDAL|MDL|DIST|DISTRICT|VILL|VILLAGE|WARD|NO|SO|DO|WO|CO)$/i.test(w));
+                            if (prevWords.length > 0) {
+                                village = prevWords[prevWords.length - 1].toUpperCase();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!village && district) {
+                village = district === 'RAJANNA SIRCILLA' ? 'SIRCILLA' : district;
+            }
+
+            const hasAnyAddress = Boolean(houseNo || village || mandal || district || fatherName);
+
+            return {
+                hasAnyAddress,
+                houseNo,
+                village,
+                mandal,
+                district,
+                fatherName
+            };
         }
 
         // ఆధార్ OCR టెక్స్ట్ నుండి వివరాలు వెలికితీసే ఫంక్షన్
@@ -425,6 +567,7 @@
             }
 
             const extractedName = extractAnchoredAadhaarName(lines);
+            const addressDetails = parseAddressDetailsFromText(rawText);
 
             let numbers = Array.from(generalNumbers);
             let exact = false;
@@ -459,7 +602,8 @@
                 numbers,
                 name: extractedName,
                 yob,
-                dobFull
+                dobFull,
+                addressDetails
             };
         }
 
@@ -471,11 +615,15 @@
             const fieldName = activeScanTarget.fieldName;
             const isNomineeScan = (fieldName === 'Nominee Aadhar');
             const isBeneficiaryAadhaarScan = (fieldName === 'Aadhar Number');
+            const isAddressScan = (fieldName === 'Residential Address');
 
             if (isNomineeScan) {
                 pendingScannedNomineeDetails = null;
             } else if (isBeneficiaryAadhaarScan) {
                 pendingScannedAadhaarDetails = null;
+                pendingScannedAddressDetails = null;
+            } else if (isAddressScan) {
+                pendingScannedAddressDetails = null;
             }
 
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
@@ -486,6 +634,7 @@
             document.getElementById('ocrCandidatesSection').style.display = 'none';
             document.getElementById('ocrCandidatesList').innerHTML = '';
             document.getElementById('ocrManualPickInput').value = '';
+            document.getElementById('ocrManualNumberBox').style.display = isAddressScan ? 'none' : 'block';
 
             if (ocrModalInstance) {
                 ocrModalInstance.show();
@@ -519,7 +668,6 @@
             try {
                 document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ సిద్ధమవుతోంది...';
 
-                // ఇంగ్లీష్ + తెలుగు (eng+tel) లోడ్ చేయడం ద్వారా తెలుగు ఆధార్ కార్డులను కూడా సరిగ్గా చదువుతుంది
                 worker = await Tesseract.createWorker('eng+tel', 1, {
                     workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
                     corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
@@ -527,7 +675,15 @@
                 });
 
                 const anglesToTry = [0, 90, 270];
-                let bestParsed = { exact: false, numbers: [], name: '', yob: '', dobFull: null, score: -1 };
+                let bestParsed = {
+                    exact: false,
+                    numbers: [],
+                    name: '',
+                    yob: '',
+                    dobFull: null,
+                    addressDetails: { hasAnyAddress: false, houseNo: '', village: '', mandal: '', district: '', fatherName: '' },
+                    score: -1
+                };
                 const collectedNumbers = new Set();
 
                 for (let idx = 0; idx < anglesToTry.length; idx++) {
@@ -549,6 +705,16 @@
                     if (parsed.exact && parsed.numbers.length > 0) angleScore += 10;
                     if (parsed.yob || parsed.dobFull) angleScore += 5;
                     if (parsed.name) angleScore += 4;
+                    if (parsed.addressDetails && parsed.addressDetails.hasAnyAddress) angleScore += 6;
+
+                    const mergedAddr = {
+                        hasAnyAddress: Boolean((bestParsed.addressDetails && bestParsed.addressDetails.hasAnyAddress) || (parsed.addressDetails && parsed.addressDetails.hasAnyAddress)),
+                        houseNo: (parsed.addressDetails && parsed.addressDetails.houseNo) || (bestParsed.addressDetails && bestParsed.addressDetails.houseNo) || '',
+                        village: (parsed.addressDetails && parsed.addressDetails.village) || (bestParsed.addressDetails && bestParsed.addressDetails.village) || '',
+                        mandal: (parsed.addressDetails && parsed.addressDetails.mandal) || (bestParsed.addressDetails && bestParsed.addressDetails.mandal) || '',
+                        district: (parsed.addressDetails && parsed.addressDetails.district) || (bestParsed.addressDetails && bestParsed.addressDetails.district) || '',
+                        fatherName: (parsed.addressDetails && parsed.addressDetails.fatherName) || (bestParsed.addressDetails && bestParsed.addressDetails.fatherName) || ''
+                    };
 
                     if (angleScore > bestParsed.score) {
                         bestParsed = {
@@ -557,15 +723,20 @@
                             name: parsed.name || bestParsed.name,
                             yob: parsed.yob || bestParsed.yob,
                             dobFull: parsed.dobFull || bestParsed.dobFull,
+                            addressDetails: mergedAddr,
                             score: angleScore
                         };
                     } else {
                         if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
                         if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
                         if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
+                        bestParsed.addressDetails = mergedAddr;
                     }
 
-                    if (bestParsed.exact && bestParsed.name && bestParsed.yob) {
+                    if (isAddressScan && bestParsed.addressDetails.houseNo && bestParsed.addressDetails.mandal) {
+                        break;
+                    }
+                    if (!isAddressScan && bestParsed.exact && bestParsed.name && bestParsed.yob) {
                         break;
                     }
                 }
@@ -575,6 +746,35 @@
                 URL.revokeObjectURL(objectUrl);
 
                 document.getElementById('ocrSpinner').style.display = 'none';
+
+                // అడ్రస్ వివరాలను ఫారమ్‌లో నింపడం
+                if (bestParsed.addressDetails && bestParsed.addressDetails.hasAnyAddress) {
+                    pendingScannedAddressDetails = bestParsed.addressDetails;
+                    applyAddressDetailsToForm(pendingScannedAddressDetails, !isAddressScan);
+                }
+
+                // అడ్రస్ స్కాన్ అయితే సమ్మరీ చూపించి పూర్తి చేయడం
+                if (isAddressScan) {
+                    const addr = bestParsed.addressDetails || {};
+                    const summaryBox = document.getElementById('ocrExtractedSummary');
+                    summaryBox.style.display = 'block';
+                    if (addr.hasAnyAddress) {
+                        document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
+                        document.getElementById('ocrStatusText').textContent = 'అడ్రస్ వివరాలు ఫారమ్‌లో నింపబడ్డాయి! ఒకసారి సరిచూసుకోండి:';
+                        summaryBox.innerHTML = `
+                            <div class="fw-bold text-success mb-2">✅ గుర్తించిన అడ్రస్ వివరాలు:</div>
+                            ${addr.houseNo ? `<div><strong>ఇంటి నంబర్ (H.No):</strong> ${addr.houseNo}</div>` : ''}
+                            ${addr.fatherName ? `<div><strong>తండ్రి/భర్త పేరు:</strong> ${addr.fatherName}</div>` : ''}
+                            ${addr.village ? `<div><strong>గ్రామం (Village):</strong> ${addr.village}</div>` : ''}
+                            ${addr.mandal ? `<div><strong>మండలం (Mandal):</strong> ${addr.mandal}</div>` : ''}
+                            ${addr.district ? `<div><strong>జిల్లా (District):</strong> ${addr.district}</div>` : ''}
+                        `;
+                    } else {
+                        document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-3';
+                        document.getElementById('ocrStatusText').textContent = 'అడ్రస్ స్పష్టంగా కనబడలేదు. వెనుక వైపు ఫోటోను స్పష్టంగా తీసి మళ్లీ ప్రయత్నించండి.';
+                    }
+                    return;
+                }
 
                 const finalNumbers = bestParsed.numbers.length > 0 ? bestParsed.numbers : Array.from(collectedNumbers);
                 const isAadhaarScan = (isBeneficiaryAadhaarScan || isNomineeScan);
@@ -591,7 +791,6 @@
                         applyNomineeDetailsToForm(pendingScannedNomineeDetails);
                     } else {
                         pendingScannedAadhaarDetails = detailsObj;
-                        // ఫారమ్ ఇప్పటికే ఓపెన్ అయి ఉంటే వెంటనే నింపుతుంది, లేదంటే సెర్చ్ నొక్కినప్పుడు నింపుతుంది
                         applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, false);
                     }
 
@@ -611,10 +810,8 @@
                     `;
                 }
 
-                // ఒకే ఒక్క నంబర్ దొరికినా, పేరు సరిచూసుకోవడానికి వీలుగా కనీసం 1.2 సెకన్లు చూపించి ఆటో-సెలెక్ట్ చేస్తుంది (లేదా పేరు దొరకకపోతే మోడల్ ఉంచుతుంది)
                 if (bestParsed.exact && finalNumbers.length === 1) {
                     if (isAadhaarScan && !bestParsed.name) {
-                        // పేరు దొరకకపోతే యూజర్ మోడల్‌లో పేరు టైప్ చేసి సెలెక్ట్ చేసేలా ఉంచడం
                         document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
                         document.getElementById('ocrStatusText').textContent = 'ఆధార్ నంబర్ గుర్తించబడింది! పైన పేరు సరిచూసి కింది బటన్ నొక్కండి:';
                         document.getElementById('ocrManualPickInput').value = finalNumbers[0];
@@ -655,7 +852,72 @@
             }
         }
 
-        // మోడల్‌లో పేరును ఎడిట్ చేసినప్పుడు ఫారమ్ మరియు పెండింగ్ ఆబ్జెక్ట్‌లో అప్‌డేట్ చేసే ఫంక్షన్
+        // అడ్రస్ వివరాలను ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
+        function applyAddressDetailsToForm(addr, onlyIfEmpty = true) {
+            if (!addr) return;
+            const form = document.getElementById('dynamic_beneficiary_form');
+            const formContainer = document.getElementById('form_container');
+            if (!form || !formContainer || formContainer.style.display === 'none') return;
+
+            if (addr.houseNo) {
+                const hnoInput = findFormInputByKeywords(
+                    form,
+                    ['H.NO. Residentional H.No', 'H.NO. Residential H.No', 'H.No'],
+                    /residentional.*h\.?no|residential.*h\.?no/i
+                );
+                if (hnoInput && (!onlyIfEmpty || !hnoInput.value.trim())) {
+                    hnoInput.value = addr.houseNo;
+                    hnoInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
+            if (addr.fatherName) {
+                const fatherInput = findFormInputByKeywords(
+                    form,
+                    ['Father Name', 'Father / Husband Name'],
+                    /father.*name/i
+                );
+                if (fatherInput && (!onlyIfEmpty || !fatherInput.value.trim())) {
+                    fatherInput.value = addr.fatherName;
+                    fatherInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
+            if (addr.village) {
+                const villInput = findFormInputByKeywords(
+                    form,
+                    ['VILLAGE NAME', 'Village Name'],
+                    /village.*name/i
+                );
+                if (villInput && (!onlyIfEmpty || !villInput.value.trim())) {
+                    villInput.value = addr.village;
+                    villInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
+            if (addr.mandal) {
+                const mandalSelect = form.querySelector('select[name="MANDAL NAME"]');
+                if (mandalSelect) {
+                    const opt = Array.from(mandalSelect.options).find(o => o.value.toUpperCase() === addr.mandal.toUpperCase());
+                    if (opt) {
+                        mandalSelect.value = opt.value;
+                        mandalSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            }
+
+            if (addr.district) {
+                const distSelect = form.querySelector('select[name="DISTRICT NAME"]');
+                if (distSelect) {
+                    const opt = Array.from(distSelect.options).find(o => o.value.toUpperCase() === addr.district.toUpperCase());
+                    if (opt) {
+                        distSelect.value = opt.value;
+                        distSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            }
+        }
+
         function updateEditedOcrName(newName, isNominee) {
             const cleaned = newName.toUpperCase();
             if (isNominee) {
@@ -669,7 +931,6 @@
             }
         }
 
-        // ఫారమ్‌లో పేరు ఇన్‌పుట్ ఫీల్డ్‌ను ఫ్లెక్సిబుల్‌గా కనుగొనే హెల్పర్
         function findFormInputByKeywords(form, exactNames, keywordRegex) {
             for (const name of exactNames) {
                 const exactEl = form.querySelector(`input[name="${name}"]`);
@@ -682,7 +943,6 @@
             return null;
         }
 
-        // లబ్ధిదారుని పేరు మరియు పుట్టిన సంవత్సరం/తేదీని ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
         function applyAadhaarDetailsToForm(details, onlyIfEmpty = false) {
             if (!details) return;
             const form = document.getElementById('dynamic_beneficiary_form');
@@ -702,7 +962,6 @@
             }
 
             if (details.dobFull || details.yob) {
-                // Date OF Birth లేదా DOB గ్రూప్‌ను కనుగొనడం
                 let dmyGroup = form.querySelector('[data-dmy-col="Date OF Birth"]') ||
                                form.querySelector('[data-dmy-col="Date of Birth"]') ||
                                form.querySelector('[data-dmy-col="DOB"]');
@@ -741,7 +1000,6 @@
             }
         }
 
-        // నామినీ పేరు మరియు నామినీ DOB ను ఫారమ్ ఫీల్డ్స్‌లో నింపే ఫంక్షన్
         function applyNomineeDetailsToForm(details) {
             if (!details) return;
             const form = document.getElementById('dynamic_beneficiary_form');
@@ -782,7 +1040,6 @@
             }
         }
 
-        // ఎంచుకున్న నంబర్‌ను టార్గెట్ ఇన్‌పుట్ ఫీల్డ్‌లోకి వేయడం (pendingScannedAadhaarDetails ను క్లియర్ చేయకుండా!)
         function selectScannedNumber(numStr) {
             const cleanNum = String(numStr || '').replace(/[^0-9]/g, '');
             if (!activeScanTarget.element || !cleanNum) return;
@@ -803,7 +1060,6 @@
             selectScannedNumber(val);
         }
 
-        // File Name మారినప్పుడు ఫారమ్‌లోని IFSC code మరియు FILE NAME ను ఆటోమేటిక్‌గా అప్‌డేట్ చేయడం
         function onFileNameChanged() {
             const selectedFile = document.getElementById('file_name_select').value;
             const autoIfsc = (selectedFile && fileIfscMap[selectedFile]) ? fileIfscMap[selectedFile] : '';
@@ -819,7 +1075,6 @@
             }
         }
 
-        // ఆధార్ సెర్చ్ ఫంక్షన్
         async function searchAadhar() {
             const fileName = document.getElementById('file_name_select').value;
             if (!fileName) {
@@ -849,10 +1104,13 @@
                     document.getElementById('row_index').value = result.row_index || '';
                     buildFormFields(result.columns, result.data, aadhar, result.dropdown_data, result.auto_ifsc);
                     
-                    // పాత రికార్డులో పేరు/DOB ఖాళీగా ఉంటే మాత్రమే స్కాన్ వివరాలు నింపడం
                     if (pendingScannedAadhaarDetails) {
                         applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, true);
                         pendingScannedAadhaarDetails = null;
+                    }
+                    if (pendingScannedAddressDetails) {
+                        applyAddressDetailsToForm(pendingScannedAddressDetails, true);
+                        pendingScannedAddressDetails = null;
                     }
                 } else if (result.status === 'new') {
                     document.getElementById('form_title').innerHTML = `<span class="text-primary">➕ ఇది కొత్త ఎంట్రీ (New Entry) కింద సేవ్ అవుతుంది. వివరాలు సరిచూసుకొని మార్పులు చేయవచ్చు.</span>`;
@@ -860,10 +1118,13 @@
                     document.getElementById('row_index').value = '';
                     buildFormFields(result.columns, result.data, aadhar, result.dropdown_data, result.auto_ifsc);
 
-                    // కొత్త ఎంట్రీలో స్కాన్ చేసిన పేరు మరియు DOB కచ్చితంగా నింపడం
                     if (pendingScannedAadhaarDetails) {
                         applyAadhaarDetailsToForm(pendingScannedAadhaarDetails, false);
                         pendingScannedAadhaarDetails = null;
+                    }
+                    if (pendingScannedAddressDetails) {
+                        applyAddressDetailsToForm(pendingScannedAddressDetails, true);
+                        pendingScannedAddressDetails = null;
                     }
                 } else {
                     alert(result.message || 'ఏదో లోపం జరిగింది!');
@@ -1043,6 +1304,14 @@
             }
             else if (col === 'Age') {
                 inputHtml = `<input type="text" class="form-control bg-light" id="age_input" name="${col}" value="${val}" readonly>`;
+            }
+            else if (col === 'H.NO. Residentional H.No' || /residentional.*h\.?no|residential.*h\.?no/i.test(col)) {
+                inputHtml = `
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="${col}" value="${val}" placeholder="ఇంటి నంబర్...">
+                        <button type="button" class="btn btn-outline-success scan-btn" onclick="triggerCameraScan(this.previousElementSibling, 'Residential Address')">📷 అడ్రస్ స్కాన్</button>
+                    </div>
+                `;
             }
             else if (['Village', 'Area', 'Unit Owner', 'H.NO. Unit H.No', 'Relation', 'VILLAGE NAME'].includes(col)) {
                 let datalistId = `list_${col.replace(/[^a-zA-Z0-9]/g, '_')}`;
