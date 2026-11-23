@@ -104,7 +104,7 @@
             <!-- ఆధార్ సెర్చ్ ఇన్‌పుట్ -->
             <div class="input-group mb-3">
                 <input type="text" id="search_aadhar" class="form-control form-control-lg" placeholder="ఆధార్ నంబర్ ఎంటర్ చేయండి..." maxlength="12" oninput="handleSearchAadharManualInput(this)" onkeypress="if(event.key === 'Enter') searchAadhar();">
-                <button class="btn btn-outline-primary px-3 fw-bold" type="button" onclick="triggerCameraScan('search_aadhar', 'Aadhar Number')">📷 స్కాన్</button>
+                <button class="btn btn-outline-primary px-3 fw-bold" type="button" onclick="triggerCameraScan('search_aadhar', 'Aadhar Number')">📷 ఆధార్ స్కాన్</button>
                 <button class="btn btn-primary px-4 fw-bold" onclick="searchAadhar()">సెర్చ్ చేయి</button>
             </div>
         </div>
@@ -141,7 +141,7 @@
                 <div class="modal-body">
                     <div id="ocrStatusBox" class="alert alert-info py-2 small mb-3 d-flex align-items-center gap-2">
                         <div class="spinner-border spinner-border-sm text-primary" id="ocrSpinner" role="status"></div>
-                        <span id="ocrStatusText">ఫోటో నుండి వివరాలను ఆటోమేటిక్‌గా చదువుతోంది...</span>
+                        <span id="ocrStatusText">ఫోటో నుండి వివరాలను వేగంగా చదువుతోంది...</span>
                     </div>
 
                     <div id="ocrExtractedSummary" class="bg-light border rounded-3 p-3 mb-3 small" style="display: none;"></div>
@@ -174,6 +174,10 @@
         let pendingScannedNomineeDetails = null;
         let pendingScannedAddressDetails = null;
 
+        // Cached Tesseract workers for speed
+        let digitWorker = null;
+        let textWorker = null;
+
         const SCANNABLE_FIELDS = ['Aadhar Number', 'Bank Account Number', 'Contact Number', 'Nominee Aadhar'];
 
         const KNOWN_DISTRICTS = [
@@ -188,7 +192,7 @@
         ];
 
         const STATE_AND_JUNK_WORDS = [
-            'TELANGANA', 'ANDHRA PRADESH', 'INDIA', 'ADDRESS', 'C/O', 'S/O', 'D/O', 'W/O',
+            'TELANGANA', 'ANDHRA PRADESH', 'INDIA', 'ADDRESS', 'TO', 'C/O', 'S/O', 'D/O', 'W/O',
             'PRINT DATE', 'UIDAI', 'AADHAAR', 'AADHAR', 'PIN', 'PINCODE'
         ];
 
@@ -236,8 +240,9 @@
             fileInput.click();
         }
 
-        function buildProcessedCanvas(img, angleDeg) {
-            const maxDim = 1250;
+        // వేగవంతమైన మరియు తక్కువ వెలుతురు (Low-light) లోనూ పనిచేసే ఇమేజ్ ప్రాసెసింగ్
+        function buildProcessedCanvas(img, angleDeg, mode = 'text') {
+            const maxDim = (mode === 'digits') ? 1050 : 1150;
             const origW = img.naturalWidth || img.width;
             const origH = img.naturalHeight || img.height;
             const scale = Math.max(origW, origH) > maxDim ? (maxDim / Math.max(origW, origH)) : 1;
@@ -268,13 +273,33 @@
             ctx.drawImage(img, 0, 0, w, h);
             ctx.restore();
 
+            // Auto-stretch min/max brightness for low light + contrast boost
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const d = imgData.data;
-            const contrast = 1.35;
-            const intercept = 128 * (1 - contrast);
+            let minVal = 255;
+            let maxVal = 0;
+
             for (let i = 0; i < d.length; i += 4) {
                 const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-                const adj = Math.min(255, Math.max(0, gray * contrast + intercept));
+                if (gray < minVal) minVal = gray;
+                if (gray > maxVal) maxVal = gray;
+            }
+
+            const range = Math.max(30, maxVal - minVal);
+            const contrast = (mode === 'digits') ? 1.45 : 1.3;
+            const intercept = 128 * (1 - contrast);
+
+            for (let i = 0; i < d.length; i += 4) {
+                const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+                // Normalize low light to full 0-255 range
+                const norm = ((gray - minVal) / range) * 255;
+                let adj = Math.min(255, Math.max(0, norm * contrast + intercept));
+
+                if (mode === 'digits') {
+                    // Slight soft threshold to separate handwritten/printed ink from dark/dim paper
+                    adj = adj < 145 ? Math.max(0, adj * 0.65) : Math.min(255, 180 + (adj - 145) * 0.65);
+                }
+
                 d[i] = d[i + 1] = d[i + 2] = adj;
             }
             ctx.putImageData(imgData, 0, 0);
@@ -282,18 +307,39 @@
             return canvas;
         }
 
-        function extractAnchoredAadhaarName(lines) {
-            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|भारत|सरकार|భారత|ప్రభుత్వం|ఆధార్|పుట్టిన|సంవత్సరం|గుర్తింపు|విశిష్ట|ప్రాధికార|సంస్థ)/i;
-            const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co|son\s+of|daughter\s+of|wife\s+of|care\s+of)\b/i;
+        async function getDigitWorker() {
+            if (digitWorker) return digitWorker;
+            digitWorker = await Tesseract.createWorker('eng', 1, {
+                workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+                corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
+                langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+            });
+            await digitWorker.setParameters({
+                tessedit_char_whitelist: '0123456789 '
+            });
+            return digitWorker;
+        }
+
+        async function getTextWorker() {
+            if (textWorker) return textWorker;
+            textWorker = await Tesseract.createWorker('eng', 1, {
+                workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+                corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
+                langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+            });
+            return textWorker;
+        }
+
+        // DOB కంటే పైన ఉండే పేరును గుర్తించే ఫంక్షన్ (లబ్ధిదారుని పేరు / నామినీ పేరు కోసం)
+        function extractNameAboveDob(lines) {
+            const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|care\s+of|son\s+of|daughter\s+of|wife\s+of)/i;
+            const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co)\b/i;
 
             function isValidPersonName(rawLine) {
                 if (!rawLine) return '';
                 if (nonNameKeywords.test(rawLine)) return '';
                 if (relationPrefixRegex.test(rawLine)) return '';
                 if (/\d/.test(rawLine)) return '';
-
-                const englishLettersOnly = rawLine.replace(/[^A-Za-z]/g, '');
-                if (englishLettersOnly.length < 3) return '';
 
                 const cleaned = rawLine.replace(/[^A-Za-z\s\.]/g, ' ')
                                        .replace(/\./g, ' ')
@@ -305,69 +351,44 @@
 
                 const words = cleaned.split(' ').filter(Boolean);
                 if (words.length < 1 || words.length > 6) return '';
-
-                const hasSubstantialWord = words.some(w => w.length >= 3);
-                if (!hasSubstantialWord) return '';
+                if (!words.some(w => w.length >= 3)) return '';
 
                 return cleaned.toUpperCase();
             }
 
-            let govAnchorIdx = -1;
-            for (let i = 0; i < lines.length; i++) {
-                if (/government\s*of\s*india|of\s*india|భారత\s*ప్రభుత్వం/i.test(lines[i])) {
-                    govAnchorIdx = i;
-                    break;
-                }
-            }
-
-            if (govAnchorIdx >= 0) {
-                const startIdx = govAnchorIdx + 1;
-                const endIdx = Math.min(lines.length, govAnchorIdx + 7);
-                for (let i = startIdx; i < endIdx; i++) {
-                    const validName = isValidPersonName(lines[i]);
-                    if (validName) return validName;
-                }
-            }
-
-            let dobAnchorIdx = -1;
+            // 1. ముందుగా DOB / పుట్టిన తేదీ / సంవత్సరం ఉన్న లైన్‌ను కనుగొని, దానికి పైన ఉన్న లైన్లలో పేరు వెతకడం
+            let dobIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/issue\s*date/i.test(lines[i])) continue;
-                if (/(year\s*of\s*birth|yob|dob|date\s*of\s*birth|సంవత్సరం|పుట్టిన)/i.test(lines[i]) ||
+                if (/(year\s*of\s*birth|yob|dob|date\s*of\s*birth|birth)/i.test(lines[i]) ||
                     /\b\d{1,2}[\/\-]\d{1,2}[\/\-](19\d{2}|20\d{2})\b/.test(lines[i])) {
-                    dobAnchorIdx = i;
+                    dobIdx = i;
                     break;
                 }
             }
 
-            if (dobAnchorIdx > 0) {
-                const minIdx = Math.max(0, dobAnchorIdx - 4);
-                for (let i = dobAnchorIdx - 1; i >= minIdx; i--) {
-                    const validName = isValidPersonName(lines[i]);
-                    if (validName) return validName;
+            if (dobIdx > 0) {
+                const start = Math.max(0, dobIdx - 4);
+                for (let i = dobIdx - 1; i >= start; i--) {
+                    const candidate = isValidPersonName(lines[i]);
+                    if (candidate) return candidate;
                 }
             }
 
-            let aadhaarAnchorIdx = -1;
+            // 2. DOB దొరకకపోతే Government of India తర్వాత లేదా ఆధార్ నంబర్ పైన ఉన్న పేరు వెతకడం
             for (let i = 0; i < lines.length; i++) {
-                const digitsOnly = lines[i].replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (/\b\d{4}\s?\d{4}\s?\d{4}\b/.test(digitsOnly)) {
-                    aadhaarAnchorIdx = i;
-                    break;
-                }
-            }
-
-            if (aadhaarAnchorIdx > 0) {
-                const minIdx = Math.max(0, aadhaarAnchorIdx - 7);
-                for (let i = aadhaarAnchorIdx - 1; i >= minIdx; i--) {
-                    const validName = isValidPersonName(lines[i]);
-                    if (validName) return validName;
+                if (/government\s*of\s*india|of\s*india/i.test(lines[i])) {
+                    for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
+                        const candidate = isValidPersonName(lines[j]);
+                        if (candidate) return candidate;
+                    }
                 }
             }
 
             return '';
         }
 
-        // Address బ్లాక్ (C/O -> H.No -> Area -> Village -> District -> State/PIN) ను కచ్చితంగా పార్స్ చేసే ఫంక్షన్
+        // అడ్రస్ స్కాన్ ("TO" లేదా "Address" లేదా "C/O" ఆధారంగా విడిగా పార్స్ చేయడం)
         function parseAddressDetailsFromText(rawText) {
             const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
             const joinedUpper = rawText.toUpperCase();
@@ -379,41 +400,40 @@
             let mandal = '';
             let district = '';
 
-            // 1. Address బ్లాక్‌ను గుర్తించడం ("Address:" లేదా "C/O:" లేదా "చిరునామా:" తర్వాత ఉన్న లైన్లు)
+            // TO లేదా Address లేదా C/O లేదా చిరునామా ఎక్కడ మొదలైందో గుర్తించడం
             let addrStartIdx = -1;
             for (let i = 0; i < lines.length; i++) {
-                if (/\baddress\b\s*[:\-]?/i.test(lines[i]) || /\bc\s*\/\s*o\b/i.test(lines[i]) || /చిరునామా/i.test(lines[i])) {
+                if (/^\s*(to|address|చిరునామా)\b/i.test(lines[i]) || /\baddress\b\s*[:\-]/i.test(lines[i]) || /\bc\s*\/\s*o\b/i.test(lines[i])) {
                     addrStartIdx = i;
                     break;
                 }
             }
 
             const addrLines = addrStartIdx >= 0
-                ? lines.slice(addrStartIdx, Math.min(lines.length, addrStartIdx + 6))
+                ? lines.slice(addrStartIdx, Math.min(lines.length, addrStartIdx + 7))
                 : lines;
 
             const addrBlockText = addrLines.join(', ');
 
-            // 2. C/O, S/O, D/O, W/O తర్వాత ఉండే Father Name వెలికితీయడం
+            // C/O, S/O, D/O, W/O తర్వాత ఉండే పేరు
             const coMatch = addrBlockText.match(/\b(?:c\s*\/\s*o|s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|care\s+of|son\s+of|daughter\s+of|wife\s+of)\s*[:\-]?\s*([A-Za-z\s\.]{3,40})/i);
             if (coMatch && coMatch[1]) {
                 const rawFather = coMatch[1].split(',')[0].replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (rawFather.length >= 3 && !/^(ADDRESS|HOUSE|NO|VILLAGE|MANDAL|DISTRICT|TELANGANA|INDIA)$/i.test(rawFather)) {
+                if (rawFather.length >= 3 && !/^(ADDRESS|TO|HOUSE|NO|VILLAGE|MANDAL|DISTRICT|TELANGANA|INDIA)$/i.test(rawFather)) {
                     fatherName = rawFather.toUpperCase();
                 }
             }
 
-            // 3. House No వెలికితీయడం (ఉదా: 1-374, 12-34/5, 4-56A)
+            // House No (ఉదా: 1-374, 12-34/5, 4-56A)
             const hnoMatch = addrBlockText.match(/\b(\d{1,4}\s*[\-\/]\s*\d{1,4}[A-Za-z0-9\/\-]*)\b/);
             if (hnoMatch && hnoMatch[1]) {
                 const cand = hnoMatch[1].replace(/\s+/g, '').toUpperCase();
-                // 6-digit PIN లేదా year కాకుండా చూసుకోవడం
                 if (!/^\d{6}$/.test(cand) && !/^(19\d{2}|20\d{2})$/.test(cand)) {
                     houseNo = cand;
                 }
             }
 
-            // 4. District గుర్తించడం (తెలంగాణ/ఆంధ్రప్రదేశ్ రాష్ట్ర పేర్లకు ముందున్న జిల్లా లేదా KNOWN_DISTRICTS)
+            // District గుర్తించడం
             for (const dist of KNOWN_DISTRICTS) {
                 const dRegex = new RegExp(`\\b${dist}\\b`, 'i');
                 if (dRegex.test(addrBlockText) || dRegex.test(joinedUpper)) {
@@ -422,7 +442,6 @@
                 }
             }
 
-            // KNOWN_DISTRICTS లో లేకపోతే, Telangana లేదా Andhra Pradesh ముందున్న పదాన్ని జిల్లాగా తీసుకోవడం
             if (!district) {
                 const stateBeforeMatch = addrBlockText.match(/([A-Za-z\s]{3,25})\s*,?\s*\b(?:TELANGANA|ANDHRA\s*PRADESH)\b/i);
                 if (stateBeforeMatch && stateBeforeMatch[1]) {
@@ -434,14 +453,13 @@
                 }
             }
 
-            // 5. కామా (,) తో వేరు చేసిన అడ్రస్ భాగాల నుండి Village/Town మరియు Area వెలికితీయడం
-            // ఉదా: "Address: C/O: Gajula Srikanth, 1-374, INDIRAMMA COLONY, Mandepalle, Karimnagar, Telangana, 505405"
+            // కామా/లైన్ భాగాల నుండి Village/Town మరియు Area వెలికితీయడం
             let cleanedAddressForSplit = addrBlockText
-                .replace(/^\s*(?:address|చిరునామా)\s*[:\-]?\s*/i, '')
+                .replace(/^\s*(?:to|address|చిరునామా)\s*[:\-]?\s*/i, '')
                 .replace(/\b(?:c\s*\/\s*o|s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o)\s*[:\-]?\s*[A-Za-z\s\.]+/i, '')
-                .replace(/\b\d{6}\b/g, '') // 6-digit PIN తొలగించడం
-                .replace(/\b(?:TELANGANA|ANDHRA\s*PRADESH|INDIA)\b/gi, '') // State తొలగించడం
-                .replace(/\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b/g, ''); // Print Date తొలగించడం
+                .replace(/\b\d{6}\b/g, '')
+                .replace(/\b(?:TELANGANA|ANDHRA\s*PRADESH|INDIA)\b/gi, '')
+                .replace(/\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b/g, '');
 
             if (houseNo) {
                 cleanedAddressForSplit = cleanedAddressForSplit.replace(new RegExp(houseNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
@@ -460,7 +478,6 @@
                     return true;
                 });
 
-            // చివరిగా మిగిలే ఊరు/పట్టణం పేరు (సాధారణంగా District కంటే ముందు ఉండేది Village/Town)
             if (rawSegments.length >= 2) {
                 areaName = rawSegments[rawSegments.length - 2].toUpperCase();
                 village = rawSegments[rawSegments.length - 1].toUpperCase();
@@ -468,7 +485,6 @@
                 village = rawSegments[0].toUpperCase();
             }
 
-            // 6. Mandal గుర్తించడం (అడ్రస్‌లో KNOWN_MANDALS ఉంటే దాన్ని మండలంగా తీసుకోవడం)
             for (const mnd of KNOWN_MANDALS) {
                 const mRegex = new RegExp(`\\b${mnd}\\b`, 'i');
                 if (mRegex.test(addrBlockText)) {
@@ -490,10 +506,12 @@
             };
         }
 
-        function parseAadhaarDetailsFromText(rawText, fieldName) {
+        // నంబర్లను (ఆధార్, నామినీ ఆధార్, కాంటాక్ట్, బ్యాంక్ అకౌంట్) వేరు చేసే ఫంక్షన్
+        function extractNumbersFromText(rawText, fieldName) {
             const spacedAadhaar = [];
-            const generalNumbers = new Set();
+            const allDigitSequences = new Set();
 
+            // 1. 4-4-4 ఆధార్ నంబర్లు (పెద్ద అక్షరాలతో స్పేస్‌తో ఉండేవి)
             const aadhaarPattern = /\b(\d{4})[\s\-]+(\d{4})[\s\-]+(\d{4})\b/g;
             let match;
             while ((match = aadhaarPattern.exec(rawText)) !== null) {
@@ -501,64 +519,21 @@
                 if (!spacedAadhaar.includes(clean12)) {
                     spacedAadhaar.push(clean12);
                 }
-                generalNumbers.add(clean12);
+                allDigitSequences.add(clean12);
             }
 
-            const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            // 2. అన్ని అంకెల సమూహాలు
+            const lines = rawText.split(/\r?\n/);
             for (const line of lines) {
-                const lineSpaced = line.replace(/[^0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                const mLine = lineSpaced.match(/\b(\d{4})\s+(\d{4})\s+(\d{4})\b/);
-                if (mLine) {
-                    const c = `${mLine[1]}${mLine[2]}${mLine[3]}`;
-                    if (!spacedAadhaar.includes(c)) spacedAadhaar.push(c);
-                    generalNumbers.add(c);
+                const compactLine = line.replace(/[^0-9]/g, '');
+                if (compactLine.length >= 6) {
+                    allDigitSequences.add(compactLine);
                 }
-                const groups = line.match(/\d{6,18}/g) || [];
-                groups.forEach(g => generalNumbers.add(g));
+                const chunks = line.match(/\d{6,18}/g) || [];
+                chunks.forEach(c => allDigitSequences.add(c));
             }
 
-            let yob = '';
-            let dobFull = null;
-
-            for (const line of lines) {
-                if (/issue\s*date/i.test(line)) continue;
-                const dMatch = line.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
-                if (dMatch) {
-                    const dNum = parseInt(dMatch[1], 10);
-                    const mNum = parseInt(dMatch[2], 10);
-                    const yNum = parseInt(dMatch[3], 10);
-                    if (dNum >= 1 && dNum <= 31 && mNum >= 1 && mNum <= 12 && yNum >= 1915 && yNum <= 2025) {
-                        dobFull = {
-                            dd: String(dNum).padStart(2, '0'),
-                            mm: String(mNum).padStart(2, '0'),
-                            yyyy: String(yNum)
-                        };
-                        yob = String(yNum);
-                        break;
-                    }
-                }
-            }
-
-            if (!yob) {
-                for (const line of lines) {
-                    if (/issue\s*date/i.test(line)) continue;
-                    if (/year\s*of\s*birth|yob|birth|dob|సంవత్సరం|పుట్టిన/i.test(line)) {
-                        const yrMatch = line.match(/\b(19\d{2}|20\d{2})\b/);
-                        if (yrMatch) {
-                            const yCandidate = parseInt(yrMatch[1], 10);
-                            if (yCandidate >= 1915 && yCandidate <= 2025) {
-                                yob = String(yCandidate);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            const extractedName = extractAnchoredAadhaarName(lines);
-            const addressDetails = parseAddressDetailsFromText(rawText);
-
-            let numbers = Array.from(generalNumbers);
+            let numbers = Array.from(allDigitSequences);
             let exact = false;
 
             if (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar') {
@@ -586,14 +561,44 @@
                 }
             }
 
-            return {
-                exact,
-                numbers,
-                name: extractedName,
-                yob,
-                dobFull,
-                addressDetails
-            };
+            return { exact, numbers };
+        }
+
+        function extractDobFromLines(lines) {
+            for (const line of lines) {
+                if (/issue\s*date/i.test(line)) continue;
+                const dMatch = line.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
+                if (dMatch) {
+                    const dNum = parseInt(dMatch[1], 10);
+                    const mNum = parseInt(dMatch[2], 10);
+                    const yNum = parseInt(dMatch[3], 10);
+                    if (dNum >= 1 && dNum <= 31 && mNum >= 1 && mNum <= 12 && yNum >= 1915 && yNum <= 2025) {
+                        return {
+                            yob: String(yNum),
+                            dobFull: {
+                                dd: String(dNum).padStart(2, '0'),
+                                mm: String(mNum).padStart(2, '0'),
+                                yyyy: String(yNum)
+                            }
+                        };
+                    }
+                }
+            }
+
+            for (const line of lines) {
+                if (/issue\s*date/i.test(line)) continue;
+                if (/year\s*of\s*birth|yob|birth|dob/i.test(line)) {
+                    const yrMatch = line.match(/\b(19\d{2}|20\d{2})\b/);
+                    if (yrMatch) {
+                        const yCandidate = parseInt(yrMatch[1], 10);
+                        if (yCandidate >= 1915 && yCandidate <= 2025) {
+                            return { yob: String(yCandidate), dobFull: null };
+                        }
+                    }
+                }
+            }
+
+            return { yob: '', dobFull: null };
         }
 
         async function handleCapturedImage(event) {
@@ -604,6 +609,7 @@
             const isNomineeScan = (fieldName === 'Nominee Aadhar');
             const isBeneficiaryAadhaarScan = (fieldName === 'Aadhar Number');
             const isAddressScan = (fieldName === 'Residential Address');
+            const isDigitOnlyField = (fieldName === 'Contact Number' || fieldName === 'Bank Account Number');
 
             if (isNomineeScan) {
                 pendingScannedNomineeDetails = null;
@@ -617,7 +623,7 @@
             document.getElementById('ocrModalTitle').textContent = `📷 ${fieldName} స్కాన్`;
             document.getElementById('ocrStatusBox').className = 'alert alert-info py-2 small mb-3 d-flex align-items-center gap-2';
             document.getElementById('ocrSpinner').style.display = 'inline-block';
-            document.getElementById('ocrStatusText').textContent = 'ఫోటో లోడ్ అవుతోంది, దయచేసి వేచి ఉండండి...';
+            document.getElementById('ocrStatusText').textContent = 'ఫోటోను వేగంగా ప్రాసెస్ చేస్తోంది...';
             document.getElementById('ocrExtractedSummary').style.display = 'none';
             document.getElementById('ocrCandidatesSection').style.display = 'none';
             document.getElementById('ocrCandidatesList').innerHTML = '';
@@ -648,131 +654,107 @@
                 URL.revokeObjectURL(objectUrl);
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
-                document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ లోడ్ కాలేదు. మీ ఇంటర్నెట్ కనెక్షన్ చెక్ చేసి పేజీని రీలోడ్ చేయండి.';
+                document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ లోడ్ కాలేదు. ఇంటర్నెట్ చెక్ చేసి పేజీని రీలోడ్ చేయండి.';
                 return;
             }
 
-            let worker = null;
             try {
-                document.getElementById('ocrStatusText').textContent = 'OCR ఇంజిన్ సిద్ధమవుతోంది...';
-
-                worker = await Tesseract.createWorker('eng+tel', 1, {
-                    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
-                    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
-                    langPath: 'https://tessdata.projectnaptha.com/4.0.0'
-                });
-
+                // మొదట 0° లో వేగంగా స్కాన్ చేస్తాం; దొరకకపోతే 90°, 270° చెక్ చేస్తాం
                 const anglesToTry = [0, 90, 270];
-                let bestParsed = {
-                    exact: false,
-                    numbers: [],
-                    name: '',
-                    yob: '',
-                    dobFull: null,
-                    addressDetails: { hasAnyAddress: false, houseNo: '', areaName: '', village: '', mandal: '', district: '', fatherName: '' },
-                    score: -1
-                };
-                const collectedNumbers = new Set();
+                let finalNumbers = [];
+                let exactFound = false;
+                let extractedName = '';
+                let extractedDob = { yob: '', dobFull: null };
+                let extractedAddress = { hasAnyAddress: false, houseNo: '', areaName: '', village: '', mandal: '', district: '', fatherName: '' };
+
+                const worker = isDigitOnlyField ? await getDigitWorker() : await getTextWorker();
 
                 for (let idx = 0; idx < anglesToTry.length; idx++) {
                     const angle = anglesToTry[idx];
-                    document.getElementById('ocrStatusText').textContent = `ఫోటో నుండి వివరాలను చదువుతోంది (${idx + 1}/${anglesToTry.length})...`;
+                    document.getElementById('ocrStatusText').textContent = `స్కాన్ చేస్తోంది (${idx + 1}/${anglesToTry.length})...`;
 
-                    const processedCanvas = buildProcessedCanvas(img, angle);
-                    const ret = await worker.recognize(processedCanvas);
-                    
-                    processedCanvas.width = 0;
-                    processedCanvas.height = 0;
+                    const mode = isDigitOnlyField ? 'digits' : 'text';
+                    const canvas = buildProcessedCanvas(img, angle, mode);
+                    const ret = await worker.recognize(canvas);
+                    canvas.width = 0;
+                    canvas.height = 0;
 
                     const rawText = (ret && ret.data && ret.data.text) ? ret.data.text : '';
-                    const parsed = parseAadhaarDetailsFromText(rawText, fieldName);
+                    const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-                    parsed.numbers.forEach(n => collectedNumbers.add(n));
-
-                    let angleScore = 0;
-                    if (parsed.exact && parsed.numbers.length > 0) angleScore += 10;
-                    if (parsed.yob || parsed.dobFull) angleScore += 5;
-                    if (parsed.name) angleScore += 4;
-                    if (parsed.addressDetails && parsed.addressDetails.hasAnyAddress) angleScore += 6;
-
-                    const mergedAddr = {
-                        hasAnyAddress: Boolean((bestParsed.addressDetails && bestParsed.addressDetails.hasAnyAddress) || (parsed.addressDetails && parsed.addressDetails.hasAnyAddress)),
-                        houseNo: (parsed.addressDetails && parsed.addressDetails.houseNo) || (bestParsed.addressDetails && bestParsed.addressDetails.houseNo) || '',
-                        areaName: (parsed.addressDetails && parsed.addressDetails.areaName) || (bestParsed.addressDetails && bestParsed.addressDetails.areaName) || '',
-                        village: (parsed.addressDetails && parsed.addressDetails.village) || (bestParsed.addressDetails && bestParsed.addressDetails.village) || '',
-                        mandal: (parsed.addressDetails && parsed.addressDetails.mandal) || (bestParsed.addressDetails && bestParsed.addressDetails.mandal) || '',
-                        district: (parsed.addressDetails && parsed.addressDetails.district) || (bestParsed.addressDetails && bestParsed.addressDetails.district) || '',
-                        fatherName: (parsed.addressDetails && parsed.addressDetails.fatherName) || (bestParsed.addressDetails && bestParsed.addressDetails.fatherName) || ''
-                    };
-
-                    if (angleScore > bestParsed.score) {
-                        bestParsed = {
-                            exact: parsed.exact,
-                            numbers: parsed.numbers,
-                            name: parsed.name || bestParsed.name,
-                            yob: parsed.yob || bestParsed.yob,
-                            dobFull: parsed.dobFull || bestParsed.dobFull,
-                            addressDetails: mergedAddr,
-                            score: angleScore
+                    if (isAddressScan) {
+                        const addr = parseAddressDetailsFromText(rawText);
+                        extractedAddress = {
+                            hasAnyAddress: extractedAddress.hasAnyAddress || addr.hasAnyAddress,
+                            houseNo: extractedAddress.houseNo || addr.houseNo,
+                            areaName: extractedAddress.areaName || addr.areaName,
+                            village: extractedAddress.village || addr.village,
+                            mandal: extractedAddress.mandal || addr.mandal,
+                            district: extractedAddress.district || addr.district,
+                            fatherName: extractedAddress.fatherName || addr.fatherName
                         };
-                    } else {
-                        if (!bestParsed.name && parsed.name) bestParsed.name = parsed.name;
-                        if (!bestParsed.yob && parsed.yob) bestParsed.yob = parsed.yob;
-                        if (!bestParsed.dobFull && parsed.dobFull) bestParsed.dobFull = parsed.dobFull;
-                        bestParsed.addressDetails = mergedAddr;
+                        if (extractedAddress.houseNo && extractedAddress.village && extractedAddress.district) {
+                            break;
+                        }
+                        continue;
                     }
 
-                    if (isAddressScan && bestParsed.addressDetails.houseNo && bestParsed.addressDetails.village && bestParsed.addressDetails.district) {
-                        break;
+                    const numRes = extractNumbersFromText(rawText, fieldName);
+                    if (numRes.numbers.length > 0) {
+                        finalNumbers = numRes.numbers;
+                        exactFound = numRes.exact;
                     }
-                    if (!isAddressScan && bestParsed.exact && bestParsed.name && bestParsed.yob) {
-                        break;
+
+                    // ఆధార్ / నామినీ ఆధార్ అయితే DOB పైన ఉన్న పేరు & DOB వెలికితీయడం
+                    if (isBeneficiaryAadhaarScan || isNomineeScan) {
+                        if (!extractedName) {
+                            extractedName = extractNameAboveDob(lines);
+                        }
+                        if (!extractedDob.yob && !extractedDob.dobFull) {
+                            extractedDob = extractDobFromLines(lines);
+                        }
+                    }
+
+                    // మొదటి పాస్ (0°) లోనే కావాల్సిన నంబర్ కచ్చితంగా దొరికితే మిగిలిన యాంగిల్స్ ఆపి వేగంగా పూర్తవుతుంది
+                    if (exactFound && finalNumbers.length > 0) {
+                        if (!(isBeneficiaryAadhaarScan || isNomineeScan) || extractedName) {
+                            break;
+                        }
                     }
                 }
 
-                await worker.terminate();
-                worker = null;
                 URL.revokeObjectURL(objectUrl);
-
                 document.getElementById('ocrSpinner').style.display = 'none';
 
-                if (bestParsed.addressDetails && bestParsed.addressDetails.hasAnyAddress) {
-                    pendingScannedAddressDetails = bestParsed.addressDetails;
-                    // అడ్రస్ స్కాన్ అయితే ఫారమ్‌లో ఉన్న విలువలను కూడా అప్‌డేట్ చేయడానికి allowOverwrite = true
-                    applyAddressDetailsToForm(pendingScannedAddressDetails, !isAddressScan);
-                }
-
                 if (isAddressScan) {
-                    const addr = bestParsed.addressDetails || {};
                     const summaryBox = document.getElementById('ocrExtractedSummary');
                     summaryBox.style.display = 'block';
-                    if (addr.hasAnyAddress) {
+                    if (extractedAddress.hasAnyAddress) {
+                        pendingScannedAddressDetails = extractedAddress;
+                        applyAddressDetailsToForm(extractedAddress, false);
                         document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
-                        document.getElementById('ocrStatusText').textContent = 'అడ్రస్ వివరాలు ఫారమ్‌లో నింపబడ్డాయి! ఒకసారి సరిచూసుకోండి:';
+                        document.getElementById('ocrStatusText').textContent = 'అడ్రస్ వివరాలు ఫారమ్‌లో నింపబడ్డాయి:';
                         summaryBox.innerHTML = `
                             <div class="fw-bold text-success mb-2">✅ గుర్తించిన అడ్రస్ వివరాలు:</div>
-                            ${addr.houseNo ? `<div><strong>ఇంటి నంబర్ (H.No):</strong> ${addr.houseNo}</div>` : ''}
-                            ${addr.fatherName ? `<div><strong>తండ్రి/భర్త పేరు (C/O):</strong> ${addr.fatherName}</div>` : ''}
-                            ${addr.areaName ? `<div><strong>కాలనీ / ఏరియా:</strong> ${addr.areaName}</div>` : ''}
-                            ${addr.village ? `<div><strong>గ్రామం / ఊరు (Village):</strong> ${addr.village}</div>` : ''}
-                            ${addr.mandal ? `<div><strong>మండలం (Mandal):</strong> ${addr.mandal}</div>` : ''}
-                            ${addr.district ? `<div><strong>జిల్లా (District):</strong> ${addr.district}</div>` : ''}
+                            ${extractedAddress.houseNo ? `<div><strong>ఇంటి నంబర్ (H.No):</strong> ${extractedAddress.houseNo}</div>` : ''}
+                            ${extractedAddress.fatherName ? `<div><strong>తండ్రి/భర్త పేరు (C/O):</strong> ${extractedAddress.fatherName}</div>` : ''}
+                            ${extractedAddress.areaName ? `<div><strong>ఏరియా:</strong> ${extractedAddress.areaName}</div>` : ''}
+                            ${extractedAddress.village ? `<div><strong>గ్రామం / ఊరు (Village):</strong> ${extractedAddress.village}</div>` : ''}
+                            ${extractedAddress.mandal ? `<div><strong>మండలం (Mandal):</strong> ${extractedAddress.mandal}</div>` : ''}
+                            ${extractedAddress.district ? `<div><strong>జిల్లా (District):</strong> ${extractedAddress.district}</div>` : ''}
                         `;
                     } else {
                         document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-3';
-                        document.getElementById('ocrStatusText').textContent = 'అడ్రస్ స్పష్టంగా కనబడలేదు. వెనుక వైపు ఫోటోను స్పష్టంగా తీసి మళ్లీ ప్రయత్నించండి.';
+                        document.getElementById('ocrStatusText').textContent = 'TO / Address లైన్ స్పష్టంగా కనబడలేదు. అడ్రస్ భాగాన్ని దగ్గరగా ఫోటో తీసి మళ్లీ ప్రయత్నించండి.';
                     }
                     return;
                 }
 
-                const finalNumbers = bestParsed.numbers.length > 0 ? bestParsed.numbers : Array.from(collectedNumbers);
-                const isAadhaarScan = (isBeneficiaryAadhaarScan || isNomineeScan);
-
-                if (isAadhaarScan) {
+                if (isBeneficiaryAadhaarScan || isNomineeScan) {
                     const detailsObj = {
-                        name: bestParsed.name || '',
-                        yob: bestParsed.yob || '',
-                        dobFull: bestParsed.dobFull || null
+                        name: extractedName || '',
+                        yob: extractedDob.yob || '',
+                        dobFull: extractedDob.dobFull || null
                     };
 
                     if (isNomineeScan) {
@@ -787,22 +769,22 @@
                     const summaryBox = document.getElementById('ocrExtractedSummary');
                     summaryBox.style.display = 'block';
                     summaryBox.innerHTML = `
-                        <div class="fw-bold text-success mb-1">✅ గుర్తించిన ${roleLabel} వివరాలు (సెర్చ్ నొక్కినప్పుడు కొత్త ఫారమ్‌లో ఆటోమేటిక్‌గా ఫిల్ అవుతాయి):</div>
+                        <div class="fw-bold text-success mb-1">✅ గుర్తించిన ${roleLabel} వివరాలు:</div>
                         <div class="mb-2">
-                            <label class="form-label small fw-bold mb-1">పేరు (సరిచేసుకోవడానికి / టైప్ చేయడానికి):</label>
+                            <label class="form-label small fw-bold mb-1">పేరు (DOB పైన ఉన్నది / సరిచేసుకోవడానికి):</label>
                             <input type="text" class="form-control form-control-sm fw-bold text-uppercase" 
-                                   value="${bestParsed.name || ''}" 
+                                   value="${extractedName || ''}" 
                                    placeholder="పేరు ఇక్కడ టైప్ చేయవచ్చు"
                                    oninput="updateEditedOcrName(this.value, ${isNomineeScan})">
                         </div>
-                        ${bestParsed.yob ? `<div><strong>పుట్టిన సంవత్సరం / తేదీ:</strong> ${bestParsed.dobFull ? `${bestParsed.dobFull.dd}/${bestParsed.dobFull.mm}/${bestParsed.dobFull.yyyy}` : bestParsed.yob}</div>` : ''}
+                        ${extractedDob.yob ? `<div><strong>DOB / పుట్టిన సంవత్సరం:</strong> ${extractedDob.dobFull ? `${extractedDob.dobFull.dd}/${extractedDob.dobFull.mm}/${extractedDob.dobFull.yyyy}` : extractedDob.yob}</div>` : ''}
                     `;
                 }
 
-                if (bestParsed.exact && finalNumbers.length === 1) {
-                    if (isAadhaarScan && !bestParsed.name) {
+                if (exactFound && finalNumbers.length === 1) {
+                    if ((isBeneficiaryAadhaarScan || isNomineeScan) && !extractedName) {
                         document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
-                        document.getElementById('ocrStatusText').textContent = 'ఆధార్ నంబర్ గుర్తించబడింది! పైన పేరు సరిచూసి కింది బటన్ నొక్కండి:';
+                        document.getElementById('ocrStatusText').textContent = 'ఆధార్ నంబర్ గుర్తించబడింది! పేరు సరిచూసి కింది బటన్ నొక్కండి:';
                         document.getElementById('ocrManualPickInput').value = finalNumbers[0];
                         return;
                     }
@@ -812,7 +794,7 @@
 
                 if (finalNumbers.length > 0) {
                     document.getElementById('ocrStatusBox').className = 'alert alert-success py-2 small mb-3';
-                    document.getElementById('ocrStatusText').textContent = 'కింది నంబర్లలో సరైన దానిపై ఒక్కసారి ట్యాప్ చేయండి:';
+                    document.getElementById('ocrStatusText').textContent = 'గుర్తించిన నంబర్లలో సరైన దానిపై ట్యాప్ చేయండి:';
                     document.getElementById('ocrCandidatesSection').style.display = 'block';
                     document.getElementById('ocrManualPickInput').value = finalNumbers[0];
 
@@ -827,17 +809,14 @@
                     });
                 } else {
                     document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-3';
-                    document.getElementById('ocrStatusText').textContent = 'నంబర్ స్పష్టంగా కనబడలేదు. దగ్గరగా, వెలుతురులో మళ్లీ ఫోటో తీయండి లేదా కింద టైప్ చేయండి.';
+                    document.getElementById('ocrStatusText').textContent = 'నంబర్ స్పష్టంగా కనబడలేదు. కొంచెం దగ్గరగా ఫోటో తీయండి లేదా కింద టైప్ చేయండి.';
                 }
             } catch (err) {
-                console.error('OCR Error Details:', err);
+                console.error('OCR Error:', err);
                 URL.revokeObjectURL(objectUrl);
-                if (worker) {
-                    try { await worker.terminate(); } catch (_) {}
-                }
                 document.getElementById('ocrSpinner').style.display = 'none';
                 document.getElementById('ocrStatusBox').className = 'alert alert-danger py-2 small mb-3';
-                document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది (ఇంటర్నెట్ చెక్ చేయండి). మళ్లీ ప్రయత్నించండి లేదా కింద నంబర్ టైప్ చేయండి.';
+                document.getElementById('ocrStatusText').textContent = 'స్కాన్ చేయడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించండి లేదా కింద నంబర్ టైప్ చేయండి.';
             }
         }
 
