@@ -6,6 +6,10 @@ from openpyxl.utils import get_column_letter
 import io
 import datetime
 import re
+import os
+import json
+import base64
+import requests
 
 cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 
@@ -878,3 +882,87 @@ def cf_save_beneficiary():
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"సేవ్ చేయడంలో లోపం: {str(e)}"})
+
+
+@cf_bp.route('/cf/ai-ocr', methods=['POST'])
+def cf_ai_ocr():
+    if not session.get('cf_logged_in'):
+        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"status": "fallback", "message": "AI API Key లేదు, లోకల్ OCR వాడుతోంది."})
+
+    try:
+        data = request.get_json() or {}
+        image_base64 = data.get("image_base64", "")
+        scan_type = data.get("scan_type", "Aadhar Number")
+
+        if not image_base64:
+            return jsonify({"status": "error", "message": "ఇమేజ్ అందలేదు."})
+
+        model_name = os.environ.get("QWEN_VL_MODEL", "qwen/qwen2.5-vl-72b-instruct:free")
+
+        prompt_text = f"""
+You are an expert Indian government document & handwritten form data extractor for Telangana Handlooms & Textiles.
+Analyze this image carefully (it may contain printed text, Telugu + English mix, or handwritten notes/forms/Aadhaar/Bank Passbook).
+Focus on scan context: "{scan_type}".
+
+Extract all visible fields accurately and return ONLY a valid JSON object with these exact keys (use empty string "" if not visible):
+{{
+  "number": "primary 12-digit ID OR 10-digit Mobile OR Bank Account Number based on {scan_type} (digits only, no spaces)",
+  "id_number": "12-digit beneficiary ID digits only",
+  "name": "Beneficiary full name in ENGLISH CAPITAL LETTERS",
+  "father_name": "Father or Husband name (C/O, S/O, W/O, D/O) in ENGLISH CAPITAL LETTERS",
+  "dob": "Date of birth in DD/MM/YYYY format (or YYYY if only year is given)",
+  "house_no": "Residential House Number (e.g. 3-6-45) in UPPERCASE",
+  "village": "Village or Town name in ENGLISH CAPITAL LETTERS",
+  "mandal": "Mandal name in ENGLISH CAPITAL LETTERS",
+  "district": "District name in ENGLISH CAPITAL LETTERS (e.g. RAJANNA SIRCILLA)",
+  "mobile": "10-digit mobile number digits only",
+  "account_number": "Bank account number digits only",
+  "ifsc": "11-character IFSC code in UPPERCASE",
+  "unit_hno": "Working loom/unit house number if visible",
+  "unit_owner": "Unit owner name in ENGLISH CAPITAL LETTERS if visible",
+  "nominee_name": "Nominee name in ENGLISH CAPITAL LETTERS if visible",
+  "nominee_id": "12-digit nominee ID digits only if visible",
+  "nominee_dob": "Nominee DOB in DD/MM/YYYY or YYYY if visible"
+}}
+Return ONLY raw JSON. No markdown, no explanation.
+"""
+
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model_name,
+                "temperature": 0.0,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_text},
+                            {"type": "image_url", "image_url": {"url": image_base64}}
+                        ]
+                    }
+                ]
+            },
+            timeout=25
+        )
+
+        if resp.status_code != 200:
+            return jsonify({"status": "fallback", "message": f"AI API Status {resp.status_code}"})
+
+        res_json = resp.json()
+        raw_content = res_json["choices"][0]["message"]["content"].strip()
+        raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
+        raw_content = re.sub(r'\s*```$', '', raw_content).strip()
+
+        extracted = json.loads(raw_content)
+        return jsonify({"status": "success", "extracted": extracted})
+
+    except Exception as e:
+        return jsonify({"status": "fallback", "message": str(e)})
