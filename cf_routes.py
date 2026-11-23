@@ -156,36 +156,90 @@ AREA_CF_MAPPING = {
     ]
 }
 
+# 🧹 H.No లోని "H.NO.", "H.NO", "HNO", "D.NO", స్పేస్‌లు మొదలైన వాటిని క్లీన్ చేసే హెల్పర్ ఫంక్షన్
+def clean_hno_for_matching(hno_val):
+    if hno_val is None:
+        return ""
+    s = str(hno_val).strip().upper()
+    if not s or s in ["NAN", "NONE", "NULL", "-"]:
+        return ""
+
+    # ముందుగా ఉండే H.NO., H.NO, HNO, D.NO., DOOR NO, HOUSE NO, NO. వంటి ప్రిఫిక్స్‌లను తొలగించడం
+    s = re.sub(
+        r'^\s*(?:H\.?\s*N\.?\s*O\.?|HOUSE\s*NO\.?|DOOR\s*NO\.?|D\.?\s*NO\.?|UNIT\s*H\.?\s*NO\.?|RESIDENTIAL\s*H\.?\s*NO\.?|NO\.?)\s*[:\-\.]*\s*',
+        '',
+        s,
+        flags=re.IGNORECASE
+    )
+
+    # మధ్యలో పొరపాటున "H.NO" లేదా "H.NO." చేరినా తొలగించడం
+    s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', '', s, flags=re.IGNORECASE)
+
+    # హైఫన్లు, స్లాష్‌లు, స్పేస్‌లను క్రమబద్ధీకరించడం
+    s = re.sub(r'\s*-\s*', '-', s)
+    s = re.sub(r'\s*/\s*', '/', s)
+    s = re.sub(r'\s+', ' ', s).strip(' -/')
+    return s
+
+# 🧹 ఏరియా / విలేజ్ పేరును క్లీన్ చేసే హెల్పర్ ఫంక్షన్
+def clean_area_for_matching(area_val):
+    if area_val is None:
+        return ""
+    s = str(area_val).strip().upper()
+    if not s or s in ["NAN", "NONE", "NULL", "-"]:
+        return ""
+
+    s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', ' ', s, flags=re.IGNORECASE)
+    s = re.sub(r'[^A-Z0-9\s]', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+# 🔎 క్లీన్ చేసిన H.No నుండి (block_prefix, door_num) వేరు చేసే హెల్పర్ ఫంక్షన్
+def extract_block_and_door(cleaned_hno):
+    if not cleaned_hno:
+        return None, None
+
+    # ఉదాహరణ: "3-6-45", "10-3-110A", "1-4-120/2" -> block_prefix="3-6", door_num=45
+    m = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno)
+    if m:
+        block_prefix = f"{int(m.group(1))}-{int(m.group(2))}"
+        door_num = int(m.group(3))
+        return block_prefix, door_num
+
+    # కేవలం 2 భాగాలు ఉంటే (ఉదా: "3-6")
+    m2 = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\b', cleaned_hno)
+    if m2:
+        block_prefix = f"{int(m2.group(1))}-{int(m2.group(2))}"
+        return block_prefix, None
+
+    return None, None
+
 # 🏦 FILE NAME ఆధారంగా IFSC కోడ్ కనుగొనే హెల్పర్ ఫంక్షన్
 def get_ifsc_for_file_name(file_name, records_list=None):
     clean_file = re.sub(r'\s+', ' ', str(file_name or '').strip().upper())
     if not clean_file or clean_file in ['NAN', 'NONE']:
         return ""
 
-    # 1. షీట్ రికార్డ్స్ ఇస్తే, ఆ FILE NAME కు అత్యధికంగా ఉన్న సరైన IFSC code ను డైనమిక్‌గా తనిఖీ చేయడం
     if records_list:
         ifsc_counts = {}
         for row in records_list:
             r_file = re.sub(r'\s+', ' ', str(row.get('FILE NAME', '') or '').strip().upper())
             r_ifsc = str(row.get('IFSC code', '') or row.get('IFSC CODE', '') or '').strip().upper()
-            # ప్రామాణిక 11-character IFSC ఫార్మాట్ తనిఖీ
             if r_file == clean_file and re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', r_ifsc):
                 ifsc_counts[r_ifsc] = ifsc_counts.get(r_ifsc, 0) + 1
         if ifsc_counts:
             return max(ifsc_counts, key=ifsc_counts.get)
 
-    # 2. డైరెక్ట్ మ్యాపింగ్ చెక్ చేయడం
     if clean_file in FILE_NAME_IFSC_MAPPING:
         return FILE_NAME_IFSC_MAPPING[clean_file]
 
-    # 3. BOINPALLI / BOINPALLE స్పెల్లింగ్ తేడాలు ఉంటే మ్యాచ్ చేయడం
     normalized_variant = clean_file.replace("BOINPALLE", "BOINPALLI")
     if normalized_variant in FILE_NAME_IFSC_MAPPING:
         return FILE_NAME_IFSC_MAPPING[normalized_variant]
 
     return ""
 
-# 🔐 ఆధార్ నంబర్‌ను క్లీన్ చేసే హెల్పర్ ఫంక్షన్ (spaces/hyphens/decimal points తీసేసి కేవలం అంకెలు ఉంచుతుంది)
+# 🔐 ఆధార్ నంబర్‌ను క్లీన్ చేసే హెల్పర్ ఫంక్షన్
 def normalize_aadhar(val):
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return ""
@@ -199,14 +253,14 @@ def find_row_by_aadhar(worksheet, aadhar_col_idx, target_aadhar_clean):
     if aadhar_col_idx == -1 or not target_aadhar_clean:
         return None, []
     all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
-    for idx in range(1, len(all_aadhars)):  # Row 1 header కాబట్టి index 1 (Sheet Row 2) నుండి
+    for idx in range(1, len(all_aadhars)):
         cell_clean = normalize_aadhar(all_aadhars[idx])
         if cell_clean and cell_clean == target_aadhar_clean:
             sheet_row_num = idx + 1
             return sheet_row_num, all_aadhars
     return None, all_aadhars
 
-# 📏 షీట్‌లో చివరి నిజమైన డేటా రో నంబర్ కనుగొనే హెల్పర్ ఫంక్షన్ (hidden rows లేదా ఖాళీ రోల వల్ల తప్పులు రాకుండా)
+# 📏 షీట్‌లో చివరి నిజమైన డేటా రో నంబర్ కనుగొనే హెల్పర్ ఫంక్షన్
 def get_last_non_empty_row(worksheet):
     all_values = worksheet.get_all_values()
     last_row = 1
@@ -233,34 +287,44 @@ def backup_row_before_update(spreadsheet, headers, old_row_values, target_row_nu
     backup_row = [timestamp, cf_name, aadhar_clean, f"Row_{target_row_num}"] + padded_old
     ws_backup.append_row(backup_row)
 
-# 🧠 కాన్ఫ్లిక్ట్‌లను నివారించేలా డోర్ నంబర్ రేంజ్ సహా ఖచ్చితమైన అనాలిసిస్ చేసే హెల్పర్ ఫంక్షన్
-def analyze_cf_name(unit_hno, unit_area):
-    hno_str = str(unit_hno).strip()
-    area_str = str(unit_area).strip().upper()
+# 🧠 డేటాను క్లీన్ చేసి, Unit H.No (లేదా Residential H.No) & Area ఆధారంగా ఖచ్చితమైన CF ని ఎంచుకునే ఫంక్షన్
+def analyze_cf_name(unit_hno, unit_area, residential_hno=""):
+    cleaned_area = clean_area_for_matching(unit_area)
 
-    hyphen_count = hno_str.count('-')
+    # ముందుగా Unit H.No క్లీన్ చేసి చెక్ చేస్తాం; అది ఖాళీగా ఉంటే Residential H.No క్లీన్ చేసి చెక్ చేస్తాం
+    hno_candidates = [
+        clean_hno_for_matching(unit_hno),
+        clean_hno_for_matching(residential_hno)
+    ]
 
-    if hyphen_count >= 2:
-        parts = hno_str.split('-')
-        block_prefix = f"{parts[0]}-{parts[1]}"
-        door_num_raw = parts[2]
-        match_num = re.search(r'\d+', door_num_raw)
+    for cleaned_hno in hno_candidates:
+        if not cleaned_hno:
+            continue
 
-        if match_num:
-            door_num = int(match_num.group())
+        block_prefix, door_num = extract_block_and_door(cleaned_hno)
+        if not block_prefix:
+            continue
+
+        # 1. బ్లాక్ ప్రిఫిక్స్ మరియు డోర్ నంబర్ రేంజ్ ఆధారంగా ఖచ్చితమైన వార్డ్ CF కనుగొనడం
+        if door_num is not None:
             for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
                 if prefix == block_prefix and min_d <= door_num <= max_d:
                     if ward_no in WARD_CF_MAPPING:
                         return WARD_CF_MAPPING[ward_no]
 
+        # 2. డోర్ నంబర్ రేంజ్ దొరకకపోతే బ్లాక్ ప్రిఫిక్స్ ఆధారంగా వార్డ్ CF కనుగొనడం
         for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
             if prefix == block_prefix:
                 if ward_no in WARD_CF_MAPPING:
                     return WARD_CF_MAPPING[ward_no]
 
-    for cf, areas in AREA_CF_MAPPING.items():
-        if any(a in area_str for a in areas):
-            return cf
+    # 3. క్లీన్ చేసిన ఏరియా / విలేజ్ ఆధారంగా CF మ్యాచింగ్
+    if cleaned_area:
+        for cf, areas in AREA_CF_MAPPING.items():
+            for a in areas:
+                cleaned_mapped_area = clean_area_for_matching(a)
+                if cleaned_mapped_area and cleaned_mapped_area in cleaned_area:
+                    return cf
 
     return "MARKANDEYULU"
 
@@ -511,7 +575,6 @@ def cf_search_beneficiary():
         client = get_sheets_client()
         spreadsheet = client.open(SPREADSHEET_NAME)
 
-        # 'Bank_Email_Ids' నుండి ఈమెయిల్ ఐడిని పొందడం
         email_id = ""
         try:
             ws_email = spreadsheet.worksheet('Bank_Email_Ids')
@@ -527,7 +590,6 @@ def cf_search_beneficiary():
         records_new = worksheet_new.get_all_records()
         columns = worksheet_new.row_values(1)
 
-        # FILE NAME ఆధారంగా ఆటోమేటిక్ IFSC code పొందడం
         auto_ifsc = get_ifsc_for_file_name(selected_file_name, records_new)
 
         matched_record = None
@@ -551,7 +613,6 @@ def cf_search_beneficiary():
             except Exception:
                 pass
 
-        # 📅 డేట్ కాలమ్స్ ఫార్మాటింగ్
         if matched_record:
             cleaned_matched = {}
             for k, v in matched_record.items():
@@ -561,7 +622,6 @@ def cf_search_beneficiary():
                     cleaned_matched[k] = v
             matched_record = cleaned_matched
 
-        # BANK_SNO మరియు SNO గణన
         max_sno = 0
         max_bank_sno = 0
 
@@ -587,7 +647,6 @@ def cf_search_beneficiary():
         bank_name = selected_file_name
 
         if matched_record and source_sheet == 'new':
-            # ఎంచుకున్న FILE NAME కు సరిపోయే IFSC ఖాళీగా ఉంటే ఆటో IFSC సెట్ చేయడం
             current_ifsc = str(matched_record.get('IFSC code', '')).strip()
             if not current_ifsc and auto_ifsc:
                 matched_record['IFSC code'] = auto_ifsc
@@ -702,13 +761,13 @@ def cf_save_beneficiary():
         if not form_aadhar_clean:
             return jsonify({"status": "error", "message": "Aadhar Number తప్పనిసరి! ఖాళీగా సేవ్ చేయలేము."})
 
-        # క్లీన్ చేసిన ఆధార్‌ను సేవ్ చేసే డేటాలో కూడా సెట్ చేయడం
         form_data['Aadhar Number'] = form_aadhar_clean
 
-        # 🔍 యూనిట్ హౌస్ నంబర్ మరియు ఏరియా ఆధారంగా NAME OF CF ని అనలైజ్ చేయడం
+        # 🔍 యూనిట్ H.No (లేదా రెసిడెన్షియల్ H.No) మరియు ఏరియా డేటాను క్లీన్ చేసి NAME OF CF ని ఖచ్చితంగా అనలైజ్ చేయడం
         unit_hno = form_data.get('H.NO. Unit H.No', '')
+        residential_hno = form_data.get('H.NO. Residentional H.No', '')
         unit_area = form_data.get('Area', '')
-        analyzed_cf = analyze_cf_name(unit_hno, unit_area)
+        analyzed_cf = analyze_cf_name(unit_hno, unit_area, residential_hno)
         form_data['NAME OF CF'] = analyzed_cf
 
         client = get_sheets_client()
@@ -723,7 +782,6 @@ def cf_save_beneficiary():
         if aadhar_col_idx == -1:
             return jsonify({"status": "error", "message": "షీట్‌లో 'Aadhar Number' కాలమ్ కనుగొనబడలేదు!"})
 
-        # 🏦 FILE NAME ఆధారంగా తప్పులు రాకుండా IFSC code ను ఆటోమేటిక్‌గా సెట్ చేయడం
         records_new = worksheet.get_all_records()
         selected_file = str(form_data.get('FILE NAME', '')).strip()
         if selected_file:
@@ -731,10 +789,8 @@ def cf_save_beneficiary():
             if auto_ifsc:
                 form_data['IFSC code'] = auto_ifsc
 
-        # row_index ని పూర్తిగా విస్మరించి, ఆధార్ నంబర్ ఆధారంగా మాత్రమే అసలు రో కనుగొనడం
         matched_row_num, all_aadhars = find_row_by_aadhar(worksheet, aadhar_col_idx, form_aadhar_clean)
 
-        # Action నిర్ధారణ (ఆధార్ ఆధారంగానే — పొరపాటున వేరే రో overwrite కాకుండా)
         if requested_action == 'insert':
             if matched_row_num is not None:
                 return jsonify({
@@ -750,12 +806,10 @@ def cf_save_beneficiary():
                 })
             effective_action = 'update'
         else:
-            # action_type స్పష్టంగా ఇవ్వకపోతే, ఆధార్ ఆధారంగా సురక్షితంగా నిర్ణయించడం
             effective_action = 'update' if matched_row_num is not None else 'insert'
 
-        # ==================== UPDATE LOGIC (NO row_index TRUSTED) ====================
+        # ==================== UPDATE LOGIC ====================
         if effective_action == 'update':
-            # మరోసారి లైవ్ సెల్‌లోని ఆధార్ నంబర్‌ను ధృవీకరించడం
             live_cell_aadhar = normalize_aadhar(all_aadhars[matched_row_num - 1])
             if live_cell_aadhar != form_aadhar_clean:
                 return jsonify({
@@ -764,10 +818,8 @@ def cf_save_beneficiary():
                 })
 
             existing_row_values = worksheet.row_values(matched_row_num)
-            # Update చేసే ముందు పాత డేటాను Backup షీట్‌లో సేవ్ చేయడం
             backup_row_before_update(spreadsheet, headers, existing_row_values, matched_row_num, cf_name, form_aadhar_clean)
 
-            # పాత రో లోని విలువలను ఆధారంగా తీసుకుని, వచ్చిన ఫారమ్ విలువలను అప్‌డేట్ చేయడం
             updated_row = list(existing_row_values[:len(headers)])
             while len(updated_row) < len(headers):
                 updated_row.append("")
@@ -777,7 +829,6 @@ def cf_save_beneficiary():
                     c_idx = headers.index(col_name)
                     updated_row[c_idx] = "" if val is None else val
 
-            # ఆధార్ కాలమ్ ఎట్టిపరిస్థితుల్లోనూ మారకుండా నిర్ధారించడం
             updated_row[aadhar_col_idx] = form_aadhar_clean
 
             end_col_letter = get_column_letter(len(headers))
@@ -789,9 +840,8 @@ def cf_save_beneficiary():
                 "message": f"డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది (IFSC ఆటో-సెట్ & Backup సేవ్ చేయబడింది)! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
             })
 
-        # ==================== INSERT LOGIC (NO row_index / NO HIDDEN-ROW MISMATCH) ====================
+        # ==================== INSERT LOGIC ====================
         elif effective_action == 'insert':
-            # Insert చేసే ముందు మళ్లీ డూప్లికేట్ చెక్
             recheck_row, _ = find_row_by_aadhar(worksheet, aadhar_col_idx, form_aadhar_clean)
             if recheck_row is not None:
                 return jsonify({
@@ -812,7 +862,6 @@ def cf_save_beneficiary():
                 val = form_data.get(header, '')
                 new_row.append("" if val is None else val)
 
-            # Hidden rows / middle empty rows వల్ల తప్పులు రాకుండా చివరి నిజమైన డేటా రో కింద ఖచ్చితంగా రాయడం
             last_non_empty_row = get_last_non_empty_row(worksheet)
             next_row_num = last_non_empty_row + 1
 
