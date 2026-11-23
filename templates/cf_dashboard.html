@@ -174,7 +174,6 @@
         let pendingScannedNomineeDetails = null;
         let pendingScannedAddressDetails = null;
 
-        // Cached Tesseract workers for speed
         let digitWorker = null;
         let textWorker = null;
 
@@ -240,7 +239,6 @@
             fileInput.click();
         }
 
-        // వేగవంతమైన మరియు తక్కువ వెలుతురు (Low-light) లోనూ పనిచేసే ఇమేజ్ ప్రాసెసింగ్
         function buildProcessedCanvas(img, angleDeg, mode = 'text') {
             const maxDim = (mode === 'digits') ? 1050 : 1150;
             const origW = img.naturalWidth || img.width;
@@ -273,7 +271,6 @@
             ctx.drawImage(img, 0, 0, w, h);
             ctx.restore();
 
-            // Auto-stretch min/max brightness for low light + contrast boost
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const d = imgData.data;
             let minVal = 255;
@@ -291,12 +288,10 @@
 
             for (let i = 0; i < d.length; i += 4) {
                 const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-                // Normalize low light to full 0-255 range
                 const norm = ((gray - minVal) / range) * 255;
                 let adj = Math.min(255, Math.max(0, norm * contrast + intercept));
 
                 if (mode === 'digits') {
-                    // Slight soft threshold to separate handwritten/printed ink from dark/dim paper
                     adj = adj < 145 ? Math.max(0, adj * 0.65) : Math.min(255, 180 + (adj - 145) * 0.65);
                 }
 
@@ -315,7 +310,7 @@
                 langPath: 'https://tessdata.projectnaptha.com/4.0.0'
             });
             await digitWorker.setParameters({
-                tessedit_char_whitelist: '0123456789 '
+                tessedit_char_whitelist: '0123456789+- '
             });
             return digitWorker;
         }
@@ -330,7 +325,6 @@
             return textWorker;
         }
 
-        // DOB కంటే పైన ఉండే పేరును గుర్తించే ఫంక్షన్ (లబ్ధిదారుని పేరు / నామినీ పేరు కోసం)
         function extractNameAboveDob(lines) {
             const nonNameKeywords = /(government|india|unique|identification|authority|aadhaar|aadhar|year|birth|yob|dob|date|issue|download|male|female|transgender|camscanner|generated|address|village|mandal|district|state|pin|mobile|phone|vid|enrolment|enrollment|care\s+of|son\s+of|daughter\s+of|wife\s+of)/i;
             const relationPrefixRegex = /\b(s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|c\s*\/\s*o|so|do|wo|co)\b/i;
@@ -356,7 +350,6 @@
                 return cleaned.toUpperCase();
             }
 
-            // 1. ముందుగా DOB / పుట్టిన తేదీ / సంవత్సరం ఉన్న లైన్‌ను కనుగొని, దానికి పైన ఉన్న లైన్లలో పేరు వెతకడం
             let dobIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/issue\s*date/i.test(lines[i])) continue;
@@ -375,7 +368,6 @@
                 }
             }
 
-            // 2. DOB దొరకకపోతే Government of India తర్వాత లేదా ఆధార్ నంబర్ పైన ఉన్న పేరు వెతకడం
             for (let i = 0; i < lines.length; i++) {
                 if (/government\s*of\s*india|of\s*india/i.test(lines[i])) {
                     for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
@@ -388,7 +380,6 @@
             return '';
         }
 
-        // అడ్రస్ స్కాన్ ("TO" లేదా "Address" లేదా "C/O" ఆధారంగా విడిగా పార్స్ చేయడం)
         function parseAddressDetailsFromText(rawText) {
             const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
             const joinedUpper = rawText.toUpperCase();
@@ -400,7 +391,6 @@
             let mandal = '';
             let district = '';
 
-            // TO లేదా Address లేదా C/O లేదా చిరునామా ఎక్కడ మొదలైందో గుర్తించడం
             let addrStartIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (/^\s*(to|address|చిరునామా)\b/i.test(lines[i]) || /\baddress\b\s*[:\-]/i.test(lines[i]) || /\bc\s*\/\s*o\b/i.test(lines[i])) {
@@ -415,7 +405,6 @@
 
             const addrBlockText = addrLines.join(', ');
 
-            // C/O, S/O, D/O, W/O తర్వాత ఉండే పేరు
             const coMatch = addrBlockText.match(/\b(?:c\s*\/\s*o|s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o|care\s+of|son\s+of|daughter\s+of|wife\s+of)\s*[:\-]?\s*([A-Za-z\s\.]{3,40})/i);
             if (coMatch && coMatch[1]) {
                 const rawFather = coMatch[1].split(',')[0].replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -424,7 +413,6 @@
                 }
             }
 
-            // House No (ఉదా: 1-374, 12-34/5, 4-56A)
             const hnoMatch = addrBlockText.match(/\b(\d{1,4}\s*[\-\/]\s*\d{1,4}[A-Za-z0-9\/\-]*)\b/);
             if (hnoMatch && hnoMatch[1]) {
                 const cand = hnoMatch[1].replace(/\s+/g, '').toUpperCase();
@@ -433,7 +421,6 @@
                 }
             }
 
-            // District గుర్తించడం
             for (const dist of KNOWN_DISTRICTS) {
                 const dRegex = new RegExp(`\\b${dist}\\b`, 'i');
                 if (dRegex.test(addrBlockText) || dRegex.test(joinedUpper)) {
@@ -453,7 +440,6 @@
                 }
             }
 
-            // కామా/లైన్ భాగాల నుండి Village/Town మరియు Area వెలికితీయడం
             let cleanedAddressForSplit = addrBlockText
                 .replace(/^\s*(?:to|address|చిరునామా)\s*[:\-]?\s*/i, '')
                 .replace(/\b(?:c\s*\/\s*o|s\s*\/\s*o|d\s*\/\s*o|w\s*\/\s*o)\s*[:\-]?\s*[A-Za-z\s\.]+/i, '')
@@ -506,13 +492,28 @@
             };
         }
 
-        // నంబర్లను (ఆధార్, నామినీ ఆధార్, కాంటాక్ట్, బ్యాంక్ అకౌంట్) వేరు చేసే ఫంక్షన్
+        // 10 డిజిట్స్ కాంటాక్ట్ నంబర్ (6/7/8/9 తో మొదలయ్యేది) & ఇతర నంబర్లను కచ్చితంగా వేరు చేసే ఫంక్షన్
         function extractNumbersFromText(rawText, fieldName) {
             const spacedAadhaar = [];
+            const validIndianMobiles = [];
             const allDigitSequences = new Set();
 
-            // 1. 4-4-4 ఆధార్ నంబర్లు (పెద్ద అక్షరాలతో స్పేస్‌తో ఉండేవి)
-            const aadhaarPattern = /\b(\d{4})[\s\-]+(\d{4})[\s\-]+(\d{4})\b/g;
+            // 1. 10-డిజిట్ ఇండియన్ మొబైల్ నంబర్ల కోసం ప్రత్యేక సెర్చ్ (+91, 0, స్పేస్, హైఫన్ ఉన్నా సరే)
+            // ఉదా: 9848012345, 98480 12345, +91 98480-12345, 09848012345
+            const mobileRegex = /(?:^|[^0-9])(?:\+?91[\s\-]?|0)?([6-9]\d{4}[\s\-]?\d{5})(?!\d)/g;
+            let mMatch;
+            while ((mMatch = mobileRegex.exec(rawText)) !== null) {
+                const clean10 = mMatch[1].replace(/\D/g, '');
+                if (clean10.length === 10 && /^[6-9]\d{9}$/.test(clean10)) {
+                    if (!validIndianMobiles.includes(clean10)) {
+                        validIndianMobiles.push(clean10);
+                    }
+                    allDigitSequences.add(clean10);
+                }
+            }
+
+            // 2. 4-4-4 ఆధార్ నంబర్లు
+            const aadhaarPattern = /(?:^|[^0-9])(\d{4})[\s\-]+(\d{4})[\s\-]+(\d{4})(?!\d)/g;
             let match;
             while ((match = aadhaarPattern.exec(rawText)) !== null) {
                 const clean12 = `${match[1]}${match[2]}${match[3]}`;
@@ -522,21 +523,36 @@
                 allDigitSequences.add(clean12);
             }
 
-            // 2. అన్ని అంకెల సమూహాలు
+            // 3. ఇతర విడి అంకెల సమూహాలు (లైన్ మొత్తాన్ని అతికించకుండా, విడి గ్రూపులను మాత్రమే తీసుకోవడం)
             const lines = rawText.split(/\r?\n/);
             for (const line of lines) {
-                const compactLine = line.replace(/[^0-9]/g, '');
-                if (compactLine.length >= 6) {
-                    allDigitSequences.add(compactLine);
+                const chunks = line.match(/\d[\d\s\-]{7,20}\d/g) || [];
+                for (const rawChunk of chunks) {
+                    const digitsOnly = rawChunk.replace(/\D/g, '');
+                    if (digitsOnly.length >= 9 && digitsOnly.length <= 18) {
+                        allDigitSequences.add(digitsOnly);
+                    }
                 }
-                const chunks = line.match(/\d{6,18}/g) || [];
-                chunks.forEach(c => allDigitSequences.add(c));
             }
 
             let numbers = Array.from(allDigitSequences);
             let exact = false;
 
-            if (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar') {
+            if (fieldName === 'Contact Number') {
+                if (validIndianMobiles.length > 0) {
+                    numbers = validIndianMobiles;
+                    exact = true;
+                } else {
+                    // Fallback: 6-9 తో మొదలయ్యే 10 అంకెల నంబర్లు
+                    const fallback10 = numbers.filter(n => n.length === 10 && /^[6-9]/.test(n));
+                    if (fallback10.length > 0) {
+                        numbers = fallback10;
+                        exact = true;
+                    } else {
+                        numbers = numbers.filter(n => n.length === 10);
+                    }
+                }
+            } else if (fieldName === 'Aadhar Number' || fieldName === 'Nominee Aadhar') {
                 if (spacedAadhaar.length > 0) {
                     numbers = spacedAadhaar;
                     exact = true;
@@ -546,12 +562,6 @@
                         numbers = exact12;
                         exact = true;
                     }
-                }
-            } else if (fieldName === 'Contact Number') {
-                const exact10 = numbers.filter(n => n.length === 10);
-                if (exact10.length > 0) {
-                    numbers = exact10;
-                    exact = true;
                 }
             } else if (fieldName === 'Bank Account Number') {
                 const accounts = numbers.filter(n => n.length >= 9 && n.length <= 18);
@@ -659,7 +669,6 @@
             }
 
             try {
-                // మొదట 0° లో వేగంగా స్కాన్ చేస్తాం; దొరకకపోతే 90°, 270° చెక్ చేస్తాం
                 const anglesToTry = [0, 90, 270];
                 let finalNumbers = [];
                 let exactFound = false;
@@ -705,7 +714,6 @@
                         exactFound = numRes.exact;
                     }
 
-                    // ఆధార్ / నామినీ ఆధార్ అయితే DOB పైన ఉన్న పేరు & DOB వెలికితీయడం
                     if (isBeneficiaryAadhaarScan || isNomineeScan) {
                         if (!extractedName) {
                             extractedName = extractNameAboveDob(lines);
@@ -715,7 +723,7 @@
                         }
                     }
 
-                    // మొదటి పాస్ (0°) లోనే కావాల్సిన నంబర్ కచ్చితంగా దొరికితే మిగిలిన యాంగిల్స్ ఆపి వేగంగా పూర్తవుతుంది
+                    // 10 డిజిట్స్ కాంటాక్ట్ నంబర్ లేదా అకౌంట్/ఆధార్ కచ్చితంగా దొరికితే వెంటనే లూప్ ఆపుతుంది
                     if (exactFound && finalNumbers.length > 0) {
                         if (!(isBeneficiaryAadhaarScan || isNomineeScan) || extractedName) {
                             break;
@@ -809,7 +817,9 @@
                     });
                 } else {
                     document.getElementById('ocrStatusBox').className = 'alert alert-warning py-2 small mb-3';
-                    document.getElementById('ocrStatusText').textContent = 'నంబర్ స్పష్టంగా కనబడలేదు. కొంచెం దగ్గరగా ఫోటో తీయండి లేదా కింద టైప్ చేయండి.';
+                    document.getElementById('ocrStatusText').textContent = fieldName === 'Contact Number'
+                        ? '10 అంకెల మొబైల్ నంబర్ స్పష్టంగా కనబడలేదు. నంబర్‌ను దగ్గరగా ఫోటో తీయండి లేదా కింద టైప్ చేయండి.'
+                        : 'నంబర్ స్పష్టంగా కనబడలేదు. కొంచెం దగ్గరగా ఫోటో తీయండి లేదా కింద టైప్ చేయండి.';
                 }
             } catch (err) {
                 console.error('OCR Error:', err);
