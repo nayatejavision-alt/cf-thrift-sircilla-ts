@@ -1,52 +1,160 @@
+from datetime import datetime
 import io
+import os
+import re
 from flask import Blueprint, jsonify, request, send_file
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
-from datetime import datetime
-
-import os
-import re
 
 excel_tools_bp = Blueprint('excel_tools_bp', __name__)
 
 
+def _clean_account_value(val):
+    """అకౌంట్ నంబర్లలోని .0, అపోస్ట్రోఫీలు, స్పేస్‌లు, NaN లను సురక్షితంగా క్లీన్ చేస్తుంది."""
+    if pd.isna(val):
+        return ''
+    s = str(val).strip()
+    if s.lower() in ('nan', 'none', 'null', '-'):
+        return ''
+    if s.endswith('.0'):
+        s = s[:-2]
+    return s.replace("'", '').strip()
+
+
+def _sanitize_filename_part(name: str) -> str:
+    """ఫైల్ పేరులో అనవసర క్యారెక్టర్లు లేకుండా క్లీన్ చేస్తుంది."""
+    cleaned = re.sub(r'[^\w\-_.]', '_', (name or '').strip())
+    return re.sub(r'_+', '_', cleaned).strip('_')
+
+
+def _read_sheet_as_str(
+    file_storage, sheet_name: str, fallback_idx: int = 0
+) -> pd.DataFrame:
+    """నిర్దిష్ట షీట్‌ను స్ట్రింగ్‌లుగా చదివి కాలమ్ పేర్లను క్లీన్ చేస్తుంది."""
+    file_storage.stream.seek(0)
+    excel_file = pd.ExcelFile(file_storage)
+    sheet_names = excel_file.sheet_names
+
+    if sheet_name and sheet_name in sheet_names:
+        target_sheet = sheet_name
+    else:
+        safe_idx = fallback_idx if fallback_idx < len(sheet_names) else 0
+        target_sheet = sheet_names[safe_idx]
+
+    df = pd.read_excel(excel_file, sheet_name=target_sheet, dtype=str)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def _style_openpyxl_sheet(ws, title_text: str):
+    """ఎక్సెల్ షీట్‌కు ప్రొఫెషనల్ హెడర్, బోర్డర్స్ మరియు కాలమ్ విడ్త్ సెట్ చేస్తుంది."""
+    ws.views.sheetView[0].showGridLines = True
+    max_col = max(ws.max_column, 1)
+    max_row = ws.max_row
+    max_col_letter = get_column_letter(max_col)
+
+    HEADER_FILL = PatternFill(
+        start_color='1B365D', end_color='1B365D', fill_type='solid'
+    )
+    SUBHEADER_FILL = PatternFill(
+        start_color='2C4D75', end_color='2C4D75', fill_type='solid'
+    )
+    ZEBRA_FILL = PatternFill(
+        start_color='F8FAFC', end_color='F8FAFC', fill_type='solid'
+    )
+
+    thin_side = Side(style='thin', color='CBD5E1')
+    cell_border = Border(
+        left=thin_side, right=thin_side, top=thin_side, bottom=thin_side
+    )
+
+    # Insert Title Row
+    ws.insert_rows(1)
+    ws.merge_cells(f'A1:{max_col_letter}1')
+    title_cell = ws['A1']
+    title_cell.value = title_text
+    title_cell.font = Font(name='Calibri', size=13, bold=True, color='FFFFFF')
+    title_cell.fill = HEADER_FILL
+    title_cell.alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 32
+
+    # Header Row (Row 2)
+    ws.row_dimensions[2].height = 26
+    for col_idx in range(1, max_col + 1):
+        h_cell = ws.cell(row=2, column=col_idx)
+        h_cell.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
+        h_cell.fill = SUBHEADER_FILL
+        h_cell.alignment = Alignment(
+            horizontal='center', vertical='center', wrap_text=True
+        )
+        h_cell.border = cell_border
+
+    # Data Rows (Row 3+)
+    for r_idx in range(3, max_row + 2):
+        ws.row_dimensions[r_idx].height = 20
+        is_even = r_idx % 2 == 0
+        for c_idx in range(1, max_col + 1):
+            c = ws.cell(row=r_idx, column=c_idx)
+            c.border = cell_border
+            c.font = Font(name='Calibri', size=10, color='0F172A')
+            if is_even:
+                c.fill = ZEBRA_FILL
+
+    # Auto-fit column widths safely
+    for c_idx in range(1, max_col + 1):
+        col_letter = get_column_letter(c_idx)
+        max_len = 12
+        for r_idx in range(2, max_row + 2):
+            val = ws.cell(row=r_idx, column=c_idx).value
+            if val is not None:
+                val_len = len(str(val))
+                if val_len > max_len:
+                    max_len = val_len
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 42)
+
+    ws.freeze_panes = 'A3'
+
+
 @excel_tools_bp.route('/process', methods=['POST'])
 def process_join():
+    """Excel Left Join Automation (In-Memory)."""
     join_type = request.form.get('join_type')
+    custom_prefix = request.form.get('join_output_prefix', '').strip()
 
     try:
         if join_type == 'single_file':
             if 'file_single' not in request.files:
                 return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
             file = request.files['file_single']
+            if not file or file.filename == '':
+                return 'ఫైల్ ఎంచుకోలేదు.', 400
             sheet1 = request.form.get('sheet1', '').strip()
             col1 = request.form.get('col1', '').strip()
             sheet2 = request.form.get('sheet2', '').strip()
             col2 = request.form.get('col2', '').strip()
 
-            df1 = pd.read_excel(file, sheet_name=sheet1 if sheet1 else 0)
-            df2 = pd.read_excel(file, sheet_name=sheet2 if sheet2 else 1)
+            df1 = _read_sheet_as_str(file, sheet1, fallback_idx=0)
+            df2 = _read_sheet_as_str(file, sheet2, fallback_idx=1)
 
         elif join_type == 'two_files':
             if 'file1' not in request.files or 'file2' not in request.files:
                 return 'దయచేసి రెండు ఫైల్స్ అప్‌లోడ్ చేయండి.', 400
             file1 = request.files['file1']
+            file2 = request.files['file2']
+            if not file1.filename or not file2.filename:
+                return 'రెండు ఫైల్స్ సరిగ్గా ఎంచుకోండి.', 400
+
             sheet1_f1 = request.form.get('sheet1_f1', '').strip()
             col1 = request.form.get('col1_f1', '').strip()
-
-            file2 = request.files['file2']
             sheet2_f2 = request.form.get('sheet2_f2', '').strip()
             col2 = request.form.get('col2_f2', '').strip()
 
-            df1 = pd.read_excel(file1, sheet_name=sheet1_f1 if sheet1_f1 else 0)
-            df2 = pd.read_excel(file2, sheet_name=sheet2_f2 if sheet2_f2 else 0)
+            df1 = _read_sheet_as_str(file1, sheet1_f1, fallback_idx=0)
+            df2 = _read_sheet_as_str(file2, sheet2_f2, fallback_idx=0)
         else:
             return 'సరైన జాయిన్ ఆప్షన్ ఎంచుకోండి.', 400
-
-        df1.columns = [str(c).strip() for c in df1.columns]
-        df2.columns = [str(c).strip() for c in df2.columns]
 
         if col1 not in df1.columns or col2 not in df2.columns:
             return (
@@ -54,33 +162,41 @@ def process_join():
                 400,
             )
 
-        def clean_acc(val):
-            if pd.isna(val):
-                return ''
-            val_str = str(val).strip()
-            if val_str.endswith('.0'):
-                val_str = val_str[:-2]
-            return val_str.replace("'", '').strip()
+        df1 = df1.copy()
+        df2 = df2.copy()
+        df1['_Clean_Key'] = df1[col1].apply(_clean_account_value)
+        df2['_Clean_Key'] = df2[col2].apply(_clean_account_value)
 
-        df1['Clean_Key'] = df1[col1].apply(clean_acc)
-        df2['Clean_Key'] = df2[col2].apply(clean_acc)
-
-        df1_subset = df1.drop_duplicates(subset=['Clean_Key']).copy()
-        df2_subset = df2.drop_duplicates(subset=['Clean_Key']).copy()
+        df1_subset = df1.drop_duplicates(subset=['_Clean_Key']).copy()
+        df2_subset = df2.drop_duplicates(subset=['_Clean_Key']).copy()
 
         merged_df = pd.merge(
             df1_subset,
             df2_subset,
-            on='Clean_Key',
+            on='_Clean_Key',
             how='left',
             suffixes=('_left', '_right'),
+        ).drop(columns=['_Clean_Key'])
+
+        safe_base = _sanitize_filename_part(
+            custom_prefix if custom_prefix else 'Merged_RD_Accounts_Output'
         )
-        merged_df = merged_df.drop(columns=['Clean_Key'])
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name = f'{safe_base or "Merged_Output"}_{timestamp}.xlsx'
 
-        output_file = 'Merged_RD_Accounts_Output.xlsx'
-        merged_df.to_excel(output_file, index=False)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            merged_df.to_excel(writer, sheet_name='Left_Joined_Data', index=False)
+        buf.seek(0)
 
-        return send_file(output_file, as_attachment=True, download_name=output_file)
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=out_name,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
 
     except Exception as e:
         return f'ఫైల్ ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}', 500
@@ -88,37 +204,56 @@ def process_join():
 
 @excel_tools_bp.route('/process-reconcile', methods=['POST'])
 def process_reconcile():
+    """RD ఖాతాల రీకన్సిలియేషన్ & ఫార్మాటర్ టూల్ (In-Memory)."""
     try:
+        if 'reconcile_file' not in request.files:
+            return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
         file = request.files['reconcile_file']
+        if not file or file.filename == '':
+            return 'ఫైల్ ఎంచుకోలేదు.', 400
+
         sheet_name = request.form.get('rec_sheet_name', '').strip()
         rd_col = request.form.get('rec_rd_col', 'Rd').strip()
         ben_col = request.form.get('rec_ben_col', 'Ben').strip()
         amt_col = request.form.get('rec_amt_col', 'Amount').strip()
 
-        df = pd.read_excel(file, sheet_name=sheet_name if sheet_name else 0)
+        file.stream.seek(0)
+        excel_file = pd.ExcelFile(file)
+        target_sheet = (
+            sheet_name
+            if (sheet_name and sheet_name in excel_file.sheet_names)
+            else excel_file.sheet_names[0]
+        )
+        df = pd.read_excel(excel_file, sheet_name=target_sheet)
         df.columns = [str(c).strip() for c in df.columns]
+
+        for req_col in (rd_col, ben_col, amt_col):
+            if req_col not in df.columns:
+                return f"'{req_col}' కాలమ్ షీట్‌లో కనుగొనబడలేదు.", 400
 
         df_clean = df[[rd_col, ben_col, amt_col]].dropna(
             subset=[rd_col, ben_col]
         ).copy()
         df_clean['Ben_clean'] = df_clean[ben_col].astype(str).str.strip()
+        df_clean = df_clean[df_clean['Ben_clean'] != '']
 
         def format_rd(val):
+            cleaned = _clean_account_value(val)
             try:
-                return str(int(float(val)))
+                if cleaned.isdigit():
+                    return str(int(cleaned))
+                return str(int(float(cleaned)))
             except Exception:
-                return str(val).strip()
+                return cleaned
 
         df_clean['Rd_formatted'] = df_clean[rd_col].apply(format_rd)
+        df_clean = df_clean[df_clean['Rd_formatted'] != '']
 
-        unique_bens = []
-        seen = set()
-        for ben in df_clean['Ben_clean']:
-            if ben not in seen:
-                seen.add(ben)
-                unique_bens.append(ben)
+        if df_clean.empty:
+            return 'ప్రాసెస్ చేయడానికి చెల్లుబాటు అయ్యే RD/Beneficiary డేటా లేదు.', 400
 
-        max_rds = df_clean.groupby('Ben_clean')['Rd_formatted'].count().max()
+        unique_bens = list(dict.fromkeys(df_clean['Ben_clean'].tolist()))
+        max_rds = int(df_clean.groupby('Ben_clean')['Rd_formatted'].count().max())
 
         rows_data = []
         for idx, ben in enumerate(unique_bens, 1):
@@ -131,8 +266,9 @@ def process_reconcile():
             for i in range(len(rds)):
                 acc_num = i + 1
                 row_dict[f'RD Account {acc_num}'] = str(rds[i])
+                amt_num = pd.to_numeric(amounts[i], errors='coerce')
                 row_dict[f'Closing Balance {acc_num}'] = (
-                    amounts[i] if pd.notnull(amounts[i]) else 0.0
+                    float(amt_num) if pd.notnull(amt_num) else 0.0
                 )
 
             rows_data.append(row_dict)
@@ -165,6 +301,9 @@ def process_reconcile():
         )
         ZEBRA_FILL = PatternFill(
             start_color='F4F7FA', end_color='F4F7FA', fill_type='solid'
+        )
+        TOTAL_FILL = PatternFill(
+            start_color='E2E8F0', end_color='E2E8F0', fill_type='solid'
         )
 
         max_col_letter = get_column_letter(len(all_cols))
@@ -228,7 +367,7 @@ def process_reconcile():
                 c_bal = ws.cell(
                     row=row_num,
                     column=2 * i + 2,
-                    value=bal_val if pd.notnull(bal_val) else 0.0,
+                    value=float(bal_val) if pd.notnull(bal_val) else 0.0,
                 )
                 c_bal.alignment = Alignment(horizontal='right', vertical='center')
                 c_bal.number_format = '₹#,##0.00'
@@ -246,13 +385,13 @@ def process_reconcile():
             rd_range_str = ','.join(
                 [f'{col}{row_num}' for col in rd_cols_letters]
             )
-            rd_range_range = (
+            rd_range_span = (
                 f'{rd_cols_letters[0]}{row_num}:{rd_cols_letters[-1]}{row_num}'
             )
 
             c_tot_rd = ws.cell(row=row_num, column=tot_rd_col)
             c_tot_rd.value = (
-                f'=COUNTA({rd_range_str})-COUNTIF({rd_range_range}, "-")'
+                f'=COUNTA({rd_range_str})-COUNTIF({rd_range_span}, "-")'
             )
             c_tot_rd.alignment = Alignment(horizontal='center', vertical='center')
             c_tot_rd.font = Font(name='Calibri', size=10, bold=True)
@@ -272,6 +411,7 @@ def process_reconcile():
                     c_item.fill = ZEBRA_FILL
 
         total_row = len(df_result) + 3
+        ws.row_dimensions[total_row].height = 24
         ws.merge_cells(
             start_row=total_row,
             start_column=1,
@@ -286,70 +426,63 @@ def process_reconcile():
         for c in range(3, len(all_cols) + 1):
             col_ltr = get_column_letter(c)
             cell_tot = ws.cell(total_row, c)
+            cell_tot.fill = TOTAL_FILL
+            cell_tot.border = thin_border
             if c == tot_rd_col:
                 cell_tot.value = f'=SUM({col_ltr}3:{col_ltr}{total_row-1})'
                 cell_tot.font = Font(name='Calibri', size=10, bold=True)
+                cell_tot.alignment = Alignment(
+                    horizontal='center', vertical='center'
+                )
             elif c == tot_bal_col:
                 cell_tot.value = f'=SUM({col_ltr}3:{col_ltr}{total_row-1})'
                 cell_tot.number_format = '₹#,##0.00'
                 cell_tot.font = Font(name='Calibri', size=10, bold=True)
+                cell_tot.alignment = Alignment(
+                    horizontal='right', vertical='center'
+                )
             elif c % 2 == 0:
                 cell_tot.value = f'=SUM({col_ltr}3:{col_ltr}{total_row-1})'
                 cell_tot.number_format = '₹#,##0.00'
+                cell_tot.alignment = Alignment(
+                    horizontal='right', vertical='center'
+                )
             else:
                 cell_tot.value = '-'
+                cell_tot.alignment = Alignment(
+                    horizontal='center', vertical='center'
+                )
+
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 30
+        for c in range(3, len(all_cols) + 1):
+            ws.column_dimensions[get_column_letter(c)].width = 18
 
         ws.freeze_panes = 'C3'
 
-        output_filename = 'RD_Accounts_Reconciled_Enhanced.xlsx'
-        wb.save(output_filename)
+        output_filename = (
+            f'RD_Accounts_Reconciled_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        )
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
         return send_file(
-            output_filename, as_attachment=True, download_name=output_filename
+            buf,
+            as_attachment=True,
+            download_name=output_filename,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
         )
 
     except Exception as e:
         return f'Error processing reconciliation file: {str(e)}', 400
 
 
-
-def _clean_account_value(val):
-    """అకౌంట్ నంబర్లలోని .0, అపోస్ట్రోఫీలు, స్పేస్‌లు, NaN లను సురక్షితంగా క్లీన్ చేస్తుంది."""
-    if pd.isna(val):
-        return ''
-    s = str(val).strip()
-    if s.lower() == 'nan':
-        return ''
-    if s.endswith('.0'):
-        s = s[:-2]
-    return s.replace("'", '').strip()
-
-
-def _sanitize_filename_part(name: str) -> str:
-    """ఫైల్ పేరులో అనవసర క్యారెక్టర్లు లేకుండా క్లీన్ చేస్తుంది."""
-    cleaned = re.sub(r'[^\w\-_.]', '_', name.strip())
-    return re.sub(r'_+', '_', cleaned).strip('_')
-
-
-def _read_sheet_as_str(file_storage, sheet_name: str, fallback_idx: int = 0) -> pd.DataFrame:
-    """ఫైల్ నుండి నిర్దిష్ట షీట్‌ను (లేదా fallback index) స్ట్రింగ్‌లుగా చదివి కాలమ్ పేర్లను క్లీన్ చేస్తుంది."""
-    file_storage.stream.seek(0)
-    excel_file = pd.ExcelFile(file_storage)
-    sheet_names = excel_file.sheet_names
-
-    if sheet_name and sheet_name in sheet_names:
-        target_sheet = sheet_name
-    else:
-        safe_idx = fallback_idx if fallback_idx < len(sheet_names) else 0
-        target_sheet = sheet_names[safe_idx]
-
-    df = pd.read_excel(excel_file, sheet_name=target_sheet, dtype=str)
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
-
-
 @excel_tools_bp.route('/process-master-match', methods=['POST'])
 def process_master_match():
-    """ఒకే ఫైల్ లేదా రెండు వేర్వేరు ఫైల్స్ నుండి Master (acc 1, acc 2) vs Data (acc) మ్యాచ్ చేసి Matched & Unmatched రిపోర్ట్ ఇస్తుంది."""
+    """Master (acc 1, acc 2) vs Data (acc) మ్యాచ్ చేసి Matched & Unmatched రిపోర్ట్ ఇస్తుంది."""
     try:
         mm_mode = request.form.get('mm_mode', 'single_file').strip()
         master_col1 = request.form.get('mm_master_col1', '').strip()
@@ -371,23 +504,35 @@ def process_master_match():
             master_sheet = request.form.get('mm_single_master_sheet', '').strip()
             data_sheet = request.form.get('mm_single_data_sheet', '').strip()
 
-            master_df = _read_sheet_as_str(file_single, master_sheet, fallback_idx=0)
+            master_df = _read_sheet_as_str(
+                file_single, master_sheet, fallback_idx=0
+            )
             data_df = _read_sheet_as_str(file_single, data_sheet, fallback_idx=1)
             source_label = os.path.splitext(file_single.filename)[0]
 
         elif mm_mode == 'two_files':
-            if 'mm_file_master' not in request.files or 'mm_file_data' not in request.files:
+            if (
+                'mm_file_master' not in request.files
+                or 'mm_file_data' not in request.files
+            ):
                 return 'దయచేసి Master ఫైల్ మరియు Data ఫైల్ — రెండూ అప్‌లోడ్ చేయండి.', 400
             file_master = request.files['mm_file_master']
             file_data = request.files['mm_file_data']
 
-            if not file_master or file_master.filename == '' or not file_data or file_data.filename == '':
+            if (
+                not file_master
+                or file_master.filename == ''
+                or not file_data
+                or file_data.filename == ''
+            ):
                 return 'రెండు ఎక్సెల్ ఫైల్స్ సరిగ్గా ఎంచుకోండి.', 400
 
             master_sheet = request.form.get('mm_two_master_sheet', '').strip()
             data_sheet = request.form.get('mm_two_data_sheet', '').strip()
 
-            master_df = _read_sheet_as_str(file_master, master_sheet, fallback_idx=0)
+            master_df = _read_sheet_as_str(
+                file_master, master_sheet, fallback_idx=0
+            )
             data_df = _read_sheet_as_str(file_data, data_sheet, fallback_idx=0)
 
             m_base = os.path.splitext(file_master.filename)[0]
@@ -421,9 +566,10 @@ def process_master_match():
         matched_df = data_df[is_matched].copy()
         unmatched_df = data_df[~is_matched].copy()
 
-        # డైనమిక్ ఔట్‌పుట్ ఫైల్ నేమ్
         safe_base = _sanitize_filename_part(
-            custom_prefix if custom_prefix else f'Master_Match_{source_label}'
+            custom_prefix
+            if custom_prefix
+            else f'Master_Match_{source_label}'
         )
         if not safe_base:
             safe_base = 'Master_Match_Report'
@@ -448,6 +594,187 @@ def process_master_match():
     except Exception as e:
         return f'Master Match ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}', 500
 
+
+@excel_tools_bp.route('/process-duplicates', methods=['POST'])
+def process_duplicates():
+    """ఎంచుకున్న కాలమ్ ఆధారంగా Duplicate మరియు Unique రికార్డులను వేరు చేసి రిపోర్ట్ ఇస్తుంది."""
+    try:
+        if 'dup_file' not in request.files:
+            return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
+        file = request.files['dup_file']
+        if not file or file.filename == '':
+            return 'ఫైల్ ఎంచుకోలేదు.', 400
+
+        sheet_name = request.form.get('dup_sheet', '').strip()
+        check_col = request.form.get('dup_col', '').strip()
+        keep_option = request.form.get('dup_keep', 'first').strip()
+
+        df = _read_sheet_as_str(file, sheet_name, fallback_idx=0)
+        if not check_col or check_col not in df.columns:
+            return 'దయచేసి సరైన చెక్ కాలమ్ ఎంచుకోండి.', 400
+
+        df = df.copy()
+        df['_Norm_Key'] = (
+            df[check_col].apply(_clean_account_value).str.upper()
+        )
+
+        # Duplicate mask: all occurrences where key appears more than once (non-empty)
+        counts = df['_Norm_Key'].value_counts()
+        dup_keys = set(counts[counts > 1].index) - {''}
+        is_duplicate = df['_Norm_Key'].isin(dup_keys)
+
+        duplicates_df = df[is_duplicate].drop(columns=['_Norm_Key']).copy()
+
+        if keep_option == 'none':
+            # Remove all rows that have duplicates
+            unique_df = df[~is_duplicate].drop(columns=['_Norm_Key']).copy()
+        else:
+            # Keep first occurrence of duplicates + all non-duplicates
+            seen = set()
+            keep_indices = []
+            for idx, k in enumerate(df['_Norm_Key']):
+                if k == '' or k not in seen:
+                    if k != '':
+                        seen.add(k)
+                    keep_indices.append(idx)
+            unique_df = df.iloc[keep_indices].drop(columns=['_Norm_Key']).copy()
+
+        safe_base = _sanitize_filename_part(
+            os.path.splitext(file.filename)[0]
+        )
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name = f'Duplicates_Check_{safe_base or "Report"}_{timestamp}.xlsx'
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            unique_df.to_excel(writer, sheet_name='Unique_Records', index=False)
+            duplicates_df.to_excel(
+                writer, sheet_name='Duplicate_Records', index=False
+            )
+            wb = writer.book
+            if 'Unique_Records' in wb.sheetnames:
+                _style_openpyxl_sheet(
+                    wb['Unique_Records'],
+                    f'UNIQUE RECORDS ({check_col}) - COUNT: {len(unique_df)}',
+                )
+            if 'Duplicate_Records' in wb.sheetnames:
+                _style_openpyxl_sheet(
+                    wb['Duplicate_Records'],
+                    f'DUPLICATE RECORDS ({check_col}) - COUNT: {len(duplicates_df)}',
+                )
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=out_name,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
+
+    except Exception as e:
+        return f'Duplicate చెక్ ప్రాసెసింగ్‌లో లోపం: {str(e)}', 500
+
+
+@excel_tools_bp.route('/process-clean-format', methods=['POST'])
+def process_clean_format():
+    """అకౌంట్ నంబర్లను Text (@) గా మరియు అమౌంట్‌లను Currency (₹) గా క్లీన్ చేసి ఎక్సెల్ ఇస్తుంది."""
+    try:
+        if 'clean_file' not in request.files:
+            return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
+        file = request.files['clean_file']
+        if not file or file.filename == '':
+            return 'ఫైల్ ఎంచుకోలేదు.', 400
+
+        sheet_name = request.form.get('clean_sheet', '').strip()
+        acc_cols_raw = request.form.getlist('clean_acc_cols')
+        amt_cols_raw = request.form.getlist('clean_amt_cols')
+        drop_empty = request.form.get('clean_drop_empty') == 'on'
+
+        df = _read_sheet_as_str(file, sheet_name, fallback_idx=0)
+        df = df.copy()
+
+        for col in acc_cols_raw:
+            if col in df.columns:
+                df[col] = df[col].apply(_clean_account_value)
+
+        numeric_amt_cols = []
+        for col in amt_cols_raw:
+            if col in df.columns:
+                cleaned_amt = (
+                    df[col]
+                    .astype(str)
+                    .str.replace('₹', '', regex=False)
+                    .str.replace(',', '', regex=False)
+                    .str.strip()
+                )
+                df[col] = pd.to_numeric(cleaned_amt, errors='coerce').fillna(0.0)
+                numeric_amt_cols.append(col)
+
+        if drop_empty:
+            df = df.dropna(how='all')
+            # Filter out rows where all cells are empty string
+            non_empty_mask = df.apply(
+                lambda r: any(str(v).strip() != '' for v in r), axis=1
+            )
+            df = df[non_empty_mask]
+
+        safe_base = _sanitize_filename_part(
+            os.path.splitext(file.filename)[0]
+        )
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name = f'Formatted_Data_{safe_base or "Sheet"}_{timestamp}.xlsx'
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Cleaned_Data', index=False)
+            wb = writer.book
+            ws = wb['Cleaned_Data']
+            _style_openpyxl_sheet(
+                ws, 'STANDARDIZED & FORMATTED OFFICE DATA'
+            )
+
+            headers = [ws.cell(row=2, column=c).value for c in range(1, ws.max_column + 1)]
+            for c_idx, h_val in enumerate(headers, 1):
+                if h_val in acc_cols_raw:
+                    for r_idx in range(3, ws.max_row + 1):
+                        cell = ws.cell(row=r_idx, column=c_idx)
+                        cell.value = (
+                            str(cell.value)
+                            if cell.value is not None and str(cell.value) != ''
+                            else ''
+                        )
+                        cell.number_format = '@'
+                        cell.alignment = Alignment(
+                            horizontal='center', vertical='center'
+                        )
+                if h_val in numeric_amt_cols:
+                    for r_idx in range(3, ws.max_row + 1):
+                        cell = ws.cell(row=r_idx, column=c_idx)
+                        try:
+                            cell.value = float(cell.value or 0.0)
+                        except Exception:
+                            cell.value = 0.0
+                        cell.number_format = '₹#,##0.00'
+                        cell.alignment = Alignment(
+                            horizontal='right', vertical='center'
+                        )
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=out_name,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
+
+    except Exception as e:
+        return f'డేటా ఫార్మాటింగ్‌లో లోపం: {str(e)}', 500
+
+
 @excel_tools_bp.route('/api/parse-excel-headers', methods=['POST'])
 def parse_excel_headers():
     """అప్‌లోడ్ చేసిన ఎక్సెల్ ఫైల్ నుండి షీట్ పేర్లు మరియు కాలమ్స్ ఎక్స్‌ట్రాక్ట్ చేసే API"""
@@ -471,9 +798,13 @@ def parse_excel_headers():
             'columns': columns,
         })
     except Exception as e:
-        return jsonify(
-            {'status': 'error', 'message': f'ఫైల్ రీడ్ చేయడంలో లోపం: {str(e)}'}
-        ), 500
+        return (
+            jsonify({
+                'status': 'error',
+                'message': f'ఫైల్ రీడ్ చేయడంలో లోపం: {str(e)}',
+            }),
+            500,
+        )
 
 
 @excel_tools_bp.route('/api/get-sheet-columns', methods=['POST'])
@@ -495,6 +826,10 @@ def get_sheet_columns():
 
         return jsonify({'status': 'success', 'columns': columns})
     except Exception as e:
-        return jsonify(
-            {'status': 'error', 'message': f'కాలమ్స్ లోడ్ చేయడంలో లోపం: {str(e)}'}
-        ), 500
+        return (
+            jsonify({
+                'status': 'error',
+                'message': f'కాలమ్స్ లోడ్ చేయడంలో లోపం: {str(e)}',
+            }),
+            500,
+        )
