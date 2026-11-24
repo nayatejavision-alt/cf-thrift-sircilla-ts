@@ -270,36 +270,45 @@
                 <!-- 🔓 అందరికీ అందుబాటులో ఉండే ఎక్సెల్ టూల్స్ (Public Excel Tools) -->
                 <div id="public-excel-tools-section" class="space-y-6">
 
-                    <!-- RD Reconciled Data Formatter Card -->
+                    <!-- 1. RD Reconciled Data Formatter Card (Dynamic Dropdowns + Auto-Detect) -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                         <h3 class="text-sm font-bold text-blue-900 border-b pb-2 mb-4 flex items-center gap-2">
                             📊 RD ఖాతాల రీకన్సిలియేషన్ & ఫార్మాటర్ టూల్ (Dynamic Excel Formatter)
                         </h3>
                         
-                        <form action="/process-reconcile" method="POST" enctype="multipart/form-data" class="space-y-4">
+                        <form action="/process-reconcile" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '⚙️ ప్రాసెస్ అవుతోంది...')" class="space-y-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-700 mb-1">ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి (.xlsx):</label>
-                                    <input type="file" name="reconcile_file" accept=".xlsx, .xls" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                    <input type="file" id="rec_file_input" name="reconcile_file" accept=".xlsx, .xls" onchange="handleReconcileFileUpload()" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                    <span id="rec_file_loading" class="text-[11px] text-blue-600 hidden">🔄 షీట్స్ & కాలమ్స్ లోడ్ అవుతున్నాయి...</span>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1">షీట్ పేరు (Sheet Name - ఆప్షనల్):</label>
-                                    <input type="text" name="rec_sheet_name" placeholder="ఉదా: as on 23.10.2026" class="w-full text-xs border border-slate-300 rounded-lg p-2">
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">షీట్ ఎంచుకోండి (Sheet Name):</label>
+                                    <select id="rec_sheet_select" name="rec_sheet_name" onchange="handleReconcileSheetChange()" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                        <option value="">-- ముందుగా ఫైల్ ఎంచుకోండి (లేదా మొదటి షీట్) --</option>
+                                    </select>
                                 </div>
                             </div>
 
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
                                 <div>
-                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">RD అకౌంట్ కాలమ్ పేరు:</label>
-                                    <input type="text" name="rec_rd_col" value="Rd" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">RD అకౌంట్ కాలమ్:</label>
+                                    <select id="rec_rd_col" name="rec_rd_col" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                                        <option value="Rd">Rd</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label class="block text-[11px] font-bold text-slate-600 mb-1">లబ్ధిదారుడి పేరు కాలమ్:</label>
-                                    <input type="text" name="rec_ben_col" value="Ben" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                                    <select id="rec_ben_col" name="rec_ben_col" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                                        <option value="Ben">Ben</option>
+                                    </select>
                                 </div>
                                 <div>
-                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">మొత్తం / బ్యాలెన్స్ కాలమ్ పేరు:</label>
-                                    <input type="text" name="rec_amt_col" value="Amount" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">మొత్తం / బ్యాలెన్స్ కాలమ్:</label>
+                                    <select id="rec_amt_col" name="rec_amt_col" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" required>
+                                        <option value="Amount">Amount</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -309,150 +318,156 @@
                                 </button>
                             </div>
                         </form>
-                    
                     </div>
-<!-- MASTER vs DATA MATCHED & UNMATCHED TOOL CARD -->
-<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mt-6">
-    <h3 class="text-sm font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
-        🎯 Master (Acc 1 & Acc 2) vs Data Matched/Unmatched టూల్
-    </h3>
 
-    <form action="/process-master-match" method="POST" enctype="multipart/form-data" class="space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-xs font-bold text-slate-700 mb-1">ఫైల్ మోడ్ ఎంచుకోండి:</label>
-                <select name="mm_mode" id="mm_mode" onchange="toggleMasterMatchMode()" required
-                        class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                    <option value="single_file">ఒకే ఫైల్‌లో Master & Data షీట్లు (Single File)</option>
-                    <option value="two_files">రెండు వేర్వేరు ఫైల్స్ — Master ఫైల్ & Data ఫైల్ (Two Files)</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (Dynamic Prefix - ఆప్షనల్):</label>
-                <input type="text" name="mm_output_prefix" placeholder="ఉదా: Sircilla_RD_Match"
-                       class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-            </div>
-        </div>
+                    <!-- 2. MASTER vs DATA MATCHED & UNMATCHED TOOL CARD -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <h3 class="text-sm font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
+                            🎯 Master (Acc 1 & Acc 2) vs Data Matched/Unmatched టూల్
+                        </h3>
 
-        <!-- SINGLE FILE MODE -->
-        <div id="mm_single_section" class="sub-box space-y-3 border-l-4 border-indigo-600">
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి (.xlsx):</label>
-                <input type="file" id="mm_file_single" name="mm_file_single" accept=".xlsx, .xls"
-                       onchange="handleMmSingleFileUpload()"
-                       class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                <span id="mm_single_loading" class="text-[11px] text-indigo-600 hidden">🔄 షీట్స్ & కాలమ్స్ లోడ్ అవుతున్నాయి...</span>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master షీట్:</label>
-                    <select name="mm_single_master_sheet" id="mm_single_master_sheet"
-                            onchange="handleMmSingleSheetChange('master')"
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- ముందుగా ఫైల్ ఎంచుకోండి --</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data షీట్:</label>
-                    <select name="mm_single_data_sheet" id="mm_single_data_sheet"
-                            onchange="handleMmSingleSheetChange('data')"
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- ముందుగా ఫైల్ ఎంచుకోండి --</option>
-                    </select>
-                </div>
-            </div>
-        </div>
+                        <form action="/process-master-match" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '📥 మ్యాచ్ రిపోర్ట్ సిద్ధమవుతోంది...')" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 mb-1">ఫైల్ మోడ్ ఎంచుకోండి:</label>
+                                    <select name="mm_mode" id="mm_mode" onchange="toggleMasterMatchMode()" required
+                                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                        <option value="single_file">ఒకే ఫైల్‌లో Master & Data షీట్లు (Single File)</option>
+                                        <option value="two_files">రెండు వేర్వేరు ఫైల్స్ — Master ఫైల్ & Data ఫైల్ (Two Files)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (Dynamic Prefix - ఆప్షనల్):</label>
+                                    <input type="text" name="mm_output_prefix" placeholder="ఉదా: Sircilla_RD_Match"
+                                           class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                            </div>
 
-        <!-- TWO FILES MODE -->
-        <div id="mm_two_section" class="hidden sub-box space-y-4 border-l-4 border-purple-600">
-            <div class="space-y-2">
-                <label class="block text-xs font-bold text-slate-800">1️⃣ Master ఫైల్ అప్‌లోడ్ చేయండి:</label>
-                <input type="file" id="mm_file_master" name="mm_file_master" accept=".xlsx, .xls"
-                       onchange="handleMmTwoFileUpload('master')"
-                       class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master షీట్:</label>
-                    <select name="mm_two_master_sheet" id="mm_two_master_sheet"
-                            onchange="handleMmTwoSheetChange('master')"
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- Master ఫైల్ ఎంచుకోండి --</option>
-                    </select>
-                </div>
-            </div>
+                            <!-- SINGLE FILE MODE -->
+                            <div id="mm_single_section" class="sub-box space-y-3 border-l-4 border-indigo-600">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి (.xlsx):</label>
+                                    <input type="file" id="mm_file_single" name="mm_file_single" accept=".xlsx, .xls"
+                                           onchange="handleMmSingleFileUpload()"
+                                           class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                    <span id="mm_single_loading" class="text-[11px] text-indigo-600 hidden">🔄 షీట్స్ & కాలమ్స్ లోడ్ అవుతున్నాయి...</span>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master షీట్:</label>
+                                        <select name="mm_single_master_sheet" id="mm_single_master_sheet"
+                                                onchange="handleMmSingleSheetChange('master')"
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- ముందుగా ఫైల్ ఎంచుకోండి --</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data షీట్:</label>
+                                        <select name="mm_single_data_sheet" id="mm_single_data_sheet"
+                                                onchange="handleMmSingleSheetChange('data')"
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- ముందుగా ఫైల్ ఎంచుకోండి --</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
 
-            <hr class="border-slate-200">
+                            <!-- TWO FILES MODE -->
+                            <div id="mm_two_section" class="hidden sub-box space-y-4 border-l-4 border-purple-600">
+                                <div class="space-y-2">
+                                    <label class="block text-xs font-bold text-slate-800">1️⃣ Master ఫైల్ అప్‌లోడ్ చేయండి:</label>
+                                    <input type="file" id="mm_file_master" name="mm_file_master" accept=".xlsx, .xls"
+                                           onchange="handleMmTwoFileUpload('master')"
+                                           class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master షీట్:</label>
+                                        <select name="mm_two_master_sheet" id="mm_two_master_sheet"
+                                                onchange="handleMmTwoSheetChange('master')"
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- Master ఫైల్ ఎంచుకోండి --</option>
+                                        </select>
+                                    </div>
+                                </div>
 
-            <div class="space-y-2">
-                <label class="block text-xs font-bold text-slate-800">2️⃣ Data ఫైల్ అప్‌లోడ్ చేయండి:</label>
-                <input type="file" id="mm_file_data" name="mm_file_data" accept=".xlsx, .xls"
-                       onchange="handleMmTwoFileUpload('data')"
-                       class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data షీట్:</label>
-                    <select name="mm_two_data_sheet" id="mm_two_data_sheet"
-                            onchange="handleMmTwoSheetChange('data')"
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- Data ఫైల్ ఎంచుకోండి --</option>
-                    </select>
-                </div>
-            </div>
-        </div>
+                                <hr class="border-slate-200">
 
-        <!-- COMMON COLUMN SELECTION (WORKS FOR BOTH SINGLE & TWO FILES) -->
-        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-            <p class="text-xs font-bold text-slate-800">3️⃣ మ్యాచ్ చేయవలసిన కాలమ్స్ ఎంచుకోండి</p>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master Account Column 1 (acc 1):</label>
-                    <select name="mm_master_col1" id="mm_master_col1" required
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- షీట్ ఎంచుకోండి --</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master Account Column 2 (acc 2 - ఐచ్ఛికం):</label>
-                    <select name="mm_master_col2" id="mm_master_col2"
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- ఏదీ లేదు (Optional) --</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data Match Column (acc):</label>
-                    <select name="mm_data_col" id="mm_data_col" required
-                            class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">-- షీట్ ఎంచుకోండి --</option>
-                    </select>
-                </div>
-            </div>
-        </div>
+                                <div class="space-y-2">
+                                    <label class="block text-xs font-bold text-slate-800">2️⃣ Data ఫైల్ అప్‌లోడ్ చేయండి:</label>
+                                    <input type="file" id="mm_file_data" name="mm_file_data" accept=".xlsx, .xls"
+                                           onchange="handleMmTwoFileUpload('data')"
+                                           class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data షీట్:</label>
+                                        <select name="mm_two_data_sheet" id="mm_two_data_sheet"
+                                                onchange="handleMmTwoSheetChange('data')"
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- Data ఫైల్ ఎంచుకోండి --</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
 
-        <div class="flex items-center gap-2">
-            <input type="checkbox" id="mm_case_insensitive" name="mm_case_insensitive" checked class="rounded border-slate-300 text-indigo-600">
-            <label for="mm_case_insensitive" class="text-xs text-slate-700">అక్షరాల పెద్ద/చిన్న తేడా (Case: ABC / abc) పరిగణించకుండా మ్యాచ్ చేయి</label>
-        </div>
+                            <!-- COMMON COLUMN SELECTION -->
+                            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                                <p class="text-xs font-bold text-slate-800">3️⃣ మ్యాచ్ చేయవలసిన కాలమ్స్ ఎంచుకోండి</p>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master Account Column 1 (acc 1):</label>
+                                        <select name="mm_master_col1" id="mm_master_col1" required
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- షీట్ ఎంచుకోండి --</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Master Account Column 2 (acc 2 - ఐచ్ఛికం):</label>
+                                        <select name="mm_master_col2" id="mm_master_col2"
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- ఏదీ లేదు (Optional) --</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data Match Column (acc):</label>
+                                        <select name="mm_data_col" id="mm_data_col" required
+                                                class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="">-- షీట్ ఎంచుకోండి --</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
 
-        <div>
-            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm flex items-center justify-center gap-2">
-                📥 Matched & Unmatched ఎక్సెల్ రిపోర్ట్ డౌన్‌లోడ్ చేయండి
-            </button>
-        </div>
-    </form>
-</div>                    
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="mm_case_insensitive" name="mm_case_insensitive" checked class="rounded border-slate-300 text-indigo-600">
+                                <label for="mm_case_insensitive" class="text-xs text-slate-700">అక్షరాల పెద్ద/చిన్న తేడా (Case: ABC / abc) పరిగణించకుండా మ్యాచ్ చేయి</label>
+                            </div>
+
+                            <div>
+                                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm flex items-center justify-center gap-2">
+                                    📥 Matched & Unmatched ఎక్సెల్ రిపోర్ట్ డౌన్‌లోడ్ చేయండి
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                     
-                    <!-- EXCEL LEFT JOIN AUTOMATION CARD -->
+                    <!-- 3. EXCEL LEFT JOIN AUTOMATION CARD -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                         <h3 class="text-sm font-bold text-blue-900 border-b pb-2 mb-4 flex items-center gap-2">
                             🔗 ఎక్సెల్ ఫైల్స్ లెఫ్ట్ జాయిన్ టూల్ (Excel Left Join Automation)
                         </h3>
                         
-                        <form action="/process" method="POST" enctype="multipart/form-data" class="space-y-4">
-                            <div class="form-group">
-                                <label for="join_type" class="block text-xs font-bold text-slate-700 mb-1">జాయిన్ ఆప్షన్ ఎంచుకోండి (Select Join Option):</label>
-                                <select name="join_type" id="join_type" onchange="toggleFormInputs()" required class="w-full text-sm border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
-                                    <option value="">-- ఆప్షన్ ఎంచుకోండి --</option>
-                                    <option value="single_file">ఒకే ఫైల్‌లోని రెండు షీట్లు (Single File - Two Sheets)</option>
-                                    <option value="two_files">రెండు వేర్వేరు ఫైల్స్ (Two Separate Files)</option>
-                                </select>
+                        <form action="/process" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '⚙️ జాయిన్ ప్రాసెస్ అవుతోంది...')" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group">
+                                    <label for="join_type" class="block text-xs font-bold text-slate-700 mb-1">జాయిన్ ఆప్షన్ ఎంచుకోండి (Select Join Option):</label>
+                                    <select name="join_type" id="join_type" onchange="toggleFormInputs()" required class="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                                        <option value="">-- ఆప్షన్ ఎంచుకోండి --</option>
+                                        <option value="single_file">ఒకే ఫైల్‌లోని రెండు షీట్లు (Single File - Two Sheets)</option>
+                                        <option value="two_files">రెండు వేర్వేరు ఫైల్స్ (Two Separate Files)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (ఆప్షనల్):</label>
+                                    <input type="text" name="join_output_prefix" placeholder="ఉదా: Sircilla_Joined_RD" class="w-full text-xs border border-slate-300 rounded-lg p-2.5 bg-white">
+                                </div>
                             </div>
 
                             <!-- Single File Option Section -->
@@ -529,6 +544,90 @@
                         </form>
                     </div>
 
+                    <!-- 4. NEW TOOL: DUPLICATE & UNIQUE RECORDS CHECKER -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <h3 class="text-sm font-bold text-amber-800 border-b pb-2 mb-4 flex items-center gap-2">
+                            🧬 డూప్లికేట్ & యూనిక్ రికార్డుల తనిఖీ టూల్ (Duplicate Checker)
+                        </h3>
+                        <p class="text-[11px] text-slate-500 mb-3">అకౌంట్ నంబర్ లేదా పేరు ఆధారంగా డూప్లికేట్ ఎంట్రీలను వేరు చేసి <strong>Unique_Records</strong> & <strong>Duplicate_Records</strong> షీట్లతో రిపోర్ట్ ఇస్తుంది.</p>
+
+                        <form action="/process-duplicates" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '🧬 డూప్లికేట్స్ తనిఖీ అవుతున్నాయి...')" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఎక్సెల్ ఫైల్ (.xlsx):</label>
+                                    <input type="file" id="dup_file_input" name="dup_file" accept=".xlsx, .xls" onchange="handleGenericSheetColUpload('dup_file_input', 'dup_sheet', 'dup_col')" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">షీట్ ఎంచుకోండి:</label>
+                                    <select id="dup_sheet" name="dup_sheet" onchange="handleGenericSheetChange('dup_file_input', 'dup_sheet', 'dup_col')" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                        <option value="">-- ఫైల్ ఎంచుకోండి --</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">చెక్ చేయాల్సిన కాలమ్:</label>
+                                    <select id="dup_col" name="dup_col" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                        <option value="">-- కాలమ్ ఎంచుకోండి --</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                <label class="text-xs font-semibold text-slate-700">Unique షీట్‌లో డూప్లికేట్ పద్ధతి:</label>
+                                <select name="dup_keep" class="text-xs border border-slate-300 rounded-lg p-1.5 bg-white">
+                                    <option value="first">మొదటి ఎంట్రీని Unique లో ఉంచి, మిగిలినవి Duplicate లో చూపు</option>
+                                    <option value="none">డూప్లికేట్ ఉన్న అన్ని రోస్‌ను Unique నుండి తొలగించు</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+                                🧬 Duplicate రిపోర్ట్ డౌన్‌లోడ్ చేయండి
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- 5. NEW TOOL: ACCOUNT & AMOUNT STANDARD FORMATTER -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <h3 class="text-sm font-bold text-teal-800 border-b pb-2 mb-4 flex items-center gap-2">
+                            🧹 అకౌంట్ & అమౌంట్ క్లీనర్ / ఫార్మాటర్ టూల్ (Text & Currency Formatter)
+                        </h3>
+                        <p class="text-[11px] text-slate-500 mb-3">అకౌంట్ నంబర్లలోని <code>.0</code> / అపోస్ట్రోఫీలు తొలగించి Text (<code>@</code>) గా మరియు అమౌంట్‌లను <code>₹#,##0.00</code> గా ఫార్మాట్ చేస్తుంది.</p>
+
+                        <form action="/process-clean-format" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '🧹 డేటా క్లీన్ అవుతోంది...')" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఎక్సెల్ ఫైల్ (.xlsx):</label>
+                                    <input type="file" id="clean_file_input" name="clean_file" accept=".xlsx, .xls" onchange="handleCleanFileUpload()" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">షీట్ ఎంచుకోండి:</label>
+                                    <select id="clean_sheet" name="clean_sheet" onchange="handleCleanSheetChange()" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                        <option value="">-- ఫైల్ ఎంచుకోండి --</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-slate-700 mb-1">అకౌంట్/RD కాలమ్స్ (Ctrl/Shift తో బహుళ ఎంపిక):</label>
+                                    <select id="clean_acc_cols" name="clean_acc_cols" multiple size="4" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white"></select>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold text-slate-700 mb-1">అమౌంట్/బ్యాలెన్స్ కాలమ్స్ (Ctrl/Shift తో బహుళ ఎంపిక):</label>
+                                    <select id="clean_amt_cols" name="clean_amt_cols" multiple size="4" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white"></select>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="clean_drop_empty" name="clean_drop_empty" checked class="rounded border-slate-300 text-teal-600">
+                                <label for="clean_drop_empty" class="text-xs text-slate-700">పూర్తిగా ఖాళీగా ఉన్న వరుసలను (Blank Rows) తొలగించు</label>
+                            </div>
+
+                            <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+                                🧹 క్లీన్ & ఫార్మాట్ చేసిన ఎక్సెల్ డౌన్‌లోడ్ చేయండి
+                            </button>
+                        </form>
+                    </div>
+
                 </div>
             </div>
         </div>
@@ -560,6 +659,22 @@
     <script>
     function appData() {
         return {}
+    }
+
+    function showLoader() {
+        // Optional hook for Google Sheets update form
+    }
+
+    function setSubmittingState(formEl, loadingText) {
+        const btn = formEl.querySelector('button[type="submit"]');
+        if (!btn) return;
+        const origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = loadingText;
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }, 4000);
     }
 
     function toggleFormInputs() {
@@ -932,6 +1047,99 @@
         window.location.href = `/audit/dashboard?bank_name=${encodeURIComponent(selectedBank)}`;
     }
 
+    function populateSelectOptions(selectElementId, items, autoMatchKeywords = []) {
+        const select = document.getElementById(selectElementId);
+        if (!select) return;
+        select.innerHTML = '';
+
+        if (!items || items.length === 0) {
+            select.innerHTML = '<option value="">-- డేటా లేదు --</option>';
+            return;
+        }
+
+        let matchedVal = '';
+        items.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item;
+            option.textContent = item;
+            select.appendChild(option);
+
+            const lower = String(item).toLowerCase();
+            if (!matchedVal && autoMatchKeywords.some(kw => lower.includes(kw))) {
+                matchedVal = item;
+            }
+        });
+
+        if (matchedVal) {
+            select.value = matchedVal;
+        }
+    }
+
+    function populateMultiSelectOptions(selectElementId, items, keywords = []) {
+        const select = document.getElementById(selectElementId);
+        if (!select) return;
+        select.innerHTML = '';
+        (items || []).forEach(item => {
+            const option = document.createElement('option');
+            option.value = item;
+            option.textContent = item;
+            const lower = String(item).toLowerCase();
+            if (keywords.some(kw => lower.includes(kw))) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    }
+
+    // --- RD Reconcile Dynamic Handlers ---
+    async function handleReconcileFileUpload() {
+        const fileInput = document.getElementById('rec_file_input');
+        const loadingElem = document.getElementById('rec_file_loading');
+        if (!fileInput.files || fileInput.files.length === 0) return;
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        if (loadingElem) loadingElem.classList.remove('hidden');
+
+        try {
+            const res = await fetch('/api/parse-excel-headers', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                populateSelectOptions('rec_sheet_select', result.sheets);
+                populateSelectOptions('rec_rd_col', result.columns, ['rd', 'acc', 'account']);
+                populateSelectOptions('rec_ben_col', result.columns, ['ben', 'name', 'beneficiary']);
+                populateSelectOptions('rec_amt_col', result.columns, ['amt', 'amount', 'bal', 'balance']);
+            }
+        } catch (err) {
+            console.error("Reconcile file parse error:", err);
+        } finally {
+            if (loadingElem) loadingElem.classList.add('hidden');
+        }
+    }
+
+    async function handleReconcileSheetChange() {
+        const fileInput = document.getElementById('rec_file_input');
+        const sheetName = document.getElementById('rec_sheet_select').value;
+        if (!fileInput.files[0] || !sheetName) return;
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('sheet_name', sheetName);
+
+        try {
+            const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                populateSelectOptions('rec_rd_col', result.columns, ['rd', 'acc', 'account']);
+                populateSelectOptions('rec_ben_col', result.columns, ['ben', 'name', 'beneficiary']);
+                populateSelectOptions('rec_amt_col', result.columns, ['amt', 'amount', 'bal', 'balance']);
+            }
+        } catch (err) {
+            console.error("Reconcile sheet change error:", err);
+        }
+    }
+
+    // --- Left Join Handlers ---
     async function handleSingleFileUpload() {
         const fileInput = document.getElementById('file_single_input');
         const loadingElem = document.getElementById('single_file_loading');
@@ -1033,27 +1241,39 @@
         }
     }
 
-    function populateSelectOptions(selectElementId, items) {
-        const select = document.getElementById(selectElementId);
-        if (!select) return;
-        select.innerHTML = '';
+    // --- Master Match Handlers ---
+    function toggleMasterMatchMode() {
+        const mode = document.getElementById('mm_mode').value;
+        const singleSec = document.getElementById('mm_single_section');
+        const twoSec = document.getElementById('mm_two_section');
 
-        if (!items || items.length === 0) {
-            select.innerHTML = '<option value="">-- డేటా లేదు --</option>';
-            return;
+        if (mode === 'two_files') {
+            singleSec.classList.add('hidden');
+            twoSec.classList.remove('hidden');
+        } else {
+            twoSec.classList.add('hidden');
+            singleSec.classList.remove('hidden');
         }
-
-        items.forEach(item => {
-            const option = document.createElement('option');
-            option.value = item;
-            option.textContent = item;
-            select.appendChild(option);
-        });
     }
-    
-    async function handleMasterMatchFileUpload() {
-        const fileInput = document.getElementById('mm_file_input');
-        const loadingElem = document.getElementById('mm_file_loading');
+
+    function populateMasterCols(columns) {
+        populateSelectOptions('mm_master_col1', columns);
+        const col2Select = document.getElementById('mm_master_col2');
+        col2Select.innerHTML = '<option value="">-- ఏదీ లేదు (Optional) --</option>';
+        (columns || []).forEach(col => {
+            const opt = document.createElement('option');
+            opt.value = col;
+            opt.textContent = col;
+            col2Select.appendChild(opt);
+        });
+        if (columns && columns.length > 1) {
+            col2Select.value = columns[1];
+        }
+    }
+
+    async function handleMmSingleFileUpload() {
+        const fileInput = document.getElementById('mm_file_single');
+        const loadingElem = document.getElementById('mm_single_loading');
         if (!fileInput.files || fileInput.files.length === 0) return;
 
         const formData = new FormData();
@@ -1066,29 +1286,31 @@
             const result = await response.json();
 
             if (result.status === 'success') {
-                populateSelectOptions('mm_master_sheet', result.sheets);
-                populateSelectOptions('mm_data_sheet', result.sheets);
+                populateSelectOptions('mm_single_master_sheet', result.sheets);
+                populateSelectOptions('mm_single_data_sheet', result.sheets);
 
                 if (result.sheets.length > 1) {
-                    document.getElementById('mm_data_sheet').value = result.sheets[1];
-                    await handleMasterMatchSheetChange('data');
+                    document.getElementById('mm_single_data_sheet').value = result.sheets[1];
+                    await handleMmSingleSheetChange('data');
+                } else {
+                    populateSelectOptions('mm_data_col', result.columns);
                 }
-                await handleMasterMatchSheetChange('master');
+                populateMasterCols(result.columns);
             } else {
                 alert("Error: " + result.message);
             }
         } catch (err) {
-            console.error("Master Match File Parse Error:", err);
+            console.error("MM Single File Parse Error:", err);
         } finally {
             if (loadingElem) loadingElem.classList.add('hidden');
         }
     }
 
-    async function handleMasterMatchSheetChange(targetType) {
-        const fileInput = document.getElementById('mm_file_input');
+    async function handleMmSingleSheetChange(targetType) {
+        const fileInput = document.getElementById('mm_file_single');
         if (!fileInput.files || fileInput.files.length === 0) return;
 
-        const sheetSelectId = targetType === 'master' ? 'mm_master_sheet' : 'mm_data_sheet';
+        const sheetSelectId = targetType === 'master' ? 'mm_single_master_sheet' : 'mm_single_data_sheet';
         const sheetName = document.getElementById(sheetSelectId).value;
         if (!sheetName) return;
 
@@ -1099,175 +1321,153 @@
         try {
             const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
             const result = await res.json();
-
             if (result.status === 'success') {
                 if (targetType === 'master') {
-                    populateSelectOptions('mm_master_col1', result.columns);
-                    const col2Select = document.getElementById('mm_master_col2');
-                    col2Select.innerHTML = '<option value="">-- ఏదీ లేదు (Optional) --</option>';
-                    result.columns.forEach(col => {
-                        const opt = document.createElement('option');
-                        opt.value = col;
-                        opt.textContent = col;
-                        col2Select.appendChild(opt);
-                    });
-                    if (result.columns.length > 1) {
-                        col2Select.value = result.columns[1];
-                    }
+                    populateMasterCols(result.columns);
                 } else {
                     populateSelectOptions('mm_data_col', result.columns);
                 }
             }
         } catch (e) {
-            console.error("Master Match Sheet Change Error:", e);
+            console.error("MM Single Sheet Change Error:", e);
         }
     }
 
-function toggleMasterMatchMode() {
-    const mode = document.getElementById('mm_mode').value;
-    const singleSec = document.getElementById('mm_single_section');
-    const twoSec = document.getElementById('mm_two_section');
+    async function handleMmTwoFileUpload(targetType) {
+        const fileInputId = targetType === 'master' ? 'mm_file_master' : 'mm_file_data';
+        const sheetSelectId = targetType === 'master' ? 'mm_two_master_sheet' : 'mm_two_data_sheet';
+        const fileInput = document.getElementById(fileInputId);
+        if (!fileInput.files || fileInput.files.length === 0) return;
 
-    if (mode === 'two_files') {
-        singleSec.classList.add('hidden');
-        twoSec.classList.remove('hidden');
-    } else {
-        twoSec.classList.add('hidden');
-        singleSec.classList.remove('hidden');
-    }
-}
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
 
-function populateMasterCols(columns) {
-    populateSelectOptions('mm_master_col1', columns);
-    const col2Select = document.getElementById('mm_master_col2');
-    col2Select.innerHTML = '<option value="">-- ఏదీ లేదు (Optional) --</option>';
-    (columns || []).forEach(col => {
-        const opt = document.createElement('option');
-        opt.value = col;
-        opt.textContent = col;
-        col2Select.appendChild(opt);
-    });
-    if (columns && columns.length > 1) {
-        col2Select.value = columns[1];
-    }
-}
+        try {
+            const response = await fetch('/api/parse-excel-headers', { method: 'POST', body: formData });
+            const result = await response.json();
 
-async function handleMmSingleFileUpload() {
-    const fileInput = document.getElementById('mm_file_single');
-    const loadingElem = document.getElementById('mm_single_loading');
-    if (!fileInput.files || fileInput.files.length === 0) return;
-
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
-    if (loadingElem) loadingElem.classList.remove('hidden');
-
-    try {
-        const response = await fetch('/api/parse-excel-headers', { method: 'POST', body: formData });
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            populateSelectOptions('mm_single_master_sheet', result.sheets);
-            populateSelectOptions('mm_single_data_sheet', result.sheets);
-
-            if (result.sheets.length > 1) {
-                document.getElementById('mm_single_data_sheet').value = result.sheets[1];
-                await handleMmSingleSheetChange('data');
+            if (result.status === 'success') {
+                populateSelectOptions(sheetSelectId, result.sheets);
+                if (targetType === 'master') {
+                    populateMasterCols(result.columns);
+                } else {
+                    populateSelectOptions('mm_data_col', result.columns);
+                }
             } else {
-                populateSelectOptions('mm_data_col', result.columns);
+                alert("Error: " + result.message);
             }
-            populateMasterCols(result.columns);
-        } else {
-            alert("Error: " + result.message);
+        } catch (err) {
+            console.error("MM Two File Parse Error:", err);
         }
-    } catch (err) {
-        console.error("MM Single File Parse Error:", err);
-    } finally {
-        if (loadingElem) loadingElem.classList.add('hidden');
     }
-}
 
-async function handleMmSingleSheetChange(targetType) {
-    const fileInput = document.getElementById('mm_file_single');
-    if (!fileInput.files || fileInput.files.length === 0) return;
+    async function handleMmTwoSheetChange(targetType) {
+        const fileInputId = targetType === 'master' ? 'mm_file_master' : 'mm_file_data';
+        const sheetSelectId = targetType === 'master' ? 'mm_two_master_sheet' : 'mm_two_data_sheet';
+        const fileInput = document.getElementById(fileInputId);
+        const sheetName = document.getElementById(sheetSelectId).value;
+        if (!fileInput.files || fileInput.files.length === 0 || !sheetName) return;
 
-    const sheetSelectId = targetType === 'master' ? 'mm_single_master_sheet' : 'mm_single_data_sheet';
-    const sheetName = document.getElementById(sheetSelectId).value;
-    if (!sheetName) return;
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('sheet_name', sheetName);
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    formData.append('sheet_name', sheetName);
-
-    try {
-        const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
-        const result = await res.json();
-        if (result.status === 'success') {
-            if (targetType === 'master') {
-                populateMasterCols(result.columns);
-            } else {
-                populateSelectOptions('mm_data_col', result.columns);
+        try {
+            const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                if (targetType === 'master') {
+                    populateMasterCols(result.columns);
+                } else {
+                    populateSelectOptions('mm_data_col', result.columns);
+                }
             }
+        } catch (e) {
+            console.error("MM Two Sheet Change Error:", e);
         }
-    } catch (e) {
-        console.error("MM Single Sheet Change Error:", e);
     }
-}
 
-async function handleMmTwoFileUpload(targetType) {
-    const fileInputId = targetType === 'master' ? 'mm_file_master' : 'mm_file_data';
-    const sheetSelectId = targetType === 'master' ? 'mm_two_master_sheet' : 'mm_two_data_sheet';
-    const fileInput = document.getElementById(fileInputId);
-    if (!fileInput.files || fileInput.files.length === 0) return;
+    // --- Generic Duplicate Tool Handlers ---
+    async function handleGenericSheetColUpload(fileInputId, sheetSelectId, colSelectId) {
+        const fileInput = document.getElementById(fileInputId);
+        if (!fileInput.files || fileInput.files.length === 0) return;
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
 
-    try {
-        const response = await fetch('/api/parse-excel-headers', { method: 'POST', body: formData });
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            populateSelectOptions(sheetSelectId, result.sheets);
-            if (targetType === 'master') {
-                populateMasterCols(result.columns);
-            } else {
-                populateSelectOptions('mm_data_col', result.columns);
+        try {
+            const res = await fetch('/api/parse-excel-headers', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                populateSelectOptions(sheetSelectId, result.sheets);
+                populateSelectOptions(colSelectId, result.columns, ['acc', 'account', 'rd', 'name', 'aadhar']);
             }
-        } else {
-            alert("Error: " + result.message);
+        } catch (err) {
+            console.error("Generic file parse error:", err);
         }
-    } catch (err) {
-        console.error("MM Two File Parse Error:", err);
     }
-}
 
-async function handleMmTwoSheetChange(targetType) {
-    const fileInputId = targetType === 'master' ? 'mm_file_master' : 'mm_file_data';
-    const sheetSelectId = targetType === 'master' ? 'mm_two_master_sheet' : 'mm_two_data_sheet';
-    const fileInput = document.getElementById(fileInputId);
-    const sheetName = document.getElementById(sheetSelectId).value;
-    if (!fileInput.files || fileInput.files.length === 0 || !sheetName) return;
+    async function handleGenericSheetChange(fileInputId, sheetSelectId, colSelectId) {
+        const fileInput = document.getElementById(fileInputId);
+        const sheetName = document.getElementById(sheetSelectId).value;
+        if (!fileInput.files[0] || !sheetName) return;
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    formData.append('sheet_name', sheetName);
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('sheet_name', sheetName);
 
-    try {
-        const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
-        const result = await res.json();
-        if (result.status === 'success') {
-            if (targetType === 'master') {
-                populateMasterCols(result.columns);
-            } else {
-                populateSelectOptions('mm_data_col', result.columns);
+        try {
+            const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                populateSelectOptions(colSelectId, result.columns, ['acc', 'account', 'rd', 'name', 'aadhar']);
             }
+        } catch (err) {
+            console.error("Generic sheet change error:", err);
         }
-    } catch (e) {
-        console.error("MM Two Sheet Change Error:", e);
     }
-}
-        
+
+    // --- Clean & Format Tool Handlers ---
+    async function handleCleanFileUpload() {
+        const fileInput = document.getElementById('clean_file_input');
+        if (!fileInput.files || fileInput.files.length === 0) return;
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        try {
+            const res = await fetch('/api/parse-excel-headers', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                populateSelectOptions('clean_sheet', result.sheets);
+                populateMultiSelectOptions('clean_acc_cols', result.columns, ['acc', 'account', 'rd']);
+                populateMultiSelectOptions('clean_amt_cols', result.columns, ['amt', 'amount', 'bal', 'balance', 'total']);
+            }
+        } catch (err) {
+            console.error("Clean file parse error:", err);
+        }
+    }
+
+    async function handleCleanSheetChange() {
+        const fileInput = document.getElementById('clean_file_input');
+        const sheetName = document.getElementById('clean_sheet').value;
+        if (!fileInput.files[0] || !sheetName) return;
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('sheet_name', sheetName);
+
+        try {
+            const res = await fetch('/api/get-sheet-columns', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (result.status === 'success') {
+                populateMultiSelectOptions('clean_acc_cols', result.columns, ['acc', 'account', 'rd']);
+                populateMultiSelectOptions('clean_amt_cols', result.columns, ['amt', 'amount', 'bal', 'balance', 'total']);
+            }
+        } catch (err) {
+            console.error("Clean sheet change error:", err);
+        }
+    }
     </script>
 </body>
 </html>
