@@ -3,6 +3,7 @@ import io
 import os
 import re
 from flask import Blueprint, jsonify, request, send_file
+import numpy as np
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -48,8 +49,13 @@ def _read_sheet_as_str(
     return df
 
 
-def _style_openpyxl_sheet(ws, title_text: str):
-    """ఎక్సెల్ షీట్‌కు ప్రొఫెషనల్ హెడర్, బోర్డర్స్ మరియు కాలమ్ విడ్త్ సెట్ చేస్తుంది."""
+def _style_openpyxl_sheet(
+    ws, title_text: str, text_cols=None, currency_cols=None
+):
+    """ఎక్సెల్ షీట్‌కు ప్రొఫెషనల్ హెడర్, బోర్డర్స్, ఫార్మాట్స్ మరియు కాలమ్ విడ్త్ సెట్ చేస్తుంది."""
+    text_cols = set(text_cols or [])
+    currency_cols = set(currency_cols or [])
+
     ws.views.sheetView[0].showGridLines = True
     max_col = max(ws.max_column, 1)
     max_row = ws.max_row
@@ -82,8 +88,10 @@ def _style_openpyxl_sheet(ws, title_text: str):
 
     # Header Row (Row 2)
     ws.row_dimensions[2].height = 26
+    headers_map = {}
     for col_idx in range(1, max_col + 1):
         h_cell = ws.cell(row=2, column=col_idx)
+        headers_map[col_idx] = str(h_cell.value or '').strip()
         h_cell.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
         h_cell.fill = SUBHEADER_FILL
         h_cell.alignment = Alignment(
@@ -97,10 +105,29 @@ def _style_openpyxl_sheet(ws, title_text: str):
         is_even = r_idx % 2 == 0
         for c_idx in range(1, max_col + 1):
             c = ws.cell(row=r_idx, column=c_idx)
+            h_name = headers_map.get(c_idx, '')
             c.border = cell_border
             c.font = Font(name='Calibri', size=10, color='0F172A')
             if is_even:
                 c.fill = ZEBRA_FILL
+
+            if h_name in text_cols:
+                c.value = (
+                    ''
+                    if c.value is None or str(c.value).strip().lower() == 'nan'
+                    else str(c.value).strip()
+                )
+                c.number_format = '@'
+                c.alignment = Alignment(horizontal='center', vertical='center')
+            elif h_name in currency_cols:
+                try:
+                    c.value = float(c.value or 0.0)
+                except Exception:
+                    c.value = 0.0
+                c.number_format = '₹#,##0.00'
+                c.alignment = Alignment(horizontal='right', vertical='center')
+            else:
+                c.alignment = Alignment(horizontal='left', vertical='center')
 
     # Auto-fit column widths safely
     for c_idx in range(1, max_col + 1):
@@ -112,11 +139,335 @@ def _style_openpyxl_sheet(ws, title_text: str):
                 val_len = len(str(val))
                 if val_len > max_len:
                     max_len = val_len
-        ws.column_dimensions[col_letter].width = min(max_len + 4, 42)
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 44)
 
     ws.freeze_panes = 'A3'
 
 
+# ==============================================================================
+# STANDALONE TEXT (.TXT) & PRN (.PRN) PARSER CONVERTERS TO EXCEL
+# ==============================================================================
+def _parse_term_deposit_text_bytes(raw_bytes: bytes) -> pd.DataFrame:
+    """Term Deposit / RD / FD టెక్స్ట్ బైట్స్‌ను పార్స్ చేస్తుంది; regex మ్యాచ్ కాకపోతే generic text parser వాడుతుంది."""
+    text = raw_bytes.decode('cp1252', errors='ignore')
+    lines = text.splitlines()
+
+    current_sec = 'Unknown'
+    clean_rows = []
+
+    for line in lines:
+        if (
+            'Fixed deposits -' in line
+            or 'Short term deposits -' in line
+            or 'Recurring Deposits' in line
+        ):
+            current_sec = line.strip()
+
+        match = re.match(
+            r'^\s*(\d{1,4})\s+(\d+)\s+(\d+)\s+(.*?)\s+(\d+\.\d+)\s+([A-Z]+)\s+([\d,]+\.\d+)\s+(\d+)\s+(\d{2}/\d{2}/\d{4})\s+([\d,]+\.\d+)',
+            line,
+        )
+        if match:
+            (
+                sno,
+                cust_no,
+                acc_no,
+                acc_name,
+                int_rate,
+                status,
+                balance,
+                tenor,
+                mat_date,
+                avail_int,
+            ) = match.groups()
+            clean_rows.append({
+                'Section': current_sec,
+                'SNO': int(sno),
+                'Customer_No': _clean_account_value(cust_no),
+                'Account_No': _clean_account_value(acc_no),
+                'Account_Name': acc_name.strip(),
+                'Int_Rate': float(int_rate),
+                'Status': status,
+                'Balance': float(balance.replace(',', '')),
+                'Tenor': tenor,
+                'Mat_Date': mat_date,
+                'Avail_Int': float(avail_int.replace(',', '')),
+            })
+
+    if clean_rows:
+        return pd.DataFrame(clean_rows)
+
+    # Generic fallback for other .txt files (pipe/tab/comma/multi-space separated)
+    non_empty = [ln.strip() for ln in lines if ln.strip()]
+    if not non_empty:
+        return pd.DataFrame(columns=['Raw_Line'])
+
+    sep = None
+    for candidate in ('|', '\t', ','):
+        if candidate in non_empty[0]:
+            sep = candidate
+            break
+
+    if sep:
+        parsed = [
+            [cell.strip() for cell in ln.split(sep)] for ln in non_empty
+        ]
+    else:
+        parsed = [re.split(r'\s{2,}', ln) for ln in non_empty]
+
+    max_cols = max(len(r) for r in parsed)
+    headers = [f'Column_{i+1}' for i in range(max_cols)]
+    padded = [r + [''] * (max_cols - len(r)) for r in parsed]
+    return pd.DataFrame(padded, columns=headers)
+
+
+def _parse_prn_bytes(raw_bytes: bytes, mode: str = 'auto') -> pd.DataFrame:
+    """PRN ఫైల్‌ను Fixed-width (colspecs) మరియు Regex fallback తో సురక్షితంగా పార్స్ చేస్తుంది."""
+    text = raw_bytes.decode('utf-8', errors='replace')
+    lines = text.splitlines()
+
+    # 1. Fixed-width parsing (SNO, Name, Aadhar, Contact, Bank Acc, Bank Name, RD1 Acc, CIF NO)
+    colspecs = [
+        (0, 4),
+        (4, 47),
+        (47, 61),
+        (61, 75),
+        (75, 90),
+        (90, 124),
+        (124, 147),
+        (147, None),
+    ]
+    fw_rows = []
+    for line in lines[1:]:
+        line_clean = line.rstrip('\r\n')
+        if not line_clean.strip():
+            continue
+        row = [line_clean[s:e].strip() for s, e in colspecs]
+        # ఆధార్ కాలమ్ (index 2) లో 12 అంకెల సంఖ్య ఉంటే రెడ్ యాక్ట్ చేయడం
+        if len(row) > 2 and row[2]:
+            digits_only = re.sub(r'\D', '', row[2])
+            if len(digits_only) == 12:
+                row[2] = '[Aadhaar Redacted]'
+        row[4] = _clean_account_value(row[4])
+        row[6] = _clean_account_value(row[6])
+        row[7] = _clean_account_value(row[7])
+        fw_rows.append(row)
+
+    fw_columns = [
+        'SNO',
+        'Name Of Beneficiary',
+        'Aadhar Number',
+        'Contact Number',
+        'Bank Acc Number',
+        'Name As Per Bank Records',
+        'RD1 Acc Num',
+        'CIF NO',
+    ]
+    fw_df = pd.DataFrame(fw_rows, columns=fw_columns)
+
+    # Check if fixed-width produced meaningful RD1 / Bank Acc data
+    has_fw_data = False
+    if not fw_df.empty:
+        non_empty_acc = (
+            (fw_df['Bank Acc Number'] != '') | (fw_df['RD1 Acc Num'] != '')
+        ).sum()
+        if non_empty_acc > 0:
+            has_fw_data = True
+
+    if mode == 'fixed_width' or (mode == 'auto' and has_fw_data):
+        return fw_df
+
+    # 2. Regex fallback parser
+    cp1252_lines = raw_bytes.decode('cp1252', errors='ignore').splitlines()
+    parsed_data = []
+    for line in cp1252_lines:
+        line_str = line.rstrip('\r\n')
+        if (
+            'SNO' in line_str
+            or 'Contact Number' in line_str
+            or not line_str.strip()
+        ):
+            continue
+
+        sno_match = re.match(r'^(\d+)(.*)$', line_str.strip())
+        if not sno_match:
+            continue
+
+        sno = sno_match.group(1)
+        rem_str = sno_match.group(2).strip()
+
+        parts = rem_str.split()
+        rd1_val = '0'
+        if parts:
+            if parts[-1].isdigit() and len(parts[-1]) >= 8:
+                rd1_val = parts[-1]
+                rem_str = ' '.join(parts[:-1])
+            elif (
+                (
+                    len(parts) >= 2
+                    and parts[-1]
+                    in ['CLOSED', 'ADDRESS', 'NUMBER', 'BALANCE']
+                )
+                or 'ACCOUNT' in rem_str
+                or 'TEMP' in rem_str
+            ):
+                rd1_val = '0'
+
+        pattern = r'^(.*?)\s+(\d{9,11})\s+(\d{9,11})(?:\s*(\d{9,11}))?(.*)$'
+        match = re.match(pattern, rem_str)
+
+        if match:
+            ben_name, contact, bank_acc, cif, rest_bank = match.groups()
+            parsed_data.append({
+                'SNO': int(sno),
+                'Name Of Beneficiary': ben_name.strip(),
+                'Contact Number': _clean_account_value(contact),
+                'Bank Acc Number': _clean_account_value(bank_acc),
+                'CIF NO': _clean_account_value(cif) if cif else '',
+                'NAME AS PER BANK RECORDS': (
+                    rest_bank.strip() if rest_bank else ''
+                ),
+                'RD1 Acc Num': _clean_account_value(rd1_val),
+            })
+        else:
+            parsed_data.append({
+                'SNO': int(sno),
+                'Name Of Beneficiary': rem_str,
+                'Contact Number': '',
+                'Bank Acc Number': '',
+                'CIF NO': '',
+                'NAME AS PER BANK RECORDS': '',
+                'RD1 Acc Num': _clean_account_value(rd1_val),
+            })
+
+    return pd.DataFrame(parsed_data)
+
+
+@excel_tools_bp.route('/process-txt-to-excel', methods=['POST'])
+def process_txt_to_excel():
+    """Text (.txt) ఫైల్‌ను పార్స్ చేసి ఫార్మాట్ చేసిన ఎక్సెల్ (.xlsx) ఫైల్‌గా డౌన్‌లోడ్ చేస్తుంది."""
+    try:
+        if 'txt_file' not in request.files:
+            return 'దయచేసి .txt ఫైల్ అప్‌లోడ్ చేయండి.', 400
+        file = request.files['txt_file']
+        if not file or file.filename == '':
+            return 'ఫైల్ ఎంచుకోలేదు.', 400
+
+        custom_prefix = request.form.get('txt_output_prefix', '').strip()
+        raw_bytes = file.read()
+        df = _parse_term_deposit_text_bytes(raw_bytes)
+
+        if df.empty:
+            return 'టెక్స్ట్ ఫైల్‌లో ప్రాసెస్ చేయడానికి డేటా లభించలేదు.', 400
+
+        text_cols = [
+            c
+            for c in ('Customer_No', 'Account_No', 'Tenor', 'Mat_Date')
+            if c in df.columns
+        ]
+        currency_cols = [
+            c for c in ('Balance', 'Avail_Int') if c in df.columns
+        ]
+
+        safe_base = _sanitize_filename_part(
+            custom_prefix
+            if custom_prefix
+            else f'TXT_Converted_{os.path.splitext(file.filename)[0]}'
+        )
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name = f'{safe_base or "Text_To_Excel"}_{timestamp}.xlsx'
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Text_Data', index=False)
+            ws = writer.book['Text_Data']
+            _style_openpyxl_sheet(
+                ws,
+                f'TEXT TO EXCEL STATEMENT ({file.filename})',
+                text_cols=text_cols,
+                currency_cols=currency_cols,
+            )
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=out_name,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
+
+    except Exception as e:
+        return f'TXT టు Excel మార్పులో లోపం సంభవించింది: {str(e)}', 500
+
+
+@excel_tools_bp.route('/process-prn-to-excel', methods=['POST'])
+def process_prn_to_excel():
+    """PRN (.prn) ఫైల్‌ను పార్స్ చేసి ఫార్మాట్ చేసిన ఎక్సెల్ (.xlsx) ఫైల్‌గా డౌన్‌లోడ్ చేస్తుంది."""
+    try:
+        if 'prn_file' not in request.files:
+            return 'దయచేసి .prn ఫైల్ అప్‌లోడ్ చేయండి.', 400
+        file = request.files['prn_file']
+        if not file or file.filename == '':
+            return 'ఫైల్ ఎంచుకోలేదు.', 400
+
+        parse_mode = request.form.get('prn_parse_mode', 'auto').strip()
+        custom_prefix = request.form.get('prn_output_prefix', '').strip()
+
+        raw_bytes = file.read()
+        df = _parse_prn_bytes(raw_bytes, mode=parse_mode)
+
+        if df.empty:
+            return 'PRN ఫైల్‌లో ప్రాసెస్ చేయడానికి డేటా లభించలేదు.', 400
+
+        text_cols = [
+            c
+            for c in (
+                'Aadhar Number',
+                'Contact Number',
+                'Bank Acc Number',
+                'RD1 Acc Num',
+                'CIF NO',
+            )
+            if c in df.columns
+        ]
+
+        safe_base = _sanitize_filename_part(
+            custom_prefix
+            if custom_prefix
+            else f'PRN_Converted_{os.path.splitext(file.filename)[0]}'
+        )
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name = f'{safe_base or "PRN_To_Excel"}_{timestamp}.xlsx'
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='PRN_Data', index=False)
+            ws = writer.book['PRN_Data']
+            _style_openpyxl_sheet(
+                ws,
+                f'PRN TO EXCEL STATEMENT ({file.filename})',
+                text_cols=text_cols,
+            )
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=out_name,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
+
+    except Exception as e:
+        return f'PRN టు Excel మార్పులో లోపం సంభవించింది: {str(e)}', 500
+
+
+# ==============================================================================
+# EXISTING EXCEL TOOLS (JOIN, RECONCILE, MASTER MATCH, DUPLICATES, CLEAN FORMAT)
+# ==============================================================================
 @excel_tools_bp.route('/process', methods=['POST'])
 def process_join():
     """Excel Left Join Automation (In-Memory)."""
@@ -618,7 +969,6 @@ def process_duplicates():
             df[check_col].apply(_clean_account_value).str.upper()
         )
 
-        # Duplicate mask: all occurrences where key appears more than once (non-empty)
         counts = df['_Norm_Key'].value_counts()
         dup_keys = set(counts[counts > 1].index) - {''}
         is_duplicate = df['_Norm_Key'].isin(dup_keys)
@@ -626,10 +976,8 @@ def process_duplicates():
         duplicates_df = df[is_duplicate].drop(columns=['_Norm_Key']).copy()
 
         if keep_option == 'none':
-            # Remove all rows that have duplicates
             unique_df = df[~is_duplicate].drop(columns=['_Norm_Key']).copy()
         else:
-            # Keep first occurrence of duplicates + all non-duplicates
             seen = set()
             keep_indices = []
             for idx, k in enumerate(df['_Norm_Key']):
@@ -714,7 +1062,6 @@ def process_clean_format():
 
         if drop_empty:
             df = df.dropna(how='all')
-            # Filter out rows where all cells are empty string
             non_empty_mask = df.apply(
                 lambda r: any(str(v).strip() != '' for v in r), axis=1
             )
@@ -732,34 +1079,11 @@ def process_clean_format():
             wb = writer.book
             ws = wb['Cleaned_Data']
             _style_openpyxl_sheet(
-                ws, 'STANDARDIZED & FORMATTED OFFICE DATA'
+                ws,
+                'STANDARDIZED & FORMATTED OFFICE DATA',
+                text_cols=acc_cols_raw,
+                currency_cols=numeric_amt_cols,
             )
-
-            headers = [ws.cell(row=2, column=c).value for c in range(1, ws.max_column + 1)]
-            for c_idx, h_val in enumerate(headers, 1):
-                if h_val in acc_cols_raw:
-                    for r_idx in range(3, ws.max_row + 1):
-                        cell = ws.cell(row=r_idx, column=c_idx)
-                        cell.value = (
-                            str(cell.value)
-                            if cell.value is not None and str(cell.value) != ''
-                            else ''
-                        )
-                        cell.number_format = '@'
-                        cell.alignment = Alignment(
-                            horizontal='center', vertical='center'
-                        )
-                if h_val in numeric_amt_cols:
-                    for r_idx in range(3, ws.max_row + 1):
-                        cell = ws.cell(row=r_idx, column=c_idx)
-                        try:
-                            cell.value = float(cell.value or 0.0)
-                        except Exception:
-                            cell.value = 0.0
-                        cell.number_format = '₹#,##0.00'
-                        cell.alignment = Alignment(
-                            horizontal='right', vertical='center'
-                        )
         buf.seek(0)
 
         return send_file(
