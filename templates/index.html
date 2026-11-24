@@ -267,8 +267,65 @@
                     </div>
                 </div>
 
-                <!-- 🔓 అందరికీ అందుబాటులో ఉండే ఎక్సెల్ టూల్స్ (Public Excel Tools) -->
+                <!-- 🔓 అందరికీ అందుబాటులో ఉండే ఎక్సెల్ & ఫైల్ కన్వర్టర్ టూల్స్ -->
                 <div id="public-excel-tools-section" class="space-y-6">
+
+                    <!-- STANDALONE CONVERTERS GRID: TXT TO EXCEL & PRN TO EXCEL -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- TXT FILE TO EXCEL CONVERTER -->
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                            <h3 class="text-sm font-bold text-sky-900 border-b pb-2 mb-3 flex items-center gap-2">
+                                📄 Text ఫైల్ (.txt) టు Excel (.xlsx) కన్వర్టర్
+                            </h3>
+                            <p class="text-[11px] text-slate-500 mb-3">Term Deposit / RD / FD లేదా ఇతర <code>.txt</code> ఫైళ్లను నేరుగా ఫార్మాట్ చేసిన ఎక్సెల్ షీట్‌గా మారుస్తుంది.</p>
+
+                            <form action="/process-txt-to-excel" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '📄 TXT ప్రాసెస్ అవుతోంది...')" class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">టెక్స్ట్ ఫైల్ ఎంచుకోండి (.txt):</label>
+                                    <input type="file" name="txt_file" accept=".txt,text/plain" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (ఆప్షనల్):</label>
+                                    <input type="text" name="txt_output_prefix" placeholder="ఉదా: RD_Statement_Txt" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                                <button type="submit" class="w-full bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+                                    📥 TXT టు Excel డౌన్‌లోడ్ చేయండి
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- PRN FILE TO EXCEL CONVERTER -->
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                            <h3 class="text-sm font-bold text-purple-900 border-b pb-2 mb-3 flex items-center gap-2">
+                                🖨️ PRN ఫైల్ (.prn) టు Excel (.xlsx) కన్వర్టర్
+                            </h3>
+                            <p class="text-[11px] text-slate-500 mb-3">బ్యాంక్/ఆఫీస్ <code>.prn</code> ఫైళ్లను Fixed-width లేదా Regex పార్సర్ ద్వారా ఎక్సెల్ ఫైల్‌గా మారుస్తుంది[cite: 3, 4].</p>
+
+                            <form action="/process-prn-to-excel" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '🖨️ PRN ప్రాసెస్ అవుతోంది...')" class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">PRN ఫైల్ ఎంచుకోండి (.prn, .txt):</label>
+                                    <input type="file" name="prn_file" accept=".prn,.txt" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-700 mb-1">పార్సర్ మోడ్:</label>
+                                        <select name="prn_parse_mode" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                            <option value="auto">Auto (Fixed-Width + Regex Fallback)</option>
+                                            <option value="fixed_width">Fixed-Width Columns (SNO..CIF)</option>
+                                            <option value="regex">Regex Pattern Parser</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-700 mb-1">ఔట్‌పుట్ పేరు (ఆప్షనల్):</label>
+                                        <input type="text" name="prn_output_prefix" placeholder="ఉదా: Bank_PRN_Export" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                    </div>
+                                </div>
+                                <button type="submit" class="w-full bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+                                    📥 PRN టు Excel డౌన్‌లోడ్ చేయండి
+                                </button>
+                            </form>
+                        </div>
+                    </div>
 
                     <!-- 1. RD Reconciled Data Formatter Card (Dynamic Dropdowns + Auto-Detect) -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
@@ -544,7 +601,7 @@
                         </form>
                     </div>
 
-                    <!-- 4. NEW TOOL: DUPLICATE & UNIQUE RECORDS CHECKER -->
+                    <!-- 4. DUPLICATE & UNIQUE RECORDS CHECKER -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                         <h3 class="text-sm font-bold text-amber-800 border-b pb-2 mb-4 flex items-center gap-2">
                             🧬 డూప్లికేట్ & యూనిక్ రికార్డుల తనిఖీ టూల్ (Duplicate Checker)
@@ -585,7 +642,7 @@
                         </form>
                     </div>
 
-                    <!-- 5. NEW TOOL: ACCOUNT & AMOUNT STANDARD FORMATTER -->
+                    <!-- 5. ACCOUNT & AMOUNT STANDARD FORMATTER -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                         <h3 class="text-sm font-bold text-teal-800 border-b pb-2 mb-4 flex items-center gap-2">
                             🧹 అకౌంట్ & అమౌంట్ క్లీనర్ / ఫార్మాటర్ టూల్ (Text & Currency Formatter)
