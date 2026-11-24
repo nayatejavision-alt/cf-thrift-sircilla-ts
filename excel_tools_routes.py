@@ -1,8 +1,13 @@
+import io
 from flask import Blueprint, jsonify, request, send_file
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
+from datetime import datetime
+
+import os
+import re
 
 excel_tools_bp = Blueprint('excel_tools_bp', __name__)
 
@@ -304,6 +309,124 @@ def process_reconcile():
 
     except Exception as e:
         return f'Error processing reconciliation file: {str(e)}', 400
+
+
+
+
+
+def _clean_account_value(val):
+    """అకౌంట్ నంబర్లలోని .0, అపోస్ట్రోఫీలు, స్పేస్‌లు, NaN లను సురక్షితంగా క్లీన్ చేస్తుంది."""
+    if pd.isna(val):
+        return ''
+    s = str(val).strip()
+    if s.lower() == 'nan':
+        return ''
+    if s.endswith('.0'):
+        s = s[:-2]
+    return s.replace("'", '').strip()
+
+
+def _sanitize_filename_part(name: str) -> str:
+    """ఫైల్ పేరులో అనవసర క్యారెక్టర్లు లేకుండా క్లీన్ చేస్తుంది."""
+    cleaned = re.sub(r'[^\w\-_.]', '_', name.strip())
+    return re.sub(r'_+', '_', cleaned).strip('_')
+
+
+@excel_tools_bp.route('/process-master-match', methods=['POST'])
+def process_master_match():
+    """Master (acc 1, acc 2) vs Data (acc) ఆధారంగా Matched & Unmatched ఎక్సెల్ రిపోర్ట్ రూపొందిస్తుంది."""
+    try:
+        if 'master_match_file' not in request.files:
+            return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
+
+        file = request.files['master_match_file']
+        if not file or file.filename == '':
+            return 'ఫైల్ ఎంచుకోలేదు.', 400
+
+        master_sheet = request.form.get('mm_master_sheet', '').strip()
+        master_col1 = request.form.get('mm_master_col1', '').strip()
+        master_col2 = request.form.get('mm_master_col2', '').strip()
+
+        data_sheet = request.form.get('mm_data_sheet', '').strip()
+        data_col = request.form.get('mm_data_col', '').strip()
+        case_insensitive = request.form.get('mm_case_insensitive') == 'on'
+        custom_prefix = request.form.get('mm_output_prefix', '').strip()
+
+        if not master_col1 or not data_col:
+            return (
+                'దయచేసి Master Column 1 మరియు Data Match Column ఎంచుకోండి.',
+                400,
+            )
+
+        excel_file = pd.ExcelFile(file)
+        sheet_names = excel_file.sheet_names
+
+        m_sheet_target = (
+            master_sheet if master_sheet in sheet_names else sheet_names[0]
+        )
+        d_sheet_target = (
+            data_sheet
+            if data_sheet in sheet_names
+            else (sheet_names[1] if len(sheet_names) > 1 else sheet_names[0])
+        )
+
+        master_df = pd.read_excel(excel_file, sheet_name=m_sheet_target, dtype=str)
+        data_df = pd.read_excel(excel_file, sheet_name=d_sheet_target, dtype=str)
+
+        master_df.columns = [str(c).strip() for c in master_df.columns]
+        data_df.columns = [str(c).strip() for c in data_df.columns]
+
+        if master_col1 not in master_df.columns:
+            return f"Master షీట్‌లో '{master_col1}' కాలమ్ కనుగొనబడలేదు.", 400
+        if master_col2 and master_col2 not in master_df.columns:
+            return f"Master షీట్‌లో '{master_col2}' కాలమ్ కనుగొనబడలేదు.", 400
+        if data_col not in data_df.columns:
+            return f"Data షీట్‌లో '{data_col}' కాలమ్ కనుగొనబడలేదు.", 400
+
+        def normalize_key(val):
+            cleaned = _clean_account_value(val)
+            return cleaned.upper() if case_insensitive else cleaned
+
+        acc1_series = master_df[master_col1].dropna().map(normalize_key)
+        master_accounts = set(x for x in acc1_series if x != '')
+
+        if master_col2:
+            acc2_series = master_df[master_col2].dropna().map(normalize_key)
+            master_accounts.update(x for x in acc2_series if x != '')
+
+        clean_keys = data_df[data_col].map(normalize_key)
+        is_matched = clean_keys.isin(master_accounts) & (clean_keys != '')
+
+        matched_df = data_df[is_matched].copy()
+        unmatched_df = data_df[~is_matched].copy()
+
+        # డైనమిక్ ఔట్‌పుట్ ఫైల్ నేమ్ రూపొందించడం
+        orig_base = os.path.splitext(file.filename)[0]
+        safe_base = _sanitize_filename_part(
+            custom_prefix if custom_prefix else f'Master_Match_{orig_base}'
+        )
+        if not safe_base:
+            safe_base = 'Master_Match_Report'
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dynamic_filename = f'{safe_base}_{timestamp}.xlsx'
+
+        output_buffer = io.BytesIO()
+        with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+            matched_df.to_excel(writer, sheet_name='Matched', index=False)
+            unmatched_df.to_excel(writer, sheet_name='Unmatched', index=False)
+        output_buffer.seek(0)
+
+        return send_file(
+            output_buffer,
+            as_attachment=True,
+            download_name=dynamic_filename,
+            mimetype=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
+
+    except Exception as e:
+        return f'Master Match ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}', 500
 
 
 @excel_tools_bp.route('/api/parse-excel-headers', methods=['POST'])
