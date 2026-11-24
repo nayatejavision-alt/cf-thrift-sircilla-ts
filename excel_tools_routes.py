@@ -312,8 +312,6 @@ def process_reconcile():
 
 
 
-
-
 def _clean_account_value(val):
     """అకౌంట్ నంబర్లలోని .0, అపోస్ట్రోఫీలు, స్పేస్‌లు, NaN లను సురక్షితంగా క్లీన్ చేస్తుంది."""
     if pd.isna(val):
@@ -332,49 +330,72 @@ def _sanitize_filename_part(name: str) -> str:
     return re.sub(r'_+', '_', cleaned).strip('_')
 
 
+def _read_sheet_as_str(file_storage, sheet_name: str, fallback_idx: int = 0) -> pd.DataFrame:
+    """ఫైల్ నుండి నిర్దిష్ట షీట్‌ను (లేదా fallback index) స్ట్రింగ్‌లుగా చదివి కాలమ్ పేర్లను క్లీన్ చేస్తుంది."""
+    file_storage.stream.seek(0)
+    excel_file = pd.ExcelFile(file_storage)
+    sheet_names = excel_file.sheet_names
+
+    if sheet_name and sheet_name in sheet_names:
+        target_sheet = sheet_name
+    else:
+        safe_idx = fallback_idx if fallback_idx < len(sheet_names) else 0
+        target_sheet = sheet_names[safe_idx]
+
+    df = pd.read_excel(excel_file, sheet_name=target_sheet, dtype=str)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
 @excel_tools_bp.route('/process-master-match', methods=['POST'])
 def process_master_match():
-    """Master (acc 1, acc 2) vs Data (acc) ఆధారంగా Matched & Unmatched ఎక్సెల్ రిపోర్ట్ రూపొందిస్తుంది."""
+    """ఒకే ఫైల్ లేదా రెండు వేర్వేరు ఫైల్స్ నుండి Master (acc 1, acc 2) vs Data (acc) మ్యాచ్ చేసి Matched & Unmatched రిపోర్ట్ ఇస్తుంది."""
     try:
-        if 'master_match_file' not in request.files:
-            return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
-
-        file = request.files['master_match_file']
-        if not file or file.filename == '':
-            return 'ఫైల్ ఎంచుకోలేదు.', 400
-
-        master_sheet = request.form.get('mm_master_sheet', '').strip()
+        mm_mode = request.form.get('mm_mode', 'single_file').strip()
         master_col1 = request.form.get('mm_master_col1', '').strip()
         master_col2 = request.form.get('mm_master_col2', '').strip()
-
-        data_sheet = request.form.get('mm_data_sheet', '').strip()
         data_col = request.form.get('mm_data_col', '').strip()
         case_insensitive = request.form.get('mm_case_insensitive') == 'on'
         custom_prefix = request.form.get('mm_output_prefix', '').strip()
 
         if not master_col1 or not data_col:
-            return (
-                'దయచేసి Master Column 1 మరియు Data Match Column ఎంచుకోండి.',
-                400,
-            )
+            return 'దయచేసి Master Column 1 మరియు Data Match Column ఎంచుకోండి.', 400
 
-        excel_file = pd.ExcelFile(file)
-        sheet_names = excel_file.sheet_names
+        if mm_mode == 'single_file':
+            if 'mm_file_single' not in request.files:
+                return 'దయచేసి ఎక్సెల్ ఫైల్ అప్‌లోడ్ చేయండి.', 400
+            file_single = request.files['mm_file_single']
+            if not file_single or file_single.filename == '':
+                return 'ఫైల్ ఎంచుకోలేదు.', 400
 
-        m_sheet_target = (
-            master_sheet if master_sheet in sheet_names else sheet_names[0]
-        )
-        d_sheet_target = (
-            data_sheet
-            if data_sheet in sheet_names
-            else (sheet_names[1] if len(sheet_names) > 1 else sheet_names[0])
-        )
+            master_sheet = request.form.get('mm_single_master_sheet', '').strip()
+            data_sheet = request.form.get('mm_single_data_sheet', '').strip()
 
-        master_df = pd.read_excel(excel_file, sheet_name=m_sheet_target, dtype=str)
-        data_df = pd.read_excel(excel_file, sheet_name=d_sheet_target, dtype=str)
+            master_df = _read_sheet_as_str(file_single, master_sheet, fallback_idx=0)
+            data_df = _read_sheet_as_str(file_single, data_sheet, fallback_idx=1)
+            source_label = os.path.splitext(file_single.filename)[0]
 
-        master_df.columns = [str(c).strip() for c in master_df.columns]
-        data_df.columns = [str(c).strip() for c in data_df.columns]
+        elif mm_mode == 'two_files':
+            if 'mm_file_master' not in request.files or 'mm_file_data' not in request.files:
+                return 'దయచేసి Master ఫైల్ మరియు Data ఫైల్ — రెండూ అప్‌లోడ్ చేయండి.', 400
+            file_master = request.files['mm_file_master']
+            file_data = request.files['mm_file_data']
+
+            if not file_master or file_master.filename == '' or not file_data or file_data.filename == '':
+                return 'రెండు ఎక్సెల్ ఫైల్స్ సరిగ్గా ఎంచుకోండి.', 400
+
+            master_sheet = request.form.get('mm_two_master_sheet', '').strip()
+            data_sheet = request.form.get('mm_two_data_sheet', '').strip()
+
+            master_df = _read_sheet_as_str(file_master, master_sheet, fallback_idx=0)
+            data_df = _read_sheet_as_str(file_data, data_sheet, fallback_idx=0)
+
+            m_base = os.path.splitext(file_master.filename)[0]
+            d_base = os.path.splitext(file_data.filename)[0]
+            source_label = f'{d_base}_vs_{m_base}'
+
+        else:
+            return 'సరైన మోడ్ (Single File / Two Files) ఎంచుకోండి.', 400
 
         if master_col1 not in master_df.columns:
             return f"Master షీట్‌లో '{master_col1}' కాలమ్ కనుగొనబడలేదు.", 400
@@ -400,10 +421,9 @@ def process_master_match():
         matched_df = data_df[is_matched].copy()
         unmatched_df = data_df[~is_matched].copy()
 
-        # డైనమిక్ ఔట్‌పుట్ ఫైల్ నేమ్ రూపొందించడం
-        orig_base = os.path.splitext(file.filename)[0]
+        # డైనమిక్ ఔట్‌పుట్ ఫైల్ నేమ్
         safe_base = _sanitize_filename_part(
-            custom_prefix if custom_prefix else f'Master_Match_{orig_base}'
+            custom_prefix if custom_prefix else f'Master_Match_{source_label}'
         )
         if not safe_base:
             safe_base = 'Master_Match_Report'
@@ -427,7 +447,6 @@ def process_master_match():
 
     except Exception as e:
         return f'Master Match ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}', 500
-
 
 @excel_tools_bp.route('/api/parse-excel-headers', methods=['POST'])
 def parse_excel_headers():
