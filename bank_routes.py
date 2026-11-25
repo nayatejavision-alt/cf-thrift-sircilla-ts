@@ -952,7 +952,7 @@ def bulk_upload():
 
       rd1_col_name = 'RD ACCOUNT_1 (Beneficiary Contribution)'
       balance_col_name = (
-          'Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న బ్యాలెన్స్)'
+          'Bank Closing Balance'
       )
       due_c_name = '(C) ఈ నెల డ్యూ(Due)'
       actual_paid_d_name = '(D) Actual Paid'
