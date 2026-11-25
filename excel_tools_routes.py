@@ -1226,16 +1226,18 @@ def _parse_safe_text_lines(raw_text: str):
     records = []
     unmatched_lines = []
 
+    
+    # SNO తర్వాత స్పేస్ ఉన్నా లేకపోయినా పేరును వేరు చేయడానికి \s*(?P<ben_name>[A-Za-z].+?) వాడాము 
     pattern = re.compile(
-        r"^(?P<sno>\d+)\s+"
-        r"(?P<ben_name>.+?)\s+"
-        r"(?P<id12>\d{11,12})\s+"
-        r"(?P<phone>\d{10,12})\s+"
-        r"(?P<bank_acc>\d{6,20})\s+"
-        r"(?P<bank_name>.+?)\s+"
-        r"(?P<rd1>\d{6,20}|ACCOUNT CLOSED|TEMP ADDRESS|NO BALANCE|INOPERATIVE ACCOUNT|WRONG ACCOUNT NUMBER)\s+"
-        r"(?P<cif>\d{6,20})$",
-        re.IGNORECASE,
+      r"^(?P<sno>\d+)\s*"
+      r"(?P<ben_name>[A-Za-z].+?)\s+"
+      r"(?P<id12>\d{11,12})\s+"
+      r"(?P<phone>\d{10,12})\s+"
+      r"(?P<bank_acc>\d{6,20})\s+"
+      r"(?P<bank_name>.+?)\s+"
+      r"(?P<rd1>\d{6,20}|ACCOUNT CLOSED|TEMP ADDRESS|NO BALANCE|INOPERATIVE ACCOUNT|WRONG ACCOUNT NUMBER)\s+"
+      r"(?P<cif>\d{6,20})$",
+      re.IGNORECASE,
     )
 
     for line in lines:
