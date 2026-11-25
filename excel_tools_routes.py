@@ -1157,3 +1157,307 @@ def get_sheet_columns():
             }),
             500,
         )
+
+
+# ==============================================================================
+# GENERALIZED & SAFE PARSER + DEDUPLICATOR EXCEL TOOL (/process-safe-parser)
+# ==============================================================================
+def _safe_clean_digits(val, expected_len=None, allow_status=False):
+    """
+    నంబర్లను స్ట్రింగ్‌లుగా క్లీన్ చేస్తుంది.
+    సైంటిఫిక్ నోటేషన్ (3.89674E+11) లేదా .0 వస్తే సాధారణ అంకెలుగా మారుస్తుంది.
+    స్టేటస్ టెక్స్ట్ ఉంటే (ACCOUNT CLOSED, TEMP ADDRESS మొదలైనవి) వేరుగా రిటర్న్ చేస్తుంది.
+    """
+    if val is None or pd.isna(val):
+        return None, None
+
+    s = str(val).strip()
+    if s == "" or s.lower() in ("nan", "none", "null", "-", "nat"):
+        return None, None
+
+    # Scientific notation (ఉదా: 3.89674E+11)
+    if re.match(r"^[+-]?\d+(\.\d+)?[eE][+-]?\d+$", s):
+        try:
+            s = f"{int(float(s))}"
+        except Exception:
+            pass
+
+    # Trailing .0
+    if re.match(r"^\d+\.0$", s):
+        s = s[:-2]
+
+    s_clean = s.replace("'", "").strip()
+    digits_only = re.sub(r"\D", "", s_clean)
+
+    status_keywords = (
+        "CLOSED", "TEMP", "BALANCE", "INOPERATIVE", "WRONG", "HOLD", "FREEZE", "MISSING", "NA"
+    )
+    if allow_status and (
+        len(digits_only) < 6 or any(k in s_clean.upper() for k in status_keywords)
+    ):
+        return None, s_clean.upper()
+
+    if not digits_only:
+        return None, s_clean
+
+    flag = None
+    if expected_len and len(digits_only) != expected_len:
+        flag = f"LEN_{len(digits_only)}_INSTEAD_OF_{expected_len}"
+
+    return digits_only, flag
+
+
+def _safe_normalize_name(name):
+    """పేర్లలోని అదనపు స్పేస్‌లు, పక్కపక్కనే రిపీట్ అయ్యే పదాలను సరిచేస్తుంది."""
+    if name is None or pd.isna(name):
+        return ""
+    s = re.sub(r"\s+", " ", str(name)).strip()
+    parts = s.split(" ")
+    cleaned_parts = []
+    for p in parts:
+        if not cleaned_parts or cleaned_parts[-1].lower() != p.lower():
+            cleaned_parts.append(p)
+    return " ".join(cleaned_parts)
+
+
+def _parse_safe_text_lines(raw_text: str):
+    """SNO తో మొదలయ్యే టెక్స్ట్/రిపోర్ట్ లైన్లను పార్స్ చేస్తుంది."""
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    records = []
+    unmatched_lines = []
+
+    pattern = re.compile(
+        r"^(?P<sno>\d+)\s+"
+        r"(?P<ben_name>.+?)\s+"
+        r"(?P<id12>\d{11,12})\s+"
+        r"(?P<phone>\d{10,12})\s+"
+        r"(?P<bank_acc>\d{6,20})\s+"
+        r"(?P<bank_name>.+?)\s+"
+        r"(?P<rd1>\d{6,20}|ACCOUNT CLOSED|TEMP ADDRESS|NO BALANCE|INOPERATIVE ACCOUNT|WRONG ACCOUNT NUMBER)\s+"
+        r"(?P<cif>\d{6,20})$",
+        re.IGNORECASE,
+    )
+
+    for line in lines:
+        if line.upper().startswith("SNO ") and "CIF" in line.upper():
+            continue
+        m = pattern.match(line)
+        if m:
+            d = m.groupdict()
+            ben_clean = _safe_normalize_name(d["ben_name"])
+            bank_name_clean = _safe_normalize_name(d["bank_name"])
+
+            phone_clean, phone_flag = _safe_clean_digits(d["phone"], expected_len=10)
+            acc_clean, acc_flag = _safe_clean_digits(d["bank_acc"])
+            rd1_acc, rd1_status = _safe_clean_digits(d["rd1"], allow_status=True)
+            cif_clean, cif_flag = _safe_clean_digits(d["cif"])
+
+            flags = []
+            if phone_flag:
+                flags.append(f"PHONE:{phone_flag}")
+            if acc_flag:
+                flags.append(f"BANK_ACC:{acc_flag}")
+            if cif_flag:
+                flags.append(f"CIF:{cif_flag}")
+
+            records.append({
+                "SNO": int(d["sno"]),
+                "Beneficiary_Name": ben_clean,
+                "Name_As_Per_Bank": bank_name_clean,
+                "Name_Match": ben_clean.lower() == bank_name_clean.lower(),
+                "ID_Number": "[ID Redacted]",
+                "Contact_Number": phone_clean or "",
+                "Bank_Acc_Number": acc_clean or "",
+                "RD1_Acc_Number": rd1_acc or "",
+                "RD1_Status": rd1_status if not rd1_acc else "ACTIVE",
+                "CIF_Number": cif_clean or "",
+                "Data_Flags": ", ".join(flags) if flags else "OK",
+            })
+        else:
+            unmatched_lines.append({"Raw_Line": line})
+
+    return pd.DataFrame(records), pd.DataFrame(unmatched_lines)
+
+
+def _parse_safe_tabular_df(df_in: pd.DataFrame):
+    """Excel లేదా CSV డేటాఫ్రేమ్‌ను సురక్షితంగా క్లీన్ చేసి స్టాండర్డ్ ఫార్మాట్‌లోకి మారుస్తుంది."""
+    df_in = df_in.copy()
+    df_in.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in df_in.columns]
+
+    def find_col(candidates):
+        lower_map = {c.lower(): c for c in df_in.columns}
+        # Exact match first
+        for cand in candidates:
+            if cand.lower() in lower_map:
+                return lower_map[cand.lower()]
+        # Substring match
+        for c in df_in.columns:
+            cl = c.lower()
+            if any(cand.lower() in cl for cand in candidates):
+                return c
+        return None
+
+    col_sno = find_col(["sno", "s.no", "sl.no", "bank_sno", "serial"])
+    col_ben = find_col(["benificiary", "beneficiary", "ben name", "name"])
+    col_bank_name = find_col(["as per bank", "bank name"])
+    col_phone = find_col(["contact", "phone", "mobile"])
+    col_bank_acc = find_col(["bank acc", "bank account", "account num", "acc no"])
+    col_rd1 = find_col(["rd1", "rd 1", "rd_1", "rd account", "rd acc"])
+    col_cif = find_col(["cif"])
+
+    records = []
+    for idx, row in df_in.iterrows():
+        sno_raw = row[col_sno] if col_sno else (idx + 1)
+        sno_digits, _ = _safe_clean_digits(sno_raw)
+        sno_val = int(sno_digits) if sno_digits else (idx + 1)
+
+        ben_clean = _safe_normalize_name(row[col_ben]) if col_ben else ""
+        bank_name_clean = _safe_normalize_name(row[col_bank_name]) if col_bank_name else ben_clean
+
+        phone_clean, phone_flag = _safe_clean_digits(row[col_phone], expected_len=10) if col_phone else (None, None)
+        acc_clean, acc_flag = _safe_clean_digits(row[col_bank_acc]) if col_bank_acc else (None, None)
+        rd1_acc, rd1_status = _safe_clean_digits(row[col_rd1], allow_status=True) if col_rd1 else (None, "MISSING")
+        cif_clean, cif_flag = _safe_clean_digits(row[col_cif]) if col_cif else (None, None)
+
+        # Skip completely empty rows
+        if not any([ben_clean, acc_clean, rd1_acc, cif_clean]):
+            continue
+
+        flags = []
+        if phone_flag:
+            flags.append(f"PHONE:{phone_flag}")
+        if acc_flag:
+            flags.append(f"BANK_ACC:{acc_flag}")
+        if cif_flag:
+            flags.append(f"CIF:{cif_flag}")
+
+        records.append({
+            "SNO": sno_val,
+            "Beneficiary_Name": ben_clean,
+            "Name_As_Per_Bank": bank_name_clean,
+            "Name_Match": ben_clean.lower() == bank_name_clean.lower() if (ben_clean and bank_name_clean) else True,
+            "Contact_Number": phone_clean or "",
+            "Bank_Acc_Number": acc_clean or "",
+            "RD1_Acc_Number": rd1_acc or "",
+            "RD1_Status": rd1_status if not rd1_acc else "ACTIVE",
+            "CIF_Number": cif_clean or "",
+            "Data_Flags": ", ".join(flags) if flags else "OK",
+        })
+
+    return pd.DataFrame(records), pd.DataFrame(columns=["Raw_Line"])
+
+
+def _deduplicate_safe_df(df: pd.DataFrame) -> pd.DataFrame:
+    """యాక్టివ్ RD1 అకౌంట్‌కు ప్రాధాన్యత ఇస్తూ డూప్లికేట్ రికార్డులను తొలగిస్తుంది."""
+    if df.empty:
+        return df
+
+    work = df.copy()
+    work["_has_rd1"] = (work["RD1_Acc_Number"].astype(str).str.strip() != "").astype(int)
+    work = work.sort_values(by=["_has_rd1", "SNO"], ascending=[False, True])
+
+    has_rd1 = work[work["_has_rd1"] == 1].drop_duplicates(subset=["RD1_Acc_Number"], keep="first")
+    no_rd1 = work[work["_has_rd1"] == 0].drop_duplicates(
+        subset=["Bank_Acc_Number", "Beneficiary_Name"], keep="first"
+    )
+
+    merged = pd.concat([has_rd1, no_rd1], ignore_index=True)
+    merged = merged.drop(columns=["_has_rd1"]).sort_values("SNO").reset_index(drop=True)
+    return merged
+
+
+@excel_tools_bp.route("/process-safe-parser", methods=["POST"])
+def process_safe_parser():
+    """
+    Generalized & Safe Parser Tool:
+    .xlsx, .csv, .txt, .prn ఫైళ్లను క్లీన్ చేసి, డూప్లికేట్స్ తొలగించి,
+    Cleaned_Data, Status_And_Flags, Unmatched_Lines షీట్లతో ఎక్సెల్ ఫైల్ ఇస్తుంది.
+    """
+    try:
+        if "safe_file" not in request.files:
+            return "దయచేసి ఫైల్ అప్‌లోడ్ చేయండి.", 400
+        file = request.files["safe_file"]
+        if not file or file.filename == "":
+            return "ఫైల్ ఎంచుకోలేదు.", 400
+
+        ext = os.path.splitext(file.filename)[1].lower()
+        sheet_name = request.form.get("safe_sheet_name", "").strip()
+        custom_prefix = request.form.get("safe_output_prefix", "").strip()
+
+        raw_bytes = file.read()
+
+        if ext in (".txt", ".prn"):
+            text_content = raw_bytes.decode("utf-8", errors="ignore")
+            if not text_content.strip():
+                text_content = raw_bytes.decode("cp1252", errors="ignore")
+            parsed_df, unmatched_df = _parse_safe_text_lines(text_content)
+        elif ext == ".csv":
+            df_csv = pd.read_csv(io.BytesIO(raw_bytes), dtype=str)
+            parsed_df, unmatched_df = _parse_safe_tabular_df(df_csv)
+        else:
+            excel_file = pd.ExcelFile(io.BytesIO(raw_bytes))
+            target_sheet = (
+                sheet_name
+                if (sheet_name and sheet_name in excel_file.sheet_names)
+                else excel_file.sheet_names[0]
+            )
+            df_xl = pd.read_excel(excel_file, sheet_name=target_sheet, dtype=str)
+            parsed_df, unmatched_df = _parse_safe_tabular_df(df_xl)
+
+        if parsed_df.empty and unmatched_df.empty:
+            return "ఫైల్‌లో ప్రాసెస్ చేయడానికి డేటా లభించలేదు.", 400
+
+        cleaned_df = _deduplicate_safe_df(parsed_df)
+        flagged_df = (
+            parsed_df[
+                (parsed_df["RD1_Status"] != "ACTIVE")
+                | (parsed_df["Data_Flags"] != "OK")
+                | (~parsed_df["Name_Match"])
+            ].copy()
+            if not parsed_df.empty
+            else pd.DataFrame()
+        )
+
+        text_cols = [
+            c for c in ("ID_Number", "Contact_Number", "Bank_Acc_Number", "RD1_Acc_Number", "CIF_Number")
+            if c in cleaned_df.columns
+        ]
+
+        safe_base = _sanitize_filename_part(
+            custom_prefix if custom_prefix else f"Safe_Parsed_{os.path.splitext(file.filename)[0]}"
+        )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_name = f"{safe_base or 'Safe_Parsed_Report'}_{timestamp}.xlsx"
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            cleaned_df.to_excel(writer, sheet_name="Cleaned_Data", index=False)
+            flagged_df.to_excel(writer, sheet_name="Status_And_Flags", index=False)
+            unmatched_df.to_excel(writer, sheet_name="Unmatched_Lines", index=False)
+
+            wb = writer.book
+            _style_openpyxl_sheet(
+                wb["Cleaned_Data"],
+                f"CLEANED & DEDUPLICATED DATA ({len(cleaned_df)} Records)",
+                text_cols=text_cols,
+            )
+            _style_openpyxl_sheet(
+                wb["Status_And_Flags"],
+                f"STATUS / NAME MISMATCH / ANOMALY FLAGS ({len(flagged_df)} Records)",
+                text_cols=text_cols,
+            )
+            _style_openpyxl_sheet(
+                wb["Unmatched_Lines"],
+                f"UNMATCHED / RAW LINES ({len(unmatched_df)} Lines)",
+            )
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=out_name,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except Exception as e:
+        return f"Safe Parser ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
