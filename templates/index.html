@@ -245,6 +245,10 @@
                                 class="smart-tab-btn text-xs font-bold px-3 py-1.5 rounded-lg border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 transition">
                             🔗 Left Join
                         </button>
+                        <button type="button" data-tool-btn="tool-dynamic-ai" onclick="toggleSmartTool('tool-dynamic-ai')"
+                                class="smart-tab-btn text-xs font-bold px-3 py-1.5 rounded-lg border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800 hover:bg-fuchsia-100 transition">
+                            🤖 Dynamic Pattern Parser
+                        </button>
                         <button type="button" data-tool-btn="tool-duplicates" onclick="toggleSmartTool('tool-duplicates')"
                                 class="smart-tab-btn text-xs font-bold px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition">
                             🧬 Duplicates
@@ -612,6 +616,33 @@
                             </div>
                         </form>
                     </div>
+
+<div id="tool-dynamic-ai" class="smart-tool-panel hidden border border-fuchsia-200 bg-fuchsia-50/20 rounded-xl p-4 space-y-3">
+    <div class="flex justify-between items-center border-b border-fuchsia-200 pb-2">
+        <div>
+            <h4 class="text-xs font-bold text-fuchsia-900">🤖 Dynamic Pattern Auto-Parser → Excel</h4>
+            <p class="text-[11px] text-slate-500">ఫైల్‌లోని ప్యాటర్న్‌ను విశ్లేషించి డూప్లికేట్స్ తొలగిస్తుంది; <code>Pattern_Summary</code> షీట్‌లో ఏ ప్యాటర్న్ ఎన్ని లైన్లు మ్యాచ్ అయిందో కూడా చూపిస్తుంది.</p>
+        </div>
+        <button type="button" onclick="toggleSmartTool('tool-dynamic-ai')" class="text-xs text-slate-500 hover:text-slate-800">✕</button>
+    </div>
+
+    <form action="/process-dynamic-ai-parser" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '🤖 డైనమిక్ పాటర్న్ విశ్లేషిస్తోంది...')" class="space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">ఫైల్ ఎంచుకోండి (.prn, .txt, .xlsx, .csv):</label>
+                <input type="file" name="ai_file" accept=".prn,.txt,.xlsx,.xls,.csv" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (ఆప్షనల్):</label>
+                <input type="text" name="ai_output_prefix" placeholder="ఉదా: Auto_Pattern_RD_Report" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+            </div>
+        </div>
+
+        <button type="submit" class="w-full bg-fuchsia-700 hover:bg-fuchsia-800 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+            🤖 Auto-Detect Pattern చేసి Excel డౌన్‌లోడ్ చేయండి
+        </button>
+    </form>
+</div>
 
                     <!-- 6. DUPLICATE & UNIQUE CHECKER -->
                     <div id="tool-duplicates" class="smart-tool-panel hidden border border-amber-200 bg-amber-50/20 rounded-xl p-4 space-y-3">
