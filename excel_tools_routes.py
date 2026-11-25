@@ -1793,3 +1793,401 @@ def process_dynamic_ai_parser():
 
   except Exception as e:
     return f"Dynamic Parser ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
+
+
+# ==============================================================================
+# SMART EXACT & SIMILAR (FUZZY) CROSS-MATCH COMPARER (/process-smart-fuzzy-match)
+# ==============================================================================
+from difflib import SequenceMatcher
+
+
+def _read_any_tabular_as_str(
+    file_storage, sheet_name: str, fallback_idx: int = 0
+) -> pd.DataFrame:
+  """Excel (.xlsx, .xls) లేదా CSV ఫైల్‌ను స్ట్రింగ్ DataFrame గా చదువుతుంది."""
+  file_storage.stream.seek(0)
+  filename = (file_storage.filename or "").lower()
+  if filename.endswith(".csv"):
+    df = pd.read_csv(file_storage, dtype=str)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+  excel_file = pd.ExcelFile(file_storage)
+  sheet_names = excel_file.sheet_names
+  if sheet_name and sheet_name in sheet_names:
+    target_sheet = sheet_name
+  else:
+    safe_idx = fallback_idx if fallback_idx < len(sheet_names) else 0
+    target_sheet = sheet_names[safe_idx]
+
+  df = pd.read_excel(excel_file, sheet_name=target_sheet, dtype=str)
+  df.columns = [str(c).strip() for c in df.columns]
+  return df
+
+
+def _normalize_compare_text(
+    val,
+    ignore_case: bool = True,
+    strip_punct: bool = True,
+    sort_tokens: bool = False,
+) -> str:
+  """పోలిక కోసం వాల్యూను క్లీన్ & నార్మలైజ్ చేస్తుంది."""
+  cleaned = _clean_account_value(val)
+  if not cleaned:
+    return ""
+
+  s = re.sub(r"\s+", " ", cleaned).strip()
+  if ignore_case:
+    s = s.lower()
+  if strip_punct:
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+  if sort_tokens and s:
+    tokens = sorted(s.split(" "))
+    s = " ".join(tokens)
+  return s
+
+
+def _compute_similarity_score(
+    s1: str, s2: str, token_insensitive: bool = True
+) -> float:
+  """రెండు స్ట్రింగ్‌ల మధ్య 0 నుండి 100 వరకు Similarity % లెక్కిస్తుంది."""
+  if not s1 or not s2:
+    return 0.0
+  if s1 == s2:
+    return 100.0
+
+  direct_ratio = SequenceMatcher(None, s1, s2).ratio() * 100.0
+  if not token_insensitive:
+    return round(direct_ratio, 2)
+
+  t1 = " ".join(sorted(s1.split()))
+  t2 = " ".join(sorted(s2.split()))
+  token_ratio = SequenceMatcher(None, t1, t2).ratio() * 100.0
+  return round(max(direct_ratio, token_ratio), 2)
+
+
+@excel_tools_bp.route("/process-smart-fuzzy-match", methods=["POST"])
+def process_smart_fuzzy_match():
+  """
+    రెండు ఫైళ్లు లేదా ఒకే ఫైల్‌లోని రెండు షీట్ల కాలమ్స్ మధ్య
+    Exact & Similar (Fuzzy) Matches, Score %, మరియు Unmatched రిపోర్ట్ ఇస్తుంది.
+    """
+  try:
+    mode = request.form.get("sfm_mode", "two_files").strip()
+    match_strategy = request.form.get("sfm_strategy", "both").strip()  # exact | similar | both
+    threshold = float(request.form.get("sfm_threshold", "80") or 80)
+    threshold = max(40.0, min(99.9, threshold))
+
+    ignore_case = request.form.get("sfm_ignore_case") == "on"
+    strip_punct = request.form.get("sfm_strip_punct") == "on"
+    token_order = request.form.get("sfm_token_order") == "on"
+    one_to_one = request.form.get("sfm_one_to_one") == "on"
+    custom_prefix = request.form.get("sfm_output_prefix", "").strip()
+
+    col1 = request.form.get("sfm_col1", "").strip()
+    col2 = request.form.get("sfm_col2", "").strip()
+    sec_col1 = request.form.get("sfm_sec_col1", "").strip()
+    sec_col2 = request.form.get("sfm_sec_col2", "").strip()
+
+    if not col1 or not col2:
+      return "దయచేసి రెండు వైపులా మ్యాచ్ చేయాల్సిన కాలమ్స్ ఎంచుకోండి.", 400
+
+    if mode == "single_file":
+      if "sfm_file_single" not in request.files:
+        return "దయచేసి ఫైల్ అప్‌లోడ్ చేయండి.", 400
+      f_single = request.files["sfm_file_single"]
+      if not f_single or not f_single.filename:
+        return "ఫైల్ ఎంచుకోలేదు.", 400
+      s1_name = request.form.get("sfm_single_sheet1", "").strip()
+      s2_name = request.form.get("sfm_single_sheet2", "").strip()
+      df1 = _read_any_tabular_as_str(f_single, s1_name, fallback_idx=0)
+      df2 = _read_any_tabular_as_str(f_single, s2_name, fallback_idx=1)
+      label1 = s1_name or "Sheet_1"
+      label2 = s2_name or "Sheet_2"
+    else:
+      if (
+          "sfm_file1" not in request.files
+          or "sfm_file2" not in request.files
+      ):
+        return "దయచేసి రెండు ఫైల్స్ అప్‌లోడ్ చేయండి.", 400
+      f1 = request.files["sfm_file1"]
+      f2 = request.files["sfm_file2"]
+      if not f1.filename or not f2.filename:
+        return "రెండు ఫైల్స్ సరిగ్గా ఎంచుకోండి.", 400
+      s1_name = request.form.get("sfm_two_sheet1", "").strip()
+      s2_name = request.form.get("sfm_two_sheet2", "").strip()
+      df1 = _read_any_tabular_as_str(f1, s1_name, fallback_idx=0)
+      df2 = _read_any_tabular_as_str(f2, s2_name, fallback_idx=0)
+      label1 = os.path.splitext(f1.filename)[0][:20]
+      label2 = os.path.splitext(f2.filename)[0][:20]
+
+    if col1 not in df1.columns or col2 not in df2.columns:
+      return f"ఎంచుకున్న '{col1}' లేదా '{col2}' కాలమ్ షీట్‌లో కనుగొనబడలేదు.", 400
+
+    has_sec = bool(
+        sec_col1
+        and sec_col2
+        and sec_col1 in df1.columns
+        and sec_col2 in df2.columns
+    )
+
+    df1 = df1.reset_index(drop=True).copy()
+    df2 = df2.reset_index(drop=True).copy()
+
+    # నార్మలైజ్ కీస్ తయారు చేయడం
+    df1["_norm_key"] = df1[col1].apply(
+        lambda v: _normalize_compare_text(
+            v, ignore_case=ignore_case, strip_punct=strip_punct, sort_tokens=False
+        )
+    )
+    df2["_norm_key"] = df2[col2].apply(
+        lambda v: _normalize_compare_text(
+            v, ignore_case=ignore_case, strip_punct=strip_punct, sort_tokens=False
+        )
+    )
+
+    if token_order:
+      df1["_tok_key"] = df1[col1].apply(
+          lambda v: _normalize_compare_text(
+              v, ignore_case=ignore_case, strip_punct=strip_punct, sort_tokens=True
+          )
+      )
+      df2["_tok_key"] = df2[col2].apply(
+          lambda v: _normalize_compare_text(
+              v, ignore_case=ignore_case, strip_punct=strip_punct, sort_tokens=True
+          )
+      )
+    else:
+      df1["_tok_key"] = df1["_norm_key"]
+      df2["_tok_key"] = df2["_norm_key"]
+
+    if has_sec:
+      df1["_sec_key"] = df1[sec_col1].apply(
+          lambda v: _normalize_compare_text(v, ignore_case=True, strip_punct=True)
+      )
+      df2["_sec_key"] = df2[sec_col2].apply(
+          lambda v: _normalize_compare_text(v, ignore_case=True, strip_punct=True)
+      )
+
+    # DF2 లో ఇండెక్స్ మ్యాప్ (వేగవంతమైన Exact Lookup కోసం)
+    exact_lookup = {}
+    for idx2, row2 in df2.iterrows():
+      k = row2["_tok_key"]
+      if k:
+        exact_lookup.setdefault(k, []).append(idx2)
+
+    used_df2_indices = set()
+    matched_df1_indices = set()
+    exact_rows = []
+    similar_rows = []
+
+    def build_combined_record(
+        idx1, idx2, match_type: str, score: float, sec_status: str
+    ):
+      r1 = df1.iloc[idx1]
+      r2 = df2.iloc[idx2]
+      combined = {
+          "Match_Type": match_type,
+          "Match_Score_%": score,
+          "Secondary_Check": sec_status,
+          f"Src1_Row": idx1 + 2,
+          f"Src1_{col1}": _clean_account_value(r1[col1]),
+          f"Src2_Row": idx2 + 2,
+          f"Src2_{col2}": _clean_account_value(r2[col2]),
+      }
+      for c in df1.columns:
+        if not c.startswith("_"):
+          combined[f"F1_{c}"] = _clean_account_value(r1[c])
+      for c in df2.columns:
+        if not c.startswith("_"):
+          combined[f"F2_{c}"] = _clean_account_value(r2[c])
+      return combined
+
+    # 1. EXACT MATCH PASS
+    if match_strategy in ("exact", "both"):
+      for idx1, row1 in df1.iterrows():
+        k1 = row1["_tok_key"]
+        if not k1 or k1 not in exact_lookup:
+          continue
+
+        candidates = [
+            i2
+            for i2 in exact_lookup[k1]
+            if (not one_to_one or i2 not in used_df2_indices)
+        ]
+        if not candidates:
+          continue
+
+        best_idx2 = candidates[0]
+        sec_status = "N/A"
+        if has_sec:
+          s1_val = row1["_sec_key"]
+          sec_matched = [
+              i2 for i2 in candidates if df2.iloc[i2]["_sec_key"] == s1_val
+          ]
+          if sec_matched:
+            best_idx2 = sec_matched[0]
+            sec_status = "EXACT_SECONDARY"
+          else:
+            sec_status = "SECONDARY_DIFF"
+
+        exact_rows.append(
+            build_combined_record(
+                idx1, best_idx2, "EXACT MATCH", 100.0, sec_status
+            )
+        )
+        matched_df1_indices.add(idx1)
+        used_df2_indices.add(best_idx2)
+
+    # 2. SIMILAR (FUZZY) MATCH PASS (మిగిలిన వాటి కోసం)
+    if match_strategy in ("similar", "both"):
+      # ఫస్ట్-లెటర్ బకెటింగ్ ద్వారా వేగం పెంచడం
+      df2_candidates_all = [
+          (idx2, df2.iloc[idx2]["_norm_key"], df2.iloc[idx2]["_sec_key"] if has_sec else "")
+          for idx2 in range(len(df2))
+          if df2.iloc[idx2]["_norm_key"] != ""
+      ]
+
+      for idx1, row1 in df1.iterrows():
+        if idx1 in matched_df1_indices:
+          continue
+        k1 = row1["_norm_key"]
+        if not k1:
+          continue
+
+        s1_val = row1["_sec_key"] if has_sec else ""
+        best_score = 0.0
+        best_idx2 = None
+        best_sec_status = "N/A"
+
+        for idx2, k2, s2_val in df2_candidates_all:
+          if one_to_one and idx2 in used_df2_indices:
+            continue
+          # పొడవులో మరీ ఎక్కువ తేడా ఉంటే స్కిప్ చేయడం (Performance Optimization)
+          if abs(len(k1) - len(k2)) > max(len(k1), len(k2)) * (
+              1.0 - (threshold / 100.0) + 0.15
+          ):
+            continue
+
+          score = _compute_similarity_score(
+              k1, k2, token_insensitive=token_order
+          )
+          if score >= threshold:
+            sec_bonus = 0.0
+            sec_stat = "N/A"
+            if has_sec:
+              if s1_val and s1_val == s2_val:
+                sec_bonus = 0.5
+                sec_stat = "EXACT_SECONDARY"
+              else:
+                sec_stat = "SECONDARY_DIFF"
+
+            if (score + sec_bonus) > best_score:
+              best_score = score + sec_bonus
+              best_idx2 = idx2
+              best_sec_status = sec_stat
+
+        if best_idx2 is not None:
+          actual_score = min(100.0, round(best_score, 2))
+          similar_rows.append(
+              build_combined_record(
+                  idx1,
+                  best_idx2,
+                  "SIMILAR MATCH",
+                  actual_score,
+                  best_sec_status,
+              )
+          )
+          matched_df1_indices.add(idx1)
+          used_df2_indices.add(best_idx2)
+
+    # 3. UNMATCHED LISTS
+    unmatched_1_df = df1.loc[
+        ~df1.index.isin(matched_df1_indices),
+        [c for c in df1.columns if not c.startswith("_")],
+    ].copy()
+    unmatched_2_df = df2.loc[
+        ~df2.index.isin(used_df2_indices),
+        [c for c in df2.columns if not c.startswith("_")],
+    ].copy()
+
+    exact_df = pd.DataFrame(exact_rows)
+    similar_df = (
+        pd.DataFrame(similar_rows).sort_values(
+            by="Match_Score_%", ascending=False
+        )
+        if similar_rows
+        else pd.DataFrame()
+    )
+
+    summary_df = pd.DataFrame([
+        {"Metric": "Source 1 (Left) Total Rows", "Count": len(df1), "Details": f"{label1} [{col1}]"},
+        {"Metric": "Source 2 (Right) Total Rows", "Count": len(df2), "Details": f"{label2} [{col2}]"},
+        {"Metric": "✅ Exact Matches Found", "Count": len(exact_df), "Details": "100% Identical after cleaning"},
+        {"Metric": "🟡 Similar (Fuzzy) Matches", "Count": len(similar_df), "Details": f"Similarity >= {threshold}%"},
+        {"Metric": "❌ Unmatched in Source 1", "Count": len(unmatched_1_df), "Details": f"Present only in {label1}"},
+        {"Metric": "❌ Unmatched in Source 2", "Count": len(unmatched_2_df), "Details": f"Present only in {label2}"},
+    ])
+
+    safe_base = _sanitize_filename_part(
+        custom_prefix if custom_prefix else f"Smart_Match_{label1}_vs_{label2}"
+    )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_name = f"{safe_base or 'Smart_Cross_Match'}_{timestamp}.xlsx"
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+      summary_df.to_excel(writer, sheet_name="Summary_Dashboard", index=False)
+      exact_df.to_excel(writer, sheet_name="Exact_Matches", index=False)
+      similar_df.to_excel(writer, sheet_name="Similar_Matches", index=False)
+      unmatched_1_df.to_excel(writer, sheet_name="Unmatched_Source_1", index=False)
+      unmatched_2_df.to_excel(writer, sheet_name="Unmatched_Source_2", index=False)
+
+      wb = writer.book
+      _style_openpyxl_sheet(
+          wb["Summary_Dashboard"],
+          f"SMART CROSS-MATCH & FUZZY COMPARISON SUMMARY ({label1} vs {label2})",
+      )
+      _style_openpyxl_sheet(
+          wb["Exact_Matches"],
+          f"EXACT MATCHES ({len(exact_df)} Records)",
+      )
+      _style_openpyxl_sheet(
+          wb["Similar_Matches"],
+          f"SIMILAR / FUZZY MATCHES >= {threshold}% ({len(similar_df)} Records)",
+      )
+      _style_openpyxl_sheet(
+          wb["Unmatched_Source_1"],
+          f"UNMATCHED IN {label1.upper()} ({len(unmatched_1_df)} Records)",
+      )
+      _style_openpyxl_sheet(
+          wb["Unmatched_Source_2"],
+          f"UNMATCHED IN {label2.upper()} ({len(unmatched_2_df)} Records)",
+      )
+
+      # Similar Matches షీట్‌లో Score % ఆధారంగా రంగులు వేయడం
+      ws_sim = wb["Similar_Matches"]
+      if len(similar_df) > 0:
+        high_fill = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
+        med_fill = PatternFill(start_color="FEF9C3", end_color="FEF9C3", fill_type="solid")
+        for r_idx in range(3, len(similar_df) + 3):
+          score_cell = ws_sim.cell(row=r_idx, column=2)
+          try:
+            sc_val = float(score_cell.value or 0)
+            score_cell.fill = high_fill if sc_val >= 90 else med_fill
+            score_cell.font = Font(name="Calibri", size=10, bold=True)
+            score_cell.alignment = Alignment(horizontal="center", vertical="center")
+          except Exception:
+            pass
+
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=out_name,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+  except Exception as e:
+    return f"Smart Cross-Match ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
