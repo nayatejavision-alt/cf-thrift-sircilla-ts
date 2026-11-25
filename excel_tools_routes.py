@@ -1463,3 +1463,333 @@ def process_safe_parser():
 
     except Exception as e:
         return f"Safe Parser ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
+
+
+# ==============================================================================
+# DYNAMIC PATTERN / AI-LIKE AUTO-PARSER TO EXCEL (/process-dynamic-ai-parser)
+# ==============================================================================
+_DYNAMIC_STATUS_KEYWORDS = (
+    "ACCOUNT CLOSED",
+    "TEMP ADDRESS",
+    "NO BALANCE",
+    "INOPERATIVE ACCOUNT",
+    "WRONG ACCOUNT NUMBER",
+    "ACCOUNT FREEZE",
+    "ON HOLD",
+)
+
+
+def _expand_scientific_or_clean_num(token: str) -> str:
+  """సైంటిఫిక్ నోటేషన్ (3.89674E+11) లేదా .0 ఉన్న నంబర్లను సాధారణ స్ట్రింగ్‌గా మారుస్తుంది."""
+  t = (token or "").strip().replace("'", "")
+  if not t:
+    return ""
+  if re.match(r"^[+-]?\d+(\.\d+)?[eE][+-]?\d+$", t):
+    try:
+      return f"{int(float(t))}"
+    except Exception:
+      pass
+  if re.match(r"^\d+\.0$", t):
+    return t[:-2]
+  return t
+
+
+def _infer_dynamic_record_from_line(line: str, fallback_sno: int):
+  """
+    ఫైల్‌లోని ఏ లైన్ అయినా స్ట్రక్చర్‌ను బట్టి డైనమిక్‌గా విడదీసి
+    ఫీల్డ్స్ (SNO, Beneficiary_Name, ID, Contact, Bank_Acc, Name_As_Per_Bank, RD1, Status, CIF) గా మారుస్తుంది.
+    """
+  raw = line.strip()
+  if not raw:
+    return None, "EMPTY"
+
+  # హెడర్ లైన్‌లను స్కిప్ చేయడం
+  upper_raw = raw.upper()
+  if (
+      ("SNO" in upper_raw and "CIF" in upper_raw)
+      or ("BENEFICIARY" in upper_raw and "ACCOUNT" in upper_raw and len(raw) < 180)
+  ):
+    return None, "HEADER"
+
+  # 1. ముందుభాగం: SNO (పేరుతో కలిసినా/విడిగా ఉన్నా) + Beneficiary Name + 12-digit ID + Phone + Bank Acc
+  # Phone లో scientific notation (3.89674E+11) లేదా 0 లేదా 9-12 digits రావచ్చు
+  prefix_re = re.compile(
+      r"^(?P<sno>\d+)\s*"
+      r"(?P<ben_name>[A-Za-z][A-Za-z\s.&'-]{1,80}?)\s+"
+      r"(?P<id12>\d{12})\s+"
+      r"(?P<phone>[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
+      r"(?P<bank_acc>\d{4,22})\s*(?P<tail>.*)$"
+  )
+
+  m = prefix_re.match(raw)
+  if not m:
+    # ప్రత్యామ్నాయ డైనమిక్ పాటర్న్: 12-digit ID లేని లేదా వేరుగా ఉన్న లైన్ల కోసం
+    alt_re = re.compile(
+        r"^(?P<sno>\d+)\s*(?P<ben_name>[A-Za-z][A-Za-z\s.&'-]{1,80}?)\s+"
+        r"(?P<phone>[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
+        r"(?P<bank_acc>\d{4,22})\s*(?P<tail>.*)$"
+    )
+    m_alt = alt_re.match(raw)
+    if not m_alt:
+      return None, "UNMATCHED"
+    d = m_alt.groupdict()
+    id12_val = ""
+  else:
+    d = m.groupdict()
+    id12_val = "[ID Redacted]"
+
+  tail = (d.get("tail") or "").strip()
+
+  # 2. Tail చివర 2 లేదా అంతకంటే ఎక్కువ స్పేస్‌ల తర్వాత CIF నంబర్ (6-20 అంకెలు) ఉంటే వేరు చేయడం
+  cif_clean = ""
+  cif_flag = None
+  m_cif = re.search(r"\s{2,}(\d{6,20})$", tail)
+  if m_cif:
+    cif_raw = _expand_scientific_or_clean_num(m_cif.group(1))
+    cif_clean, cif_flag = _safe_clean_digits(cif_raw)
+    tail = tail[: m_cif.start()].strip()
+
+  # 3. Tail లో Status లేదా RD1 Account ను డైనమిక్‌గా గుర్తించడం
+  rd1_acc = ""
+  rd1_status = "MISSING"
+  bank_name_raw = tail
+
+  status_pat = "|".join(re.escape(k) for k in _DYNAMIC_STATUS_KEYWORDS)
+  # పేరుకు అంటుకుని ఉన్నా (ఉదా: DeepikaNO BALANCE) లేదా స్పేస్ తర్వాత ఉన్నా పట్టుకుంటుంది
+  m_stat = re.search(
+      r"(?:^|\s+|(?<=[A-Za-z]))(" + status_pat + r")\s*$",
+      tail,
+      re.IGNORECASE,
+  )
+
+  if m_stat:
+    rd1_status = m_stat.group(1).upper().strip()
+    bank_name_raw = tail[: m_stat.start()].strip()
+  else:
+    # చివరలో RD1 అకౌంట్ నంబర్ (6-20 అంకెలు) ఉందా అని తనిఖీ
+    m_rd = re.search(r"(?:^|\s+)(\d{6,20})$", tail)
+    if m_rd:
+      rd_raw = _expand_scientific_or_clean_num(m_rd.group(1))
+      rd_digits, rd_flag = _safe_clean_digits(rd_raw, allow_status=True)
+      if rd_digits:
+        rd1_acc = rd_digits
+        rd1_status = "ACTIVE"
+      elif rd_flag:
+        rd1_status = rd_flag
+      bank_name_raw = tail[: m_rd.start()].strip()
+
+  # 4. ఫీల్డ్స్ క్లీనింగ్ & ఫ్లాగ్స్
+  ben_clean = _safe_normalize_name(d["ben_name"])
+  bank_name_clean = (
+      _safe_normalize_name(bank_name_raw) if bank_name_raw else ben_clean
+  )
+
+  phone_expanded = _expand_scientific_or_clean_num(d["phone"])
+  phone_clean, phone_flag = _safe_clean_digits(phone_expanded, expected_len=10)
+
+  acc_expanded = _expand_scientific_or_clean_num(d["bank_acc"])
+  acc_clean, acc_flag = _safe_clean_digits(acc_expanded)
+
+  flags = []
+  if phone_flag:
+    flags.append(f"PHONE:{phone_flag}")
+  if acc_flag:
+    flags.append(f"BANK_ACC:{acc_flag}")
+  if cif_flag:
+    flags.append(f"CIF:{cif_flag}")
+  if not id12_val:
+    flags.append("NO_12D_ID")
+
+  sno_digits, _ = _safe_clean_digits(d["sno"])
+  sno_val = int(sno_digits) if sno_digits else fallback_sno
+
+  record = {
+      "SNO": sno_val,
+      "Beneficiary_Name": ben_clean,
+      "Name_As_Per_Bank": bank_name_clean,
+      "Name_Match": (
+          ben_clean.lower() == bank_name_clean.lower()
+          if (ben_clean and bank_name_clean)
+          else True
+      ),
+      "ID_Number": id12_val,
+      "Contact_Number": phone_clean or "",
+      "Bank_Acc_Number": acc_clean or "",
+      "RD1_Acc_Number": rd1_acc,
+      "RD1_Status": rd1_status,
+      "CIF_Number": cif_clean or "",
+      "Data_Flags": ", ".join(flags) if flags else "OK",
+  }
+  return record, "PARSED"
+
+
+def _learn_dynamic_pattern_and_parse(raw_text: str):
+  """
+    ఫైల్‌లోని లైన్ల ప్యాటర్న్‌ను విశ్లేషించి, డైనమిక్ రూల్స్‌తో అన్ని లైన్లను పార్స్ చేస్తుంది.
+    """
+  lines = raw_text.splitlines()
+  records = []
+  unmatched = []
+  detected_patterns = {}
+
+  for idx, line in enumerate(lines, 1):
+    rec, status = _infer_dynamic_record_from_line(line, fallback_sno=idx)
+    if status == "PARSED" and rec:
+      records.append(rec)
+      # ఏ రకమైన స్ట్రక్చర్ మ్యాచ్ అయిందో లెక్కించడం
+      pat_sig = (
+          f"ID:{'Yes' if rec['ID_Number'] else 'No'} | "
+          f"RD1:{'Yes' if rec['RD1_Acc_Number'] else rec['RD1_Status']} | "
+          f"CIF:{'Yes' if rec['CIF_Number'] else 'No'}"
+      )
+      detected_patterns[pat_sig] = detected_patterns.get(pat_sig, 0) + 1
+    elif status == "UNMATCHED":
+      unmatched.append({"Line_No": idx, "Raw_Line": line.strip()})
+
+  pattern_summary_rows = [
+      {"Detected_Pattern": k, "Matched_Rows": v}
+      for k, v in sorted(
+          detected_patterns.items(), key=lambda x: x[1], reverse=True
+      )
+  ]
+  return (
+      pd.DataFrame(records),
+      pd.DataFrame(unmatched),
+      pd.DataFrame(pattern_summary_rows),
+  )
+
+
+@excel_tools_bp.route("/process-dynamic-ai-parser", methods=["POST"])
+def process_dynamic_ai_parser():
+  """
+    అప్‌లోడ్ చేసిన ఫైల్‌ను విశ్లేషించి డైనమిక్ పాటర్న్ ద్వారా క్లీన్ చేసి,
+    Dynamic_Cleaned_Data, Pattern_Summary, Flags_And_Status, Unmatched_Lines షీట్లతో Excel ఇస్తుంది.
+    """
+  try:
+    if "ai_file" not in request.files:
+      return "దయచేసి ఫైల్ అప్‌లోడ్ చేయండి.", 400
+    file = request.files["ai_file"]
+    if not file or file.filename == "":
+      return "ఫైల్ ఎంచుకోలేదు.", 400
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    sheet_name = request.form.get("ai_sheet_name", "").strip()
+    custom_prefix = request.form.get("ai_output_prefix", "").strip()
+    raw_bytes = file.read()
+
+    if ext in (".txt", ".prn"):
+      text_content = raw_bytes.decode("utf-8", errors="ignore")
+      if not text_content.strip():
+        text_content = raw_bytes.decode("cp1252", errors="ignore")
+      parsed_df, unmatched_df, pattern_df = _learn_dynamic_pattern_and_parse(
+          text_content
+      )
+    elif ext == ".csv":
+      df_csv = pd.read_csv(io.BytesIO(raw_bytes), dtype=str)
+      # CSV లో సింగిల్ కాలమ్ రా-లైన్లు ఉంటే టెక్స్ట్ ఇంజిన్‌కు పంపడం, లేదంటే టాబులర్ ఇంజిన్‌కు పంపడం
+      if len(df_csv.columns) == 1:
+        joined_text = "\n".join(df_csv.iloc[:, 0].dropna().astype(str).tolist())
+        parsed_df, unmatched_df, pattern_df = _learn_dynamic_pattern_and_parse(
+            joined_text
+        )
+      else:
+        parsed_df, unmatched_df = _parse_safe_tabular_df(df_csv)
+        pattern_df = pd.DataFrame([{
+            "Detected_Pattern": "Tabular CSV Columns",
+            "Matched_Rows": len(parsed_df),
+        }])
+    else:
+      excel_file = pd.ExcelFile(io.BytesIO(raw_bytes))
+      target_sheet = (
+          sheet_name
+          if (sheet_name and sheet_name in excel_file.sheet_names)
+          else excel_file.sheet_names[0]
+      )
+      df_xl = pd.read_excel(excel_file, sheet_name=target_sheet, dtype=str)
+      if len(df_xl.columns) == 1:
+        joined_text = "\n".join(df_xl.iloc[:, 0].dropna().astype(str).tolist())
+        parsed_df, unmatched_df, pattern_df = _learn_dynamic_pattern_and_parse(
+            joined_text
+        )
+      else:
+        parsed_df, unmatched_df = _parse_safe_tabular_df(df_xl)
+        pattern_df = pd.DataFrame([{
+            "Detected_Pattern": f"Tabular Excel ({target_sheet})",
+            "Matched_Rows": len(parsed_df),
+        }])
+
+    if parsed_df.empty and unmatched_df.empty:
+      return "ఫైల్‌లో ప్రాసెస్ చేయడానికి డేటా లభించలేదు.", 400
+
+    cleaned_df = _deduplicate_safe_df(parsed_df) if not parsed_df.empty else parsed_df
+    flagged_df = (
+        parsed_df[
+            (parsed_df["RD1_Status"] != "ACTIVE")
+            | (parsed_df["Data_Flags"] != "OK")
+            | (~parsed_df["Name_Match"])
+        ].copy()
+        if not parsed_df.empty
+        else pd.DataFrame()
+    )
+
+    text_cols = [
+        c
+        for c in (
+            "ID_Number",
+            "Contact_Number",
+            "Bank_Acc_Number",
+            "RD1_Acc_Number",
+            "CIF_Number",
+        )
+        if c in cleaned_df.columns
+    ]
+
+    safe_base = _sanitize_filename_part(
+        custom_prefix
+        if custom_prefix
+        else f"Dynamic_AI_{os.path.splitext(file.filename)[0]}"
+    )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_name = f"{safe_base or 'Dynamic_AI_Report'}_{timestamp}.xlsx"
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+      cleaned_df.to_excel(
+          writer, sheet_name="Dynamic_Cleaned_Data", index=False
+      )
+      flagged_df.to_excel(writer, sheet_name="Flags_And_Status", index=False)
+      pattern_df.to_excel(writer, sheet_name="Pattern_Summary", index=False)
+      unmatched_df.to_excel(writer, sheet_name="Unmatched_Lines", index=False)
+
+      wb = writer.book
+      _style_openpyxl_sheet(
+          wb["Dynamic_Cleaned_Data"],
+          f"DYNAMIC PARSED & DEDUPLICATED DATA ({len(cleaned_df)} Records)",
+          text_cols=text_cols,
+      )
+      _style_openpyxl_sheet(
+          wb["Flags_And_Status"],
+          f"STATUS / NAME MISMATCH / ANOMALY FLAGS ({len(flagged_df)} Records)",
+          text_cols=text_cols,
+      )
+      _style_openpyxl_sheet(
+          wb["Pattern_Summary"],
+          "AUTO-DETECTED LINE PATTERNS SUMMARY",
+      )
+      _style_openpyxl_sheet(
+          wb["Unmatched_Lines"],
+          f"UNMATCHED LINES ({len(unmatched_df)} Lines)",
+      )
+    buf.seek(0)
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=out_name,
+        mimetype=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+
+  except Exception as e:
+    return f"Dynamic Parser ప్రాసెసింగ్‌లో లోపం సంభవించింది: {str(e)}", 500
