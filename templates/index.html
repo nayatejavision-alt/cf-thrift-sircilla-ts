@@ -17,6 +17,14 @@
     <header class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white shadow-sm py-3 px-4">
         <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-3">
             <div class="flex items-center gap-3">
+                <!-- Gemini-style Sidebar Toggle Button (Visible after login) -->
+                <button id="header-sidebar-toggle-btn" type="button" onclick="toggleSidebar()"
+                        title="సైడ్‌బార్ ఓపెన్ / క్లోజ్ చేయండి"
+                        class="hidden items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition border border-white/25">
+                    <span id="header-sidebar-icon">◀</span>
+                    <span id="header-sidebar-label">క్లోజ్ సైడ్‌బార్</span>
+                </button>
+
                 <div>
                     <h1 class="text-lg md:text-xl font-bold tracking-wide leading-tight">🏛️ త్రిఫ్టు పథకము పోర్టల్</h1>
                     <p class="text-[11px] text-blue-200">చేనేత మరియు జౌళి శాఖ</p>
@@ -37,7 +45,7 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-5">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div id="workspace-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-5 transition-all duration-200">
 
             <!-- COMPACT LEFT SIDEBAR (Login / Active Bank Status) -->
             <aside id="left-sidebar-panel" class="lg:col-span-3">
@@ -72,6 +80,9 @@
                             <span class="text-[10px] text-slate-500 block">లాగిన్ అయిన బ్యాంక్:</span>
                             <strong id="logged-bank-name" class="text-emerald-800 text-xs block truncate"></strong>
                         </div>
+                        <button type="button" onclick="toggleSidebar()" class="w-full border border-indigo-300 text-indigo-700 hover:bg-indigo-50 text-xs font-semibold py-1.5 rounded-lg transition">
+                            ◀ క్లోజ్ సైడ్‌బార్
+                        </button>
                         <button onclick="logoutBank()" class="w-full border border-red-400 text-red-600 hover:bg-red-50 text-xs font-semibold py-1.5 rounded-lg transition">
                             లాగౌట్ (Logout)
                         </button>
@@ -102,7 +113,14 @@
                     <!-- Bank Beneficiary Data & Entry Table -->
                     <div id="bank-data-section" class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-4">
                         <div class="flex flex-col md:flex-row justify-between items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                            <h3 class="text-sm font-bold text-emerald-700 m-0">📊 లబ్ధిదారుల జాబితా</h3>
+                            <div class="flex items-center gap-2.5">
+                                <h3 class="text-sm font-bold text-emerald-700 m-0">📊 లబ్ధిదారుల జాబితా</h3>
+                                <button id="inline-sidebar-toggle-btn" type="button" onclick="toggleSidebar()"
+                                        class="text-[11px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-lg transition">
+                                    <span id="inline-sidebar-label">◀ క్లోజ్ సైడ్‌బార్</span>
+                                </button>
+                            </div>
+
                             <div class="flex flex-wrap gap-2.5 items-end">
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-600 mb-0.5">నెల (Month):</label>
@@ -617,32 +635,33 @@
                         </form>
                     </div>
 
-<div id="tool-dynamic-ai" class="smart-tool-panel hidden border border-fuchsia-200 bg-fuchsia-50/20 rounded-xl p-4 space-y-3">
-    <div class="flex justify-between items-center border-b border-fuchsia-200 pb-2">
-        <div>
-            <h4 class="text-xs font-bold text-fuchsia-900">🤖 Dynamic Pattern Auto-Parser → Excel</h4>
-            <p class="text-[11px] text-slate-500">ఫైల్‌లోని ప్యాటర్న్‌ను విశ్లేషించి డూప్లికేట్స్ తొలగిస్తుంది; <code>Pattern_Summary</code> షీట్‌లో ఏ ప్యాటర్న్ ఎన్ని లైన్లు మ్యాచ్ అయిందో కూడా చూపిస్తుంది.</p>
-        </div>
-        <button type="button" onclick="toggleSmartTool('tool-dynamic-ai')" class="text-xs text-slate-500 hover:text-slate-800">✕</button>
-    </div>
+                    <!-- DYNAMIC AI PATTERN PARSER -->
+                    <div id="tool-dynamic-ai" class="smart-tool-panel hidden border border-fuchsia-200 bg-fuchsia-50/20 rounded-xl p-4 space-y-3">
+                        <div class="flex justify-between items-center border-b border-fuchsia-200 pb-2">
+                            <div>
+                                <h4 class="text-xs font-bold text-fuchsia-900">🤖 Dynamic Pattern Auto-Parser → Excel</h4>
+                                <p class="text-[11px] text-slate-500">ఫైల్‌లోని ప్యాటర్న్‌ను విశ్లేషించి డూప్లికేట్స్ తొలగిస్తుంది; <code>Pattern_Summary</code> షీట్‌లో ఏ ప్యాటర్న్ ఎన్ని లైన్లు మ్యాచ్ అయిందో కూడా చూపిస్తుంది.</p>
+                            </div>
+                            <button type="button" onclick="toggleSmartTool('tool-dynamic-ai')" class="text-xs text-slate-500 hover:text-slate-800">✕</button>
+                        </div>
 
-    <form action="/process-dynamic-ai-parser" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '🤖 డైనమిక్ పాటర్న్ విశ్లేషిస్తోంది...')" class="space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">ఫైల్ ఎంచుకోండి (.prn, .txt, .xlsx, .csv):</label>
-                <input type="file" name="ai_file" accept=".prn,.txt,.xlsx,.xls,.csv" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (ఆప్షనల్):</label>
-                <input type="text" name="ai_output_prefix" placeholder="ఉదా: Auto_Pattern_RD_Report" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
-            </div>
-        </div>
+                        <form action="/process-dynamic-ai-parser" method="POST" enctype="multipart/form-data" onsubmit="setSubmittingState(this, '🤖 డైనమిక్ పాటర్న్ విశ్లేషిస్తోంది...')" class="space-y-3">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఫైల్ ఎంచుకోండి (.prn, .txt, .xlsx, .csv):</label>
+                                    <input type="file" name="ai_file" accept=".prn,.txt,.xlsx,.xls,.csv" required class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ఔట్‌పుట్ ఫైల్ పేరు (ఆప్షనల్):</label>
+                                    <input type="text" name="ai_output_prefix" placeholder="ఉదా: Auto_Pattern_RD_Report" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                                </div>
+                            </div>
 
-        <button type="submit" class="w-full bg-fuchsia-700 hover:bg-fuchsia-800 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
-            🤖 Auto-Detect Pattern చేసి Excel డౌన్‌లోడ్ చేయండి
-        </button>
-    </form>
-</div>
+                            <button type="submit" class="w-full bg-fuchsia-700 hover:bg-fuchsia-800 text-white text-xs font-bold py-2.5 rounded-lg transition shadow-sm">
+                                🤖 Auto-Detect Pattern చేసి Excel డౌన్‌లోడ్ చేయండి
+                            </button>
+                        </form>
+                    </div>
 
                     <!-- 6. DUPLICATE & UNIQUE CHECKER -->
                     <div id="tool-duplicates" class="smart-tool-panel hidden border border-amber-200 bg-amber-50/20 rounded-xl p-4 space-y-3">
@@ -742,8 +761,67 @@
     </footer>
 
     <script>
+    let isAuthenticatedState = false;
+    let sidebarOpenState = true;
+
     function appData() {
         return {}
+    }
+
+    function applySidebarLayout() {
+        const sidebarEl = document.getElementById('left-sidebar-panel');
+        const mainEl = document.getElementById('main-content-panel');
+        const headerToggleBtn = document.getElementById('header-sidebar-toggle-btn');
+        const headerIcon = document.getElementById('header-sidebar-icon');
+        const headerLabel = document.getElementById('header-sidebar-label');
+        const inlineLabel = document.getElementById('inline-sidebar-label');
+
+        if (!sidebarEl || !mainEl) return;
+
+        // లాగిన్‌కు ముందు సైడ్‌బార్ ఎప్పుడూ ఓపెన్‌గా (Login Card) ఉంటుంది
+        if (!isAuthenticatedState) {
+            sidebarEl.classList.remove('hidden');
+            sidebarEl.classList.add('lg:col-span-3');
+            mainEl.classList.remove('lg:col-span-12');
+            mainEl.classList.add('lg:col-span-9');
+            if (headerToggleBtn) {
+                headerToggleBtn.classList.add('hidden');
+                headerToggleBtn.classList.remove('inline-flex');
+            }
+            return;
+        }
+
+        // లాగిన్ అయిన తర్వాత Header Toggle Button చూపించాలి
+        if (headerToggleBtn) {
+            headerToggleBtn.classList.remove('hidden');
+            headerToggleBtn.classList.add('inline-flex');
+        }
+
+        if (sidebarOpenState) {
+            // ఓపెన్ సైడ్‌బార్ (Gemini Open Sidebar)
+            sidebarEl.classList.remove('hidden');
+            sidebarEl.classList.add('lg:col-span-3');
+            mainEl.classList.remove('lg:col-span-12');
+            mainEl.classList.add('lg:col-span-9');
+            if (headerIcon) headerIcon.innerText = '◀';
+            if (headerLabel) headerLabel.innerText = 'క్లోజ్ సైడ్‌బార్';
+            if (inlineLabel) inlineLabel.innerText = '◀ క్లోజ్ సైడ్‌బార్';
+        } else {
+            // క్లోజ్ సైడ్‌బార్ (Gemini Close Sidebar -> Full-width Main Data)
+            sidebarEl.classList.add('hidden');
+            sidebarEl.classList.remove('lg:col-span-3');
+            mainEl.classList.remove('lg:col-span-9');
+            mainEl.classList.add('lg:col-span-12');
+            if (headerIcon) headerIcon.innerText = '▶';
+            if (headerLabel) headerLabel.innerText = 'ఓపెన్ సైడ్‌బార్';
+            if (inlineLabel) inlineLabel.innerText = '▶ ఓపెన్ సైడ్‌బార్';
+        }
+    }
+
+    function toggleSidebar(forceState = null) {
+        if (!isAuthenticatedState) return;
+        sidebarOpenState = (typeof forceState === 'boolean') ? forceState : !sidebarOpenState;
+        applySidebarLayout();
     }
 
     function toggleSmartTool(panelId) {
@@ -803,6 +881,8 @@
     });
 
     function setAuthenticatedUI(isAuthenticated, bankName = "") {
+        isAuthenticatedState = Boolean(isAuthenticated);
+
         const loginSection = document.getElementById('login-section');
         const bankDashboardInfo = document.getElementById('bank-dashboard-info');
         const authToolbarActions = document.getElementById('auth-toolbar-actions');
@@ -810,7 +890,7 @@
         const headerSupportBadge = document.getElementById('header-support-badge');
         const headerLogoutBtn = document.getElementById('header-logout-btn');
 
-        if (isAuthenticated) {
+        if (isAuthenticatedState) {
             if (loginSection) loginSection.classList.add('hidden');
             if (bankDashboardInfo) bankDashboardInfo.classList.remove('hidden');
             if (authToolbarActions) authToolbarActions.classList.remove('hidden');
@@ -819,6 +899,7 @@
             if (headerLogoutBtn) headerLogoutBtn.classList.remove('hidden');
             if (bankName) document.getElementById('logged-bank-name').innerText = bankName;
         } else {
+            sidebarOpenState = true;
             if (loginSection) loginSection.classList.remove('hidden');
             if (bankDashboardInfo) bankDashboardInfo.classList.add('hidden');
             if (authToolbarActions) authToolbarActions.classList.add('hidden');
@@ -829,6 +910,8 @@
             if (sheetsPanel) sheetsPanel.classList.add('hidden');
             document.getElementById('logged-bank-name').innerText = "";
         }
+
+        applySidebarLayout();
     }
 
     function checkUserLoginStatus() {
@@ -1142,7 +1225,6 @@
         });
     }
 
-    // --- Safe Parser Sheet Loader ---
     async function handleSafeParserFileUpload() {
         const fileInput = document.getElementById('safe_file_input');
         const sheetSelect = document.getElementById('safe_sheet_select');
@@ -1165,7 +1247,6 @@
         }
     }
 
-    // --- Reconcile, Join, Master Match, Duplicate, Clean Handlers ---
     async function handleReconcileFileUpload() {
         const fileInput = document.getElementById('rec_file_input');
         const loadingElem = document.getElementById('rec_file_loading');
