@@ -49,84 +49,84 @@ MONTH_MAPPING = {
 
 PROCESS_STEPS_CONFIG = {
     '1': {
-        'step_name': '1. లబ్ధిదారుల ప్రాథమిక జాబితా తయారీ',
+        'step_name': '1. Submission of Verified Beneficiary Master List',
         'template': 'MASTER_LIST_TEMPLATE.docx',
         'sheet_name': 'Master_Beneficiary_List',
         'subject_prefix': 'Submission of Verified Beneficiary Master List for TSPWTFS & SS',
         'body_desc': 'forwarding the verified Master Beneficiary List under Telangana State Powerloom Weavers Thrift Fund Scheme (TSPWTFS & SS)'
     },
     '2': {
-        'step_name': '2. కొత్త RD ఖాతాల ప్రారంభం కోసం అభ్యర్థన',
+        'step_name': '2. Request for Opening New Thrift RD Accounts (RD-1 & RD-2)',
         'template': 'NEW_ACCOUNT_REQUEST_TEMPLATE.docx',
         'sheet_name': 'New_Account_Opening_List',
         'subject_prefix': 'Request for Opening New Thrift RD Accounts (RD-1 & RD-2)',
         'body_desc': 'requesting you to open new Thrift Recurring Deposit (RD-1 & RD-2) accounts for the enclosed eligible weavers'
     },
     '3': {
-        'step_name': '3. బ్యాంకు నుండి కొత్త RD ఖాతా నంబర్ల స్వీకరణ',
+        'step_name': '3. Follow-up / Receipt of Newly Opened Thrift RD Account Numbers',
         'template': 'ACCOUNT_MAPPING_TEMPLATE.docx',
         'sheet_name': 'Account_Mapping_Status',
         'subject_prefix': 'Follow-up / Receipt of Newly Opened Thrift RD Account Numbers',
         'body_desc': 'regarding the status and mapping of newly opened Thrift RD account numbers'
     },
     '4': {
-        'step_name': '4. డేటా మ్యాపింగ్ మరియు మాస్టర్ షీట్ అప్‌డేట్',
+        'step_name': '4. Updated Master Database & Account Mapping Confirmation',
         'template': 'MAPPING_UPDATE_TEMPLATE.docx',
         'sheet_name': 'Updated_Master_Mapping',
         'subject_prefix': 'Updated Master Database & Account Mapping Confirmation',
         'body_desc': 'sharing the updated Master Database after mapping the RD account numbers'
     },
     '5': {
-        'step_name': '5. కార్మికుడి వాటా (8%) బ్యాంక్ స్టేట్‌మెంట్ల సేకరణ',
+        'step_name': '5. Request for Monthly 8% Beneficiary Contribution Bank Statement / Scroll',
         'template': 'SCROLL_COLLECTION_TEMPLATE.docx',
         'sheet_name': 'Monthly_8Percent_Scroll_Req',
         'subject_prefix': 'Request for Monthly 8% Beneficiary Contribution Bank Statement / Scroll',
         'body_desc': 'requesting the monthly bank scroll / transaction statement showing the 8% weaver share deposits into RD-1 accounts'
     },
     '6': {
-        'step_name': '6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (8%) గణన',
+        'step_name': '6. Monthly Reconciliation & 8% Govt Matching Share Calculation Statement',
         'template': 'RECONCILIATION_TEMPLATE.docx',
         'sheet_name': 'Reconciliation_Statement',
         'subject_prefix': 'Monthly Reconciliation & 8% Govt Matching Share Calculation Statement',
         'body_desc': 'forwarding the reconciled statement of 8% weaver contributions and corresponding 8% Government matching share calculation'
     },
     '7': {
-        'step_name': '7. ప్రభుత్వ వాటా నిధుల మంజూరు మరియు బదిలీ',
+        'step_name': '7. Intimation of Sanction & Fund Transfer for Govt Matching Share',
         'template': 'FUND_SANCTION_TEMPLATE.docx',
         'sheet_name': 'Fund_Sanction_Details',
         'subject_prefix': 'Intimation of Sanction & Fund Transfer for Govt Matching Share',
         'body_desc': 'intimating the sanction and transfer of Government matching share funds'
     },
     '8': {
-        'step_name': '8. లబ్ధిదారుల వారీగా కేటాయింపు జాబితా పంపడం (Credit Advice)',
+        'step_name': '8. Crediting the Government matching share into RD2 Accounts(Credit Advice)',
         'template': 'RD2_CREDIT_SANCTION_TEMPLATE.docx',
         'sheet_name': 'Eligible_Credit_List',
         'subject_prefix': 'Official Letter & Beneficiary Excel List for TSPWTFS & SS RD2 Credit',
         'body_desc': 'crediting the Government matching share into RD2 Accounts'
     },
     '9': {
-        'step_name': '9. ప్రభుత్వ వాటా జమ మరియు కన్ఫర్మేషన్',
+        'step_name': '9. Request for Credit Confirmation Statement & Failed Transactions Report',
         'template': 'CREDIT_CONFIRMATION_TEMPLATE.docx',
         'sheet_name': 'Credit_Confirmation_Req',
         'subject_prefix': 'Request for Credit Confirmation Statement & Failed Transactions Report',
         'body_desc': 'requesting the Credit Confirmation Statement (with UTR/Transaction IDs) and list of any failed/returned credits'
     },
     '10': {
-        'step_name': '10. లోపాల సవరణ మరియు ఉత్తర ప్రత్యుత్తరాలు (Rectification)',
+        'step_name': '10. Rectification of Bank Account Errors, Dormant Accounts & IFSC Updates (Rectification)',
         'template': 'RECTIFICATION_TEMPLATE.docx',
         'sheet_name': 'Rectification_List',
         'subject_prefix': 'Rectification of Bank Account Errors, Dormant Accounts & IFSC Updates',
         'body_desc': 'requesting rectification of account discrepancies, dormant accounts, or IFSC updates as per the attached list'
     },
     '11': {
-        'step_name': '11. ఎగ్జిక్యూటివ్ సమ్మరీ మరియు ఆడిట్ రిపోర్ట్స్',
+        'step_name': '11. Periodic Executive Summary & Audit Reconciliation Report',
         'template': 'AUDIT_SUMMARY_TEMPLATE.docx',
         'sheet_name': 'Executive_Audit_Summary',
         'subject_prefix': 'Periodic Executive Summary & Audit Reconciliation Report',
         'body_desc': 'submitting the consolidated Executive Summary and Audit Reconciliation Report'
     },
     '12': {
-        'step_name': '12. మెచ్యూరిటీ, NOC జారీ మరియు ఖాతా క్లోజర్',
+        'step_name': '12. Issuance of NOC for Maturity & Closure of Thrift RD Accounts',
         'template': 'MATURITY_NOC_TEMPLATE.docx',
         'sheet_name': 'Maturity_NOC_List',
         'subject_prefix': 'Issuance of NOC for Maturity & Closure of Thrift RD Accounts',
