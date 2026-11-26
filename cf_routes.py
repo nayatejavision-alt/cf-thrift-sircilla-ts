@@ -1,968 +1,1645 @@
-from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify, make_response
-import pandas as pd
-import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
-import io
-import datetime
-import re
-import os
-import json
+from urllib.parse import quote
 import base64
+import datetime
+import io
+import json
+import os
+import re
+from flask import Blueprint, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
+import openpyxl
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
+import pandas as pd
 import requests
 
 cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 
-# నెలల పేర్ల మ్యాపింగ్
+# నెలల పేర్ల మ్యాపింగ్[cite: 5]
 MONTH_MAP = {
-    1: "June-2026", 2: "July-2026", 3: "August-2026", 4: "September-2026",
-    5: "October-2026", 6: "November-2026", 7: "December-2026", 8: "January-2027",
-    9: "February-2027", 10: "March-2027", 11: "April-2027", 12: "May-2027"
+    1: 'June-2026',
+    2: 'July-2026',
+    3: 'August-2026',
+    4: 'September-2026',
+    5: 'October-2026',
+    6: 'November-2026',
+    7: 'December-2026',
+    8: 'January-2027',
+    9: 'February-2027',
+    10: 'March-2027',
+    11: 'April-2027',
+    12: 'May-2027',
 }
 
-# 📋 CF వారీగా కేటాయించిన బ్యాంకుల మ్యాపింగ్
+# 📋 CF వారీగా కేటాయించిన బ్యాంకుల మ్యాపింగ్[cite: 5]
 CF_BANK_MAPPING = {
-    "NARESH": ["BANK OF BARODA", "BANK OF INDIA"],
-    "SATHISH": ["KDCCB", "PUNJAB NATIONAL BANK"],
-    "NAVEEN": ["CANARA BANK", "CENTRAL BANK OF INDIA"],
-    "SRIKANTH": ["12903_STATE BANK OF INDIA", "20140_STATE BANK OF INDIA", "20366_STATE BANK OF INDIA"],
-    "DEVADAS": ["SIRCILLA TELANGANA GRAMEENA BANK", "THANGALLAPALLY TELANGANA GRAMEENA BANK"],
-    "NAGARJUNA": ["UNION BANK OF INDIA"],
-    "KANAKARAJU": ["INDIAN BANK"],
-    "KAMALAKAR": ["INDIAN BANK"],
-    "MARKANDEYULU": ["BOINPARI UNION BANK", "NIMMAPALLY"]
+    'NARESH': ['BANK OF BARODA', 'BANK OF INDIA'],
+    'SATHISH': ['KDCCB', 'PUNJAB NATIONAL BANK'],
+    'NAVEEN': ['CANARA BANK', 'CENTRAL BANK OF INDIA'],
+    'SRIKANTH': [
+        '12903_STATE BANK OF INDIA',
+        '20140_STATE BANK OF INDIA',
+        '20366_STATE BANK OF INDIA',
+    ],
+    'DEVADAS': [
+        'SIRCILLA TELANGANA GRAMEENA BANK',
+        'THANGALLAPALLY TELANGANA GRAMEENA BANK',
+    ],
+    'NAGARJUNA': ['UNION BANK OF INDIA'],
+    'KANAKARAJU': ['INDIAN BANK'],
+    'KAMALAKAR': ['INDIAN BANK'],
+    'MARKANDEYULU': ['BOINPARI UNION BANK', 'NIMMAPALLY'],
 }
 
-# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్
+# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్[cite: 5]
 FILE_NAME_IFSC_MAPPING = {
-    "12903_STATE BANK OF INDIA": "SBIN0012903",
-    "20140_STATE BANK OF INDIA": "SBIN0020140",
-    "20366_STATE BANK OF INDIA": "SBIN0020366",
-    "BANK OF BARODA": "BARB0SIRCIL",
-    "BANK OF INDIA": "BKID0005745",
-    "BOINPALLI UNION BANK": "UBIN0807486",
-    "BOINPALLE UNION BANK": "UBIN0807486",
-    "CANARA BANK": "CNRB0004170",
-    "CENTRAL BANK OF INDIA": "CBIN0285183",
-    "INDIAN BANK": "IDIB000S289",
-    "KDCCB": "TSAB0020033",
-    "NIMMAPALLY": "TGRB0000384",
-    "PUNJAB NATIONAL BANK": "PUNB0589900",
-    "SIRCILLA TELANGANA GRAMEENA BANK": "TGRB0000215",
-    "THANGALLAPALLY TELANGANA GRAMEENA BANK": "TGRB0000086",
-    "UNION BANK OF INDIA": "UBIN0805289"
+    '12903_STATE BANK OF INDIA': 'SBIN0012903',
+    '20140_STATE BANK OF INDIA': 'SBIN0020140',
+    '20366_STATE BANK OF INDIA': 'SBIN0020366',
+    'BANK OF BARODA': 'BARB0SIRCIL',
+    'BANK OF INDIA': 'BKID0005745',
+    'BOINPALLI UNION BANK': 'UBIN0807486',
+    'BOINPALLE UNION BANK': 'UBIN0807486',
+    'CANARA BANK': 'CNRB0004170',
+    'CENTRAL BANK OF INDIA': 'CBIN0285183',
+    'INDIAN BANK': 'IDIB000S289',
+    'KDCCB': 'TSAB0020033',
+    'NIMMAPALLY': 'TGRB0000384',
+    'PUNJAB NATIONAL BANK': 'PUNB0589900',
+    'SIRCILLA TELANGANA GRAMEENA BANK': 'TGRB0000215',
+    'THANGALLAPALLY TELANGANA GRAMEENA BANK': 'TGRB0000086',
+    'UNION BANK OF INDIA': 'UBIN0805289',
 }
 
-# 🔑 CF పాస్‌వర్డ్స్ మ్యాపింగ్
+# 🔑 CF పాస్‌వర్డ్స్ మ్యాపింగ్[cite: 5]
 CF_PASSWORDS = {
-    "NARESH": "naresh@2026",
-    "SATHISH": "sathish@2026",
-    "NAVEEN": "naveen@2026",
-    "SRIKANTH": "srikanth@2026",
-    "DEVADAS": "devadas@2026",
-    "NAGARJUNA": "nagarjuna@2026",
-    "KANAKARAJU": "kanakaraju@2026",
-    "KAMALAKAR": "kamalakar@2026",
-    "MARKANDEYULU": "markandeyulu@2026"
+    'NARESH': 'naresh@2026',
+    'SATHISH': 'sathish@2026',
+    'NAVEEN': 'naveen@2026',
+    'SRIKANTH': 'srikanth@2026',
+    'DEVADAS': 'devadas@2026',
+    'NAGARJUNA': 'nagarjuna@2026',
+    'KANAKARAJU': 'kanakaraju@2026',
+    'KAMALAKAR': 'kamalakar@2026',
+    'MARKANDEYULU': 'markandeyulu@2026',
 }
 
-# 🏛️ సిరిసిల్ల మున్సిపాలిటీ వార్డుల వారీగా CF మ్యాపింగ్
+# 🏛️ సిరిసిల్ల మున్సిపాలిటీ వార్డుల వారీగా CF మ్యాపింగ్[cite: 5]
 WARD_CF_MAPPING = {
-    20: "DEVADAS",
-    17: "KANAKARAJU", 18: "KANAKARAJU", 19: "KANAKARAJU", 25: "KANAKARAJU", 26: "KANAKARAJU",
-    4: "SRIKANTH", 15: "SRIKANTH", 16: "SRIKANTH",
-    21: "NAGARJUNA", 22: "NAGARJUNA", 23: "NAGARJUNA", 24: "NAGARJUNA",
-    1: "SATHISH", 2: "SATHISH", 27: "SATHISH", 28: "SATHISH", 32: "SATHISH", 33: "SATHISH",
-    29: "KAMALAKAR", 30: "KAMALAKAR", 31: "KAMALAKAR",
-    3: "NAVEEN", 5: "NAVEEN", 6: "NAVEEN", 7: "NAVEEN", 8: "NAVEEN",
-    9: "NAVEEN", 10: "NAVEEN", 11: "NAVEEN", 12: "NAVEEN", 13: "NAVEEN", 14: "NAVEEN"
+    20: 'DEVADAS',
+    17: 'KANAKARAJU',
+    18: 'KANAKARAJU',
+    19: 'KANAKARAJU',
+    25: 'KANAKARAJU',
+    26: 'KANAKARAJU',
+    4: 'SRIKANTH',
+    15: 'SRIKANTH',
+    16: 'SRIKANTH',
+    21: 'NAGARJUNA',
+    22: 'NAGARJUNA',
+    23: 'NAGARJUNA',
+    24: 'NAGARJUNA',
+    1: 'SATHISH',
+    2: 'SATHISH',
+    27: 'SATHISH',
+    28: 'SATHISH',
+    32: 'SATHISH',
+    33: 'SATHISH',
+    29: 'KAMALAKAR',
+    30: 'KAMALAKAR',
+    31: 'KAMALAKAR',
+    3: 'NAVEEN',
+    5: 'NAVEEN',
+    6: 'NAVEEN',
+    7: 'NAVEEN',
+    8: 'NAVEEN',
+    9: 'NAVEEN',
+    10: 'NAVEEN',
+    11: 'NAVEEN',
+    12: 'NAVEEN',
+    13: 'NAVEEN',
+    14: 'NAVEEN',
 }
 
-# 🔍 సిరిసిల్ల మున్సిపాలిటీ మాస్టర్ డేటా ఆధారంగా కాన్ఫ్లిక్ట్‌లను కూడా పూర్తిగా నివారించే ఖచ్చితమైన రేంజ్ మ్యాపింగ్
+# 🔍 సిరిసిల్ల మున్సిపాలిటీ మాస్టర్ డేటా రేంజ్ మ్యాపింగ్[cite: 5]
 MUNICIPALITY_RANGES = [
-    # Ward 1
-    ("2-5", 1, 11, 1), ("2-5", 95, 149, 1), ("2-6", 1, 142, 1), ("2-7", 1, 140, 1), ("2-8", 1, 65, 1), ("2-4", 84, 139, 1),
-    # Ward 2
-    ("3-1", 1, 140, 2), ("3-2", 1, 139, 2), ("3-3", 1, 140, 2), ("3-4", 1, 119, 2), ("3-5", 1, 31, 2),
-    # Ward 3
-    ("3-5", 32, 122, 3), ("3-6", 1, 164, 3), ("3-7", 1, 98, 3),
-    # Ward 4
-    ("3-7", 99, 136, 4), ("3-8", 1, 100, 4), ("4-1", 1, 136, 4), ("4-2", 1, 130, 4),
-    # Ward 5
-    ("4-3", 1, 132, 5), ("4-4", 1, 132, 5), ("4-5", 1, 74, 5),
-    # Ward 6
-    ("4-5", 75, 150, 6), ("4-6", 1, 164, 6), ("4-7", 1, 123, 6), ("4-8", 1, 69, 6),
-    # Ward 7
-    ("5-1", 85, 146, 7), ("5-2", 1, 131, 7), ("5-3", 1, 125, 7), ("5-4", 1, 103, 7), ("5-5", 1, 139, 7), ("5-6", 1, 131, 7), ("5-7", 1, 138, 7),
-    # Ward 8
-    ("4-8", 70, 115, 8), ("5-1", 1, 84, 8), ("5-8", 1, 149, 8), ("6-1", 1, 161, 8), ("6-2", 1, 132, 8),
-    # Ward 9
-    ("6-3", 1, 117, 9), ("6-4", 1, 129, 9), ("6-5", 1, 97, 9),
-    # Ward 10
-    ("6-5", 98, 139, 10), ("6-6", 1, 129, 10), ("6-7", 1, 91, 10), ("6-8", 1, 95, 10),
-    # Ward 11
-    ("7-1", 1, 139, 11), ("7-2", 1, 107, 11),
-    # Ward 12
-    ("7-2", 108, 127, 12), ("7-3", 1, 133, 12), ("7-4", 1, 138, 12), ("7-5", 1, 125, 12),
-    # Ward 13
-    ("7-6", 1, 131, 13), ("7-7", 1, 146, 13), ("7-8", 1, 140, 13), ("8-1", 1, 150, 13), ("8-2", 1, 135, 13), ("8-3", 1, 69, 13),
-    # Ward 14
-    ("8-3", 70, 118, 14), ("8-4", 1, 129, 14), ("8-5", 1, 137, 14), ("8-8", 63, 99, 14),
-    # Ward 15
-    ("8-8", 11, 62, 15), ("9-3", 1, 125, 15), ("9-4", 1, 119, 15),
-    # Ward 16
-    ("8-6", 1, 130, 16), ("8-7", 1, 145, 16), ("8-8", 1, 10, 16), ("8-8", 100, 101, 16),
-    # Ward 17
-    ("9-1", 1, 150, 17), ("9-2", 1, 159, 17),
-    # Ward 18
-    ("9-5", 1, 75, 18), ("9-6", 1, 63, 18), ("10-1", 79, 144, 18), ("10-2", 1, 92, 18), ("10-3", 100, 135, 18), ("10-4", 1, 117, 18),
-    # Ward 19
-    ("10-3", 1, 99, 19), ("10-5", 1, 120, 19), ("10-6", 1, 141, 19), ("10-7", 1, 34, 19), ("9-8", 102, 139, 19),
-    # Ward 20
-    ("9-6", 64, 125, 20), ("9-7", 1, 107, 20), ("10-1", 1, 78, 20), ("9-8", 1, 101, 20), ("9-8", 140, 166, 20),
-    # Ward 21
-    ("10-7", 35, 133, 21), ("10-8", 1, 142, 21), ("11-1", 1, 156, 21),
-    # Ward 22
-    ("12-2", 32, 147, 22), ("12-3", 1, 111, 22), ("12-4", 1, 73, 22), ("12-5", 1, 112, 22),
-    # Ward 23
-    ("11-2", 1, 133, 23), ("11-3", 1, 148, 23), ("11-4", 1, 133, 23),
-    # Ward 24
-    ("11-8", 33, 132, 24), ("12-1", 1, 152, 24), ("12-5", 113, 142, 24), ("12-6", 1, 54, 24), ("12-2", 1, 31, 24), ("12-6", 95, 132, 24),
-    # Ward 25
-    ("11-5", 1, 125, 25), ("11-6", 1, 127, 25), ("11-7", 1, 162, 25), ("11-8", 1, 32, 25),
-    # Ward 26
-    ("12-6", 55, 94, 26), ("12-6", 133, 149, 26), ("12-7", 1, 149, 26), ("12-8", 1, 64, 26),
-    # Ward 27
-    ("12-8", 65, 170, 27), ("12-9", 111, 169, 27), ("12-10", 1, 169, 27),
-    # Ward 28
-    ("12-11", 1, 181, 28), ("1-1", 1, 82, 28),
-    # Ward 29
-    ("1-1", 83, 120, 29), ("1-2", 1, 146, 29), ("1-3", 1, 74, 29), ("1-6", 1, 14, 29), ("1-6", 19, 22, 29),
-    # Ward 30
-    ("1-5", 19, 134, 30), ("1-6", 23, 85, 30), ("1-7", 1, 148, 30), ("1-8", 1, 25, 30),
-    # Ward 31
-    ("1-3", 75, 161, 31), ("1-4", 1, 169, 31), ("1-6", 15, 18, 31), ("1-5", 1, 18, 31),
-    # Ward 32
-    ("2-1", 93, 122, 32), ("2-5", 12, 94, 32), ("2-3", 1, 18, 32), ("2-3", 122, 137, 32), ("2-2", 1, 128, 32), ("2-4", 1, 83, 32), ("12-9", 1, 110, 32),
-    # Ward 33
-    ("1-8", 26, 119, 33), ("2-1", 1, 76, 33), ("2-3", 19, 121, 33), ("2-1", 77, 92, 33)
+    ('2-5', 1, 11, 1),
+    ('2-5', 95, 149, 1),
+    ('2-6', 1, 142, 1),
+    ('2-7', 1, 140, 1),
+    ('2-8', 1, 65, 1),
+    ('2-4', 84, 139, 1),
+    ('3-1', 1, 140, 2),
+    ('3-2', 1, 139, 2),
+    ('3-3', 1, 140, 2),
+    ('3-4', 1, 119, 2),
+    ('3-5', 1, 31, 2),
+    ('3-5', 32, 122, 3),
+    ('3-6', 1, 164, 3),
+    ('3-7', 1, 98, 3),
+    ('3-7', 99, 136, 4),
+    ('3-8', 1, 100, 4),
+    ('4-1', 1, 136, 4),
+    ('4-2', 1, 130, 4),
+    ('4-3', 1, 132, 5),
+    ('4-4', 1, 132, 5),
+    ('4-5', 1, 74, 5),
+    ('4-5', 75, 150, 6),
+    ('4-6', 1, 164, 6),
+    ('4-7', 1, 123, 6),
+    ('4-8', 1, 69, 6),
+    ('5-1', 85, 146, 7),
+    ('5-2', 1, 131, 7),
+    ('5-3', 1, 125, 7),
+    ('5-4', 1, 103, 7),
+    ('5-5', 1, 139, 7),
+    ('5-6', 1, 131, 7),
+    ('5-7', 1, 138, 7),
+    ('4-8', 70, 115, 8),
+    ('5-1', 1, 84, 8),
+    ('5-8', 1, 149, 8),
+    ('6-1', 1, 161, 8),
+    ('6-2', 1, 132, 8),
+    ('6-3', 1, 117, 9),
+    ('6-4', 1, 129, 9),
+    ('6-5', 1, 97, 9),
+    ('6-5', 98, 139, 10),
+    ('6-6', 1, 129, 10),
+    ('6-7', 1, 91, 10),
+    ('6-8', 1, 95, 10),
+    ('7-1', 1, 139, 11),
+    ('7-2', 1, 107, 11),
+    ('7-2', 108, 127, 12),
+    ('7-3', 1, 133, 12),
+    ('7-4', 1, 138, 12),
+    ('7-5', 1, 125, 12),
+    ('7-6', 1, 131, 13),
+    ('7-7', 1, 146, 13),
+    ('7-8', 1, 140, 13),
+    ('8-1', 1, 150, 13),
+    ('8-2', 1, 135, 13),
+    ('8-3', 1, 69, 13),
+    ('8-3', 70, 118, 14),
+    ('8-4', 1, 129, 14),
+    ('8-5', 1, 137, 14),
+    ('8-8', 63, 99, 14),
+    ('8-8', 11, 62, 15),
+    ('9-3', 1, 125, 15),
+    ('9-4', 1, 119, 15),
+    ('8-6', 1, 130, 16),
+    ('8-7', 1, 145, 16),
+    ('8-8', 1, 10, 16),
+    ('8-8', 100, 101, 16),
+    ('9-1', 1, 150, 17),
+    ('9-2', 1, 159, 17),
+    ('9-5', 1, 75, 18),
+    ('9-6', 1, 63, 18),
+    ('10-1', 79, 144, 18),
+    ('10-2', 1, 92, 18),
+    ('10-3', 100, 135, 18),
+    ('10-4', 1, 117, 18),
+    ('10-3', 1, 99, 19),
+    ('10-5', 1, 120, 19),
+    ('10-6', 1, 141, 19),
+    ('10-7', 1, 34, 19),
+    ('9-8', 102, 139, 19),
+    ('9-6', 64, 125, 20),
+    ('9-7', 1, 107, 20),
+    ('10-1', 1, 78, 20),
+    ('9-8', 1, 101, 20),
+    ('9-8', 140, 166, 20),
+    ('10-7', 35, 133, 21),
+    ('10-8', 1, 142, 21),
+    ('11-1', 1, 156, 21),
+    ('12-2', 32, 147, 22),
+    ('12-3', 1, 111, 22),
+    ('12-4', 1, 73, 22),
+    ('12-5', 1, 112, 22),
+    ('11-2', 1, 133, 23),
+    ('11-3', 1, 148, 23),
+    ('11-4', 1, 133, 23),
+    ('11-8', 33, 132, 24),
+    ('12-1', 1, 152, 24),
+    ('12-5', 113, 142, 24),
+    ('12-6', 1, 54, 24),
+    ('12-2', 1, 31, 24),
+    ('12-6', 95, 132, 24),
+    ('11-5', 1, 125, 25),
+    ('11-6', 1, 127, 25),
+    ('11-7', 1, 162, 25),
+    ('11-8', 1, 32, 25),
+    ('12-6', 55, 94, 26),
+    ('12-6', 133, 149, 26),
+    ('12-7', 1, 149, 26),
+    ('12-8', 1, 64, 26),
+    ('12-8', 65, 170, 27),
+    ('12-9', 111, 169, 27),
+    ('12-10', 1, 169, 27),
+    ('12-11', 1, 181, 28),
+    ('1-1', 1, 82, 28),
+    ('1-1', 83, 120, 29),
+    ('1-2', 1, 146, 29),
+    ('1-3', 1, 74, 29),
+    ('1-6', 1, 14, 29),
+    ('1-6', 19, 22, 29),
+    ('1-5', 19, 134, 30),
+    ('1-6', 23, 85, 30),
+    ('1-7', 1, 148, 30),
+    ('1-8', 1, 25, 30),
+    ('1-3', 75, 161, 31),
+    ('1-4', 1, 169, 31),
+    ('1-6', 15, 18, 31),
+    ('1-5', 1, 18, 31),
+    ('2-1', 93, 122, 32),
+    ('2-5', 12, 94, 32),
+    ('2-3', 1, 18, 32),
+    ('2-3', 122, 137, 32),
+    ('2-2', 1, 128, 32),
+    ('2-4', 1, 83, 32),
+    ('12-9', 1, 110, 32),
+    ('1-8', 26, 119, 33),
+    ('2-1', 1, 76, 33),
+    ('2-3', 19, 121, 33),
+    ('2-1', 77, 92, 33),
 ]
 
-# 🌍 ఏరియా / విలేజ్ వారీగా CF మ్యాపింగ్
+# 🌍 ఏరియా / విలేజ్ వారీగా CF మ్యాపింగ్[cite: 5]
 AREA_CF_MAPPING = {
-    "NARESH": ["THANGALLA PALLY","THANGALLAPALLY","RAMNAGAR","THANGALLAPALLI","PADMANAGAR","LINGAMWADA","OPPOSITE RADHESHYAM SATH SANGH LINGAM WADA","PADMNAGAR","PADMA NAGAR","TEXTILEPARK","TEXTILE PARK"],
-    "KANAKARAJU": ["THADUR", "MANDAPALLI"],
-    "MARKANDEYULU": [
-        "ANANTHAPALLE", "BHOOPATHI NAGAR", "BOINPALLE", "BURUGUPALLY",
-        "CHANDRAMPET", "DUNDRAPALLY", "JYOTHI NAGAR", "MUSTIPALLI",
-        "NIMMAPALLI", "RAGUDU", "RAJEEV NAGAR", "TETTEKUNTA",
-        "THADAGONDA", "VELJIPURAM"
-    ]
+    'NARESH': [
+        'THANGALLA PALLY',
+        'THANGALLAPALLY',
+        'RAMNAGAR',
+        'THANGALLAPALLI',
+        'PADMANAGAR',
+        'LINGAMWADA',
+        'OPPOSITE RADHESHYAM SATH SANGH LINGAM WADA',
+        'PADMNAGAR',
+        'PADMA NAGAR',
+        'TEXTILEPARK',
+        'TEXTILE PARK',
+    ],
+    'KANAKARAJU': ['THADUR', 'MANDAPALLI'],
+    'MARKANDEYULU': [
+        'ANANTHAPALLE',
+        'BHOOPATHI NAGAR',
+        'BOINPALLE',
+        'BURUGUPALLY',
+        'CHANDRAMPET',
+        'DUNDRAPALLY',
+        'JYOTHI NAGAR',
+        'MUSTIPALLI',
+        'NIMMAPALLI',
+        'RAGUDU',
+        'RAJEEV NAGAR',
+        'TETTEKUNTA',
+        'THADAGONDA',
+        'VELJIPURAM',
+    ],
 }
 
-# 🧹 H.No లోని "H.NO.", "H.NO", "HNO", "D.NO", స్పేస్‌లు మొదలైన వాటిని క్లీన్ చేసే హెల్పర్ ఫంక్షన్
+
+def clean_str_cell(val):
+  """సెల్ విలువలోని .0, అపోస్ట్రోఫీలు, NaN లను సురక్షితంగా క్లీన్ చేస్తుంది."""
+  if val is None or (isinstance(val, float) and pd.isna(val)):
+    return ''
+  s = str(val).strip()
+  if not s or s.lower() in ('nan', 'none', 'null', '-'):
+    return ''
+  if s.endswith('.0'):
+    s = s[:-2]
+  return s.replace("'", '').strip()
+
+
+def clean_indian_mobile_10(raw_val):
+  """10 అంకెల భారతీయ మొబైల్ నంబర్‌ను తిరిగి ఇస్తుంది (లేదా ఖాళీ స్ట్రింగ్)."""
+  digits = re.sub(r'\D', '', clean_str_cell(raw_val))
+  if len(digits) == 12 and digits.startswith('91'):
+    digits = digits[2:]
+  elif len(digits) == 11 and digits.startswith('0'):
+    digits = digits[1:]
+  if len(digits) == 10 and digits[0] in ('6', '7', '8', '9'):
+    return digits
+  return ''
+
+
+def find_header_match(headers, candidates):
+  """హెడర్ జాబితాలో సరిపోయే కాలమ్ పేరును కనుగొంటుంది."""
+  lower_map = {str(h).strip().lower(): h for h in headers}
+  for c in candidates:
+    if c.lower() in lower_map:
+      return lower_map[c.lower()]
+  for h in headers:
+    hl = str(h).strip().lower()
+    if any(c.lower() in hl for c in candidates):
+      return h
+  return None
+
+
 def clean_hno_for_matching(hno_val):
-    if hno_val is None:
-        return ""
-    s = str(hno_val).strip().upper()
-    if not s or s in ["NAN", "NONE", "NULL", "-"]:
-        return ""
+  if hno_val is None:
+    return ''
+  s = str(hno_val).strip().upper()
+  if not s or s in ['NAN', 'NONE', 'NULL', '-']:
+    return ''
+  s = re.sub(
+      r'^\s*(?:H\.?\s*N\.?\s*O\.?|HOUSE\s*NO\.?|DOOR\s*NO\.?|D\.?\s*NO\.?|UNIT\s*H\.?\s*NO\.?|RESIDENTIAL\s*H\.?\s*NO\.?|NO\.?)\s*[:\-\.]*\s*',
+      '',
+      s,
+      flags=re.IGNORECASE,
+  )
+  s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', '', s, flags=re.IGNORECASE)
+  s = re.sub(r'\s*-\s*', '-', s)
+  s = re.sub(r'\s*/\s*', '/', s)
+  s = re.sub(r'\s+', ' ', s).strip(' -/')
+  return s
 
-    # ముందుగా ఉండే H.NO., H.NO, HNO, D.NO., DOOR NO, HOUSE NO, NO. వంటి ప్రిఫిక్స్‌లను తొలగించడం
-    s = re.sub(
-        r'^\s*(?:H\.?\s*N\.?\s*O\.?|HOUSE\s*NO\.?|DOOR\s*NO\.?|D\.?\s*NO\.?|UNIT\s*H\.?\s*NO\.?|RESIDENTIAL\s*H\.?\s*NO\.?|NO\.?)\s*[:\-\.]*\s*',
-        '',
-        s,
-        flags=re.IGNORECASE
-    )
 
-    # మధ్యలో పొరపాటున "H.NO" లేదా "H.NO." చేరినా తొలగించడం
-    s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', '', s, flags=re.IGNORECASE)
-
-    # హైఫన్లు, స్లాష్‌లు, స్పేస్‌లను క్రమబద్ధీకరించడం
-    s = re.sub(r'\s*-\s*', '-', s)
-    s = re.sub(r'\s*/\s*', '/', s)
-    s = re.sub(r'\s+', ' ', s).strip(' -/')
-    return s
-
-# 🧹 ఏరియా / విలేజ్ పేరును క్లీన్ చేసే హెల్పర్ ఫంక్షన్
 def clean_area_for_matching(area_val):
-    if area_val is None:
-        return ""
-    s = str(area_val).strip().upper()
-    if not s or s in ["NAN", "NONE", "NULL", "-"]:
-        return ""
+  if area_val is None:
+    return ''
+  s = str(area_val).strip().upper()
+  if not s or s in ['NAN', 'NONE', 'NULL', '-']:
+    return ''
+  s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', ' ', s, flags=re.IGNORECASE)
+  s = re.sub(r'[^A-Z0-9\s]', ' ', s)
+  s = re.sub(r'\s+', ' ', s).strip()
+  return s
 
-    s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', ' ', s, flags=re.IGNORECASE)
-    s = re.sub(r'[^A-Z0-9\s]', ' ', s)
-    s = re.sub(r'\s+', ' ', s).strip()
-    return s
 
-# 🔎 క్లీన్ చేసిన H.No నుండి (block_prefix, door_num) వేరు చేసే హెల్పర్ ఫంక్షన్
 def extract_block_and_door(cleaned_hno):
-    if not cleaned_hno:
-        return None, None
-
-    # ఉదాహరణ: "3-6-45", "10-3-110A", "1-4-120/2" -> block_prefix="3-6", door_num=45
-    m = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno)
-    if m:
-        block_prefix = f"{int(m.group(1))}-{int(m.group(2))}"
-        door_num = int(m.group(3))
-        return block_prefix, door_num
-
-    # కేవలం 2 భాగాలు ఉంటే (ఉదా: "3-6")
-    m2 = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\b', cleaned_hno)
-    if m2:
-        block_prefix = f"{int(m2.group(1))}-{int(m2.group(2))}"
-        return block_prefix, None
-
+  if not cleaned_hno:
     return None, None
+  m = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno)
+  if m:
+    return f'{int(m.group(1))}-{int(m.group(2))}', int(m.group(3))
+  m2 = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\b', cleaned_hno)
+  if m2:
+    return f'{int(m2.group(1))}-{int(m2.group(2))}', None
+  return None, None
 
-# 🏦 FILE NAME ఆధారంగా IFSC కోడ్ కనుగొనే హెల్పర్ ఫంక్షన్
+
 def get_ifsc_for_file_name(file_name, records_list=None):
-    clean_file = re.sub(r'\s+', ' ', str(file_name or '').strip().upper())
-    if not clean_file or clean_file in ['NAN', 'NONE']:
-        return ""
+  clean_file = re.sub(r'\s+', ' ', str(file_name or '').strip().upper())
+  if not clean_file or clean_file in ['NAN', 'NONE']:
+    return ''
 
-    if records_list:
-        ifsc_counts = {}
-        for row in records_list:
-            r_file = re.sub(r'\s+', ' ', str(row.get('FILE NAME', '') or '').strip().upper())
-            r_ifsc = str(row.get('IFSC code', '') or row.get('IFSC CODE', '') or '').strip().upper()
-            if r_file == clean_file and re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', r_ifsc):
-                ifsc_counts[r_ifsc] = ifsc_counts.get(r_ifsc, 0) + 1
-        if ifsc_counts:
-            return max(ifsc_counts, key=ifsc_counts.get)
+  if records_list:
+    ifsc_counts = {}
+    for row in records_list:
+      r_file = re.sub(
+          r'\s+', ' ', str(row.get('FILE NAME', '') or '').strip().upper()
+      )
+      r_ifsc = str(
+          row.get('IFSC code', '') or row.get('IFSC CODE', '') or ''
+      ).strip().upper()
+      if r_file == clean_file and re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', r_ifsc):
+        ifsc_counts[r_ifsc] = ifsc_counts.get(r_ifsc, 0) + 1
+    if ifsc_counts:
+      return max(ifsc_counts, key=ifsc_counts.get)
 
-    if clean_file in FILE_NAME_IFSC_MAPPING:
-        return FILE_NAME_IFSC_MAPPING[clean_file]
+  if clean_file in FILE_NAME_IFSC_MAPPING:
+    return FILE_NAME_IFSC_MAPPING[clean_file]
 
-    normalized_variant = clean_file.replace("BOINPALLE", "BOINPALLI")
-    if normalized_variant in FILE_NAME_IFSC_MAPPING:
-        return FILE_NAME_IFSC_MAPPING[normalized_variant]
+  normalized_variant = clean_file.replace('BOINPALLE', 'BOINPALLI')
+  return FILE_NAME_IFSC_MAPPING.get(normalized_variant, '')
 
-    return ""
 
-# 🔐 ఆధార్ నంబర్‌ను క్లీన్ చేసే హెల్పర్ ఫంక్షన్
 def normalize_aadhar(val):
-    if val is None or (isinstance(val, float) and pd.isna(val)):
-        return ""
-    s = str(val).strip()
-    if s.endswith(".0"):
-        s = s[:-2]
-    return re.sub(r'\D', '', s)
+  if val is None or (isinstance(val, float) and pd.isna(val)):
+    return ''
+  s = str(val).strip()
+  if s.endswith('.0'):
+    s = s[:-2]
+  return re.sub(r'\D', '', s)
 
-# 📍 షీట్‌లో ఖచ్చితమైన రో నంబర్‌ను (Aadhaar ఆధారంగా) కనుగొనే హెల్పర్ ఫంక్షన్
+
 def find_row_by_aadhar(worksheet, aadhar_col_idx, target_aadhar_clean):
-    if aadhar_col_idx == -1 or not target_aadhar_clean:
-        return None, []
-    all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
-    for idx in range(1, len(all_aadhars)):
-        cell_clean = normalize_aadhar(all_aadhars[idx])
-        if cell_clean and cell_clean == target_aadhar_clean:
-            sheet_row_num = idx + 1
-            return sheet_row_num, all_aadhars
-    return None, all_aadhars
+  if aadhar_col_idx == -1 or not target_aadhar_clean:
+    return None, []
+  all_aadhars = worksheet.col_values(aadhar_col_idx + 1)
+  for idx in range(1, len(all_aadhars)):
+    cell_clean = normalize_aadhar(all_aadhars[idx])
+    if cell_clean and cell_clean == target_aadhar_clean:
+      return idx + 1, all_aadhars
+  return None, all_aadhars
 
-# 📏 షీట్‌లో చివరి నిజమైన డేటా రో నంబర్ కనుగొనే హెల్పర్ ఫంక్షన్
+
 def get_last_non_empty_row(worksheet):
-    all_values = worksheet.get_all_values()
-    last_row = 1
-    for r_idx, row_vals in enumerate(all_values, start=1):
-        if any(str(cell).strip() != "" for cell in row_vals):
-            last_row = r_idx
-    return last_row
+  all_values = worksheet.get_all_values()
+  last_row = 1
+  for r_idx, row_vals in enumerate(all_values, start=1):
+    if any(str(cell).strip() != '' for cell in row_vals):
+      last_row = r_idx
+  return last_row
 
-# 🛟 Update చేసే ముందు పాత డేటాను Backup షీట్‌లో సేవ్ చేసే హెల్పర్ ఫంక్షన్
-def backup_row_before_update(spreadsheet, headers, old_row_values, target_row_num, cf_name, aadhar_clean):
-    backup_sheet_name = "Update_Backup"
-    try:
-        ws_backup = spreadsheet.worksheet(backup_sheet_name)
-    except Exception:
-        ws_backup = spreadsheet.add_worksheet(title=backup_sheet_name, rows=1000, cols=max(len(headers) + 4, 15))
-        backup_headers = ["Backup_Timestamp", "Updated_By_CF", "Verified_Aadhaar", "Source_Row_Snapshot"] + headers
-        ws_backup.append_row(backup_headers)
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    padded_old = list(old_row_values[:len(headers)])
-    while len(padded_old) < len(headers):
-        padded_old.append("")
+def backup_row_before_update(
+    spreadsheet, headers, old_row_values, target_row_num, cf_name, aadhar_clean
+):
+  backup_sheet_name = 'Update_Backup'
+  try:
+    ws_backup = spreadsheet.worksheet(backup_sheet_name)
+  except Exception:
+    ws_backup = spreadsheet.add_worksheet(
+        title=backup_sheet_name, rows=1000, cols=max(len(headers) + 4, 15)
+    )
+    backup_headers = [
+        'Backup_Timestamp',
+        'Updated_By_CF',
+        'Verified_Aadhaar',
+        'Source_Row_Snapshot',
+    ] + headers
+    ws_backup.append_row(backup_headers)
 
-    backup_row = [timestamp, cf_name, aadhar_clean, f"Row_{target_row_num}"] + padded_old
-    ws_backup.append_row(backup_row)
+  timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+  padded_old = list(old_row_values[: len(headers)])
+  while len(padded_old) < len(headers):
+    padded_old.append('')
 
-# 🧠 డేటాను క్లీన్ చేసి, Unit H.No (లేదా Residential H.No) & Area ఆధారంగా ఖచ్చితమైన CF ని ఎంచుకునే ఫంక్షన్
-def analyze_cf_name(unit_hno, unit_area, residential_hno=""):
-    cleaned_area = clean_area_for_matching(unit_area)
+  backup_row = [
+      timestamp,
+      cf_name,
+      aadhar_clean,
+      f'Row_{target_row_num}',
+  ] + padded_old
+  ws_backup.append_row(backup_row)
 
-    # ముందుగా Unit H.No క్లీన్ చేసి చెక్ చేస్తాం; అది ఖాళీగా ఉంటే Residential H.No క్లీన్ చేసి చెక్ చేస్తాం
-    hno_candidates = [
-        clean_hno_for_matching(unit_hno),
-        clean_hno_for_matching(residential_hno)
-    ]
 
-    for cleaned_hno in hno_candidates:
-        if not cleaned_hno:
-            continue
+def analyze_cf_name(unit_hno, unit_area, residential_hno=''):
+  cleaned_area = clean_area_for_matching(unit_area)
+  hno_candidates = [
+      clean_hno_for_matching(unit_hno),
+      clean_hno_for_matching(residential_hno),
+  ]
 
-        block_prefix, door_num = extract_block_and_door(cleaned_hno)
-        if not block_prefix:
-            continue
+  for cleaned_hno in hno_candidates:
+    if not cleaned_hno:
+      continue
+    block_prefix, door_num = extract_block_and_door(cleaned_hno)
+    if not block_prefix:
+      continue
 
-        # 1. బ్లాక్ ప్రిఫిక్స్ మరియు డోర్ నంబర్ రేంజ్ ఆధారంగా ఖచ్చితమైన వార్డ్ CF కనుగొనడం
-        if door_num is not None:
-            for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
-                if prefix == block_prefix and min_d <= door_num <= max_d:
-                    if ward_no in WARD_CF_MAPPING:
-                        return WARD_CF_MAPPING[ward_no]
+    if door_num is not None:
+      for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
+        if prefix == block_prefix and min_d <= door_num <= max_d:
+          if ward_no in WARD_CF_MAPPING:
+            return WARD_CF_MAPPING[ward_no]
 
-        # 2. డోర్ నంబర్ రేంజ్ దొరకకపోతే బ్లాక్ ప్రిఫిక్స్ ఆధారంగా వార్డ్ CF కనుగొనడం
-        for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
-            if prefix == block_prefix:
-                if ward_no in WARD_CF_MAPPING:
-                    return WARD_CF_MAPPING[ward_no]
+    for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
+      if prefix == block_prefix and ward_no in WARD_CF_MAPPING:
+        return WARD_CF_MAPPING[ward_no]
 
-    # 3. క్లీన్ చేసిన ఏరియా / విలేజ్ ఆధారంగా CF మ్యాచింగ్
-    if cleaned_area:
-        for cf, areas in AREA_CF_MAPPING.items():
-            for a in areas:
-                cleaned_mapped_area = clean_area_for_matching(a)
-                if cleaned_mapped_area and cleaned_mapped_area in cleaned_area:
-                    return cf
+  if cleaned_area:
+    for cf, areas in AREA_CF_MAPPING.items():
+      for a in areas:
+        cleaned_mapped_area = clean_area_for_matching(a)
+        if cleaned_mapped_area and cleaned_mapped_area in cleaned_area:
+          return cf
 
-    return "MARKANDEYULU"
+  return 'MARKANDEYULU'
 
-# 🛠️ డేట్ ఫార్మాటింగ్ హెల్పర్ ఫంక్షన్
+
 def format_date_val(val):
-    if not val or pd.isna(val):
-        return ""
-    if isinstance(val, (datetime.date, datetime.datetime)):
-        return val.strftime('%Y-%m-%d')
-    val_str = str(val).strip()
-    if not val_str or val_str.upper() in ['NAN', 'NONE', 'NAT']:
-        return ""
-    if ' ' in val_str:
-        val_str = val_str.split(' ')[0]
-    try:
-        dt = pd.to_datetime(val_str, errors='coerce')
-        if pd.notna(dt):
-            return dt.strftime('%Y-%m-%d')
-    except:
-        pass
-    return val_str
+  if not val or pd.isna(val):
+    return ''
+  if isinstance(val, (datetime.date, datetime.datetime)):
+    return val.strftime('%Y-%m-%d')
+  val_str = str(val).strip()
+  if not val_str or val_str.upper() in ['NAN', 'NONE', 'NAT']:
+    return ''
+  if ' ' in val_str:
+    val_str = val_str.split(' ')[0]
+  try:
+    dt = pd.to_datetime(val_str, errors='coerce')
+    if pd.notna(dt):
+      return dt.strftime('%Y-%m-%d')
+  except Exception:
+    pass
+  return val_str
 
-# 1. CF లాగిన్ / నేమ్ సెలెక్షన్ పేజీ
+
+def _cf_scope_details(cf_name):
+  """లాగిన్ అయిన CF కు చెందిన బ్యాంకులు, వార్డులు, ఏరియాలను తిరిగి ఇస్తుంది."""
+  cf_upper = str(cf_name or '').strip().upper()
+  banks = CF_BANK_MAPPING.get(cf_upper, [])
+  wards = sorted(
+      [w for w, c in WARD_CF_MAPPING.items() if str(c).upper() == cf_upper]
+  )
+  areas = AREA_CF_MAPPING.get(cf_upper, [])
+  return banks, wards, areas
+
+
+# ==============================================================================
+# 1. CF LOGIN, DASHBOARD & LOGOUT
+# ==============================================================================
 @cf_bp.route('/cf/login', methods=['GET', 'POST'])
 def cf_login():
-    if request.method == 'POST':
-        data = request.get_json() if request.is_json else request.form
-        cf_name = str(data.get('cf_name', '')).strip().upper()
-        cf_password = str(data.get('cf_password', '')).strip()
+  if request.method == 'POST':
+    data = request.get_json() if request.is_json else request.form
+    cf_name = str(data.get('cf_name', '')).strip().upper()
+    cf_password = str(data.get('cf_password', '')).strip()
 
-        if not cf_name or not cf_password:
-            return jsonify({"status": "error", "message": "దయచేసి పేరు మరియు పాస్‌వర్డ్ రెండు ఎంటర్ చేయండి!"})
+    if not cf_name or not cf_password:
+      return jsonify({
+          'status': 'error',
+          'message': 'దయచేసి పేరు మరియు పాస్‌వర్డ్ రెండు ఎంటర్ చేయండి!',
+      })
 
-        if cf_name in CF_PASSWORDS and CF_PASSWORDS[cf_name] == cf_password:
-            session['cf_logged_in'] = True
-            session['cf_name'] = cf_name
-            return jsonify({"status": "success", "message": "లాగిన్ విజయవంతమైంది!"})
-        else:
-            return jsonify({"status": "error", "message": "తప్పు పేరు లేదా పాస్‌వర్డ్ ఇవ్వబడింది!"})
+    if cf_name in CF_PASSWORDS and CF_PASSWORDS[cf_name] == cf_password:
+      session['cf_logged_in'] = True
+      session['cf_name'] = cf_name
+      return jsonify({'status': 'success', 'message': 'లాగిన్ విజయవంతమైంది!'})
+    return jsonify({
+        'status': 'error',
+        'message': 'తప్పు పేరు లేదా పాస్‌వర్డ్ ఇవ్వబడింది!',
+    })
 
-    return render_template('cf_login.html')
+  return render_template('cf_login.html')
 
-# 2. CF డాష్‌బోర్డ్
+
 @cf_bp.route('/cf/dashboard')
 def cf_dashboard():
-    if not session.get('cf_logged_in'):
-        return redirect(url_for('cf_bp.cf_login'))
+  if not session.get('cf_logged_in'):
+    return redirect(url_for('cf_bp.cf_login'))
 
-    cf_name = session.get('cf_name')
-    return render_template('cf_dashboard.html', cf_name=cf_name, months=MONTH_MAP)
+  cf_name = session.get('cf_name')
+  allotted_banks, allotted_wards, allotted_areas = _cf_scope_details(cf_name)
+  return render_template(
+      'cf_dashboard.html',
+      cf_name=cf_name,
+      months=MONTH_MAP,
+      allotted_banks=allotted_banks,
+      allotted_wards=allotted_wards,
+      allotted_areas=allotted_areas,
+  )
 
-# 3. విధానం 1: పేరు / ఏరియా ప్రకారం రిపోర్ట్ డౌన్‌లోడ్ రౌట్
-@cf_bp.route('/cf/download-report', methods=['POST'])
-def cf_download_report_by_name():
-    if not session.get('cf_logged_in'):
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
-
-    try:
-        from app import get_sheets_client, SPREADSHEET_NAME
-
-        cf_name = session.get('cf_name')
-        current_month = int(request.form.get('month_number', 1))
-
-        client = get_sheets_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
-
-        df_trans = pd.DataFrame(spreadsheet.worksheet('Transactions_Year1').get_all_records())
-        df_thrift = pd.DataFrame(spreadsheet.worksheet('NEW THRIFT DATA').get_all_records())
-
-        df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
-        df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce').fillna(0)
-
-        df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
-        df_trans_month = df_trans_month.drop_duplicates(subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'], keep='first')
-
-        df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
-        df_trans_month['RD1_Clean'] = df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)'].astype(str).str.strip()
-
-        df_cross = pd.merge(df_thrift, df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']], left_on='RD 1_Clean', right_on='RD1_Clean', how='left')
-        df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
-
-        cf_col = 'NAME OF CF' if 'NAME OF CF' in df_cross.columns else 'CF NAME'
-        group_df = df_cross[df_cross[cf_col].astype(str).str.strip().str.upper() == cf_name].copy()
-
-        if group_df.empty:
-            return "మీ పరిధిలో ఎలాంటి డేటా లభించలేదు.", 404
-
-        return generate_excel_response(group_df, cf_name, current_month, "Name_Based")
-
-    except Exception as e:
-        return f"రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}"
-
-# 4. విధానం 2: కేటాయించిన బ్యాంకుల (Allotted Bank) ప్రకారం రిపోర్ట్ డౌన్‌లోడ్ రౌట్
-@cf_bp.route('/cf/download-report-allotted-bank', methods=['POST'])
-def cf_download_report_by_bank():
-    if not session.get('cf_logged_in'):
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
-
-    try:
-        from app import get_sheets_client, SPREADSHEET_NAME
-
-        cf_name = session.get('cf_name')
-        current_month = int(request.form.get('month_number', 1))
-
-        client = get_sheets_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
-
-        df_trans = pd.DataFrame(spreadsheet.worksheet('Transactions_Year1').get_all_records())
-        df_thrift = pd.DataFrame(spreadsheet.worksheet('NEW THRIFT DATA').get_all_records())
-
-        df_trans['Govt_Share'] = pd.to_numeric(df_trans['Govt_Share'], errors='coerce').fillna(0)
-        df_trans['MONTH_NUMBER'] = pd.to_numeric(df_trans['MONTH_NUMBER'], errors='coerce').fillna(0)
-
-        df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
-        df_trans_month = df_trans_month.drop_duplicates(subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'], keep='first')
-
-        df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
-        df_trans_month['RD1_Clean'] = df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)'].astype(str).str.strip()
-
-        bank_col = 'FILE NAME' if 'FILE NAME' in df_thrift.columns else ('File Name' if 'File Name' in df_thrift.columns else 'Bank Name')
-
-        df_cross = pd.merge(
-            df_thrift,
-            df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']],
-            left_on='RD 1_Clean',
-            right_on='RD1_Clean',
-            how='left'
-        )
-        df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
-        allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
-
-        def match_bank(row):
-            b_name = str(row.get(bank_col, '')).strip().upper()
-            if not b_name or b_name == 'NAN' or b_name == 'NONE':
-                return False
-            for allowed in allowed_banks:
-                if allowed == b_name:
-                    return True
-            return False
-
-        group_df = df_cross[df_cross.apply(match_bank, axis=1)].copy()
-
-        if group_df.empty:
-            return f"మీ పరిధిలోని బ్యాంకులకు ({allowed_banks}) సంబంధించిన ఎలాంటి డేటా లభించలేదు.", 404
-
-        return generate_excel_response(group_df, cf_name, current_month, "Bank_Allotted")
-
-    except Exception as e:
-        return f"రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}"
-
-# కామన్ ఎక్సెల్ జనరేషన్ హెల్పర్ ఫంక్షన్
-def generate_excel_response(group_df, cf_name, current_month, report_type):
-    account_columns = ['Bank Account Number', 'RD 1']
-    for col in account_columns:
-        if col in group_df.columns:
-            group_df[col] = "'" + group_df[col].astype(str)
-
-    df_active = group_df[group_df['Govt_Share'] > 0].copy()
-    df_missing = group_df[group_df['Govt_Share'] == 0].copy()
-
-    wb = openpyxl.Workbook()
-
-    header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
-    blue_fill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
-    red_fill = PatternFill(start_color='C00000', end_color='C00000', fill_type='solid')
-    green_fill = PatternFill(start_color='008000', end_color='008000', fill_type='solid')
-
-    # --- Sheet 1: Active ---
-    ws1 = wb.active
-    ws1.title = 'Sent_To_Bank_List'
-    ws1.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1', 'Contact Number', 'FILE NAME', 'Govt Share Amount', 'Status', 'NAME OF CF'])
-    for col_num in range(1, 11):
-        ws1.cell(row=1, column=col_num).font = header_font
-        ws1.cell(row=1, column=col_num).fill = blue_fill
-
-    for _, r in df_active.iterrows():
-        ws1.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Aadhar Number', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), r.get('Contact Number', ''), r.get('FILE NAME', ''), r.get('Govt_Share', 0),
-            f"{MONTH_MAP[current_month]} Govt_Share Released",
-            r.get('NAME OF CF', '')
-        ])
-
-    # --- Sheet 2: Missing ---
-    ws2 = wb.create_sheet(title='Missing_or_Zero_List')
-    ws2.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1', 'Contact Number', 'FILE NAME', 'Status', 'NAME OF CF'])
-    for col_num in range(1, 10):
-        ws2.cell(row=1, column=col_num).font = header_font
-        ws2.cell(row=1, column=col_num).fill = red_fill
-
-    for _, r in df_missing.iterrows():
-        ws2.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Aadhar Number', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), r.get('Contact Number', ''), r.get('FILE NAME', ''),
-            f"Zero or missing transactions for {MONTH_MAP[current_month]}",
-            r.get('NAME OF CF', '')
-        ])
-
-    # --- Sheet 3: All ---
-    ws3 = wb.create_sheet(title='All_Beneficiaries_Master')
-    ws3.append(['BANK_SNO', 'Name Of Benificiary', 'Aadhar Number', 'Bank Account Number', 'RD 1', 'Contact Number', 'FILE NAME', 'Govt_Share'])
-    for col_num in range(1, 9):
-        ws3.cell(row=1, column=col_num).font = header_font
-        ws3.cell(row=1, column=col_num).fill = green_fill
-
-    for _, r in group_df.iterrows():
-        ws3.append([
-            r.get('BANK_SNO', ''), r.get('Name Of Benificiary', ''), r.get('Aadhar Number', ''),
-            r.get('Bank Account Number', ''), r.get('RD 1', ''), r.get('Contact Number', ''), r.get('FILE NAME', ''), r.get('Govt_Share', 0)
-        ])
-
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-
-    response = make_response(output.read())
-    response.headers["Content-Disposition"] = f"attachment; filename={cf_name}_{report_type}_Month_{current_month}_Report.xlsx"
-    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    return response
 
 @cf_bp.route('/cf/logout', methods=['POST'])
 def cf_logout():
-    session.pop('cf_logged_in', None)
-    session.pop('cf_name', None)
-    return jsonify({"status": "success", "message": "లాగౌట్ అయ్యారు."})
+  session.pop('cf_logged_in', None)
+  session.pop('cf_name', None)
+  return jsonify({'status': 'success', 'message': 'లాగౌట్ అయ్యారు.'})
 
-# 5. ఆధార్ నంబర్ ద్వారా లబ్ధిదారుని సెర్చ్ చేయడం / కొత్త ఎంట్రీ కోసం డేటా సిద్ధం చేయడం
+
+# ==============================================================================
+# 2. CF BENEFICIARIES LIST, INLINE EDIT & TELUGU WHATSAPP/SMS TOOL
+# ==============================================================================
+@cf_bp.route('/cf/my-beneficiaries', methods=['GET'])
+def cf_my_beneficiaries():
+  """లాగిన్ అయిన CF కు సంబంధించిన లబ్ధిదారుల వివరాలను ఇస్తుంది."""
+  if not session.get('cf_logged_in'):
+    return jsonify(
+        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
+    ), 401
+
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
+
+    cf_name = str(session.get('cf_name') or '').strip().upper()
+    current_month = str(request.args.get('month_number', '1')).strip()
+    bank_filter = str(request.args.get('bank_name', 'ALL')).strip().upper()
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+
+    ws_thrift = spreadsheet.worksheet('NEW THRIFT DATA')
+    all_rows = ws_thrift.get_all_values()
+    if len(all_rows) < 2:
+      return jsonify({'status': 'success', 'data': []})
+
+    headers = [str(h).strip() for h in all_rows[0]]
+    idx_map = {h: i for i, h in enumerate(headers)}
+
+    col_cf = find_header_match(headers, ['name of cf', 'cf name', 'cf_name'])
+    col_name = find_header_match(
+        headers, ['name of benificiary', 'name of beneficiary', 'beneficiary']
+    )
+    col_phone = find_header_match(
+        headers, ['contact number', 'mobile', 'phone', 'contact']
+    )
+    col_file_bank = find_header_match(
+        headers, ['file name', 'bank name', 'bank']
+    )
+    col_acc = find_header_match(
+        headers, ['bank account number', 'account number', 'account']
+    )
+    col_rd1 = find_header_match(headers, ['rd 1', 'rd_1', 'rd1'])
+    col_rd2 = find_header_match(headers, ['rd 2', 'rd_2', 'rd2'])
+    col_bal = find_header_match(
+        headers, ['bank closing balance', 'rd 1 closing balance', 'balance']
+    )
+    col_sno = find_header_match(headers, ['bank_sno', 'sno'])
+
+    # నెలవారీ బ్యాలెన్స్ ఉంటే Transactions_Year1 నుండి మ్యాప్ చేయడం
+    bal_by_sno = {}
+    try:
+      ws_trans = spreadsheet.worksheet('Transactions_Year1')
+      for t in ws_trans.get_all_records():
+        t_m = str(
+            t.get('MONTH_NUMBER') or t.get('month_number') or ''
+        ).strip()
+        t_sno = clean_str_cell(t.get('BANK_SNO') or t.get('Bank SNO'))
+        if t_m == current_month and t_sno:
+          b_val = clean_str_cell(
+              t.get(
+                  'Bank Closing Balance (బ్యాంక్ స్టేట్‌మెంట్‌లో ఉన్న'
+                  ' బ్యాలెన్స్)'
+              )
+              or t.get('Bank Closing Balance')
+          )
+          if b_val:
+            bal_by_sno[t_sno] = b_val
+    except Exception:
+      pass
+
+    results = []
+    for r_idx, row in enumerate(all_rows[1:], start=2):
+      def cell_v(col_key):
+        if not col_key or col_key not in idx_map:
+          return ''
+        pos = idx_map[col_key]
+        return clean_str_cell(row[pos]) if pos < len(row) else ''
+
+      row_cf = cell_v(col_cf).upper()
+      if col_cf and row_cf != cf_name:
+        continue
+
+      b_name = cell_v(col_file_bank)
+      if bank_filter and bank_filter != 'ALL':
+        if b_name.upper() != bank_filter:
+          continue
+
+      sno_v = cell_v(col_sno)
+      phone_v = cell_v(col_phone)
+      rd1_v = cell_v(col_rd1)
+      rd2_v = cell_v(col_rd2)
+      bal_v = bal_by_sno.get(sno_v) or cell_v(col_bal)
+
+      valid_phone = bool(clean_indian_mobile_10(phone_v))
+      valid_rd1 = len(re.sub(r'\D', '', rd1_v)) >= 6
+      is_complete = bool(valid_phone and valid_rd1)
+
+      results.append({
+          'row_index': r_idx,
+          'sno': sno_v or str(len(results) + 1),
+          'masked_id': f'SNO #{sno_v}' if sno_v else f'Row {r_idx}',
+          'name': cell_v(col_name),
+          'phone': phone_v,
+          'bank_name': b_name,
+          'bank_acc': cell_v(col_acc),
+          'rd1': rd1_v,
+          'rd2': rd2_v,
+          'balance': bal_v,
+          'is_complete': is_complete,
+      })
+
+    return jsonify({'status': 'success', 'data': results})
+
+  except Exception as e:
+    return jsonify(
+        {'status': 'error', 'message': f'జాబితా లోడ్ లోపం: {str(e)}'}
+    ), 500
+
+
+@cf_bp.route('/cf/quick-update-beneficiary', methods=['POST'])
+def cf_quick_update_beneficiary():
+  """CF డ్యాష్‌బోర్డ్ టేబుల్ నుండి లబ్ధిదారుడి పేరు, ఫోన్, RD1, RD2 తక్షణమే అప్‌డేట్ చేస్తుంది."""
+  if not session.get('cf_logged_in'):
+    return jsonify(
+        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
+    ), 401
+
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
+
+    cf_name = str(session.get('cf_name') or '').strip().upper()
+    payload = request.get_json() if request.is_json else request.form
+    row_index = int(payload.get('row_index', 0))
+    if row_index < 2:
+      return jsonify({'status': 'error', 'message': 'చెల్లని రో నంబర్.'})
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+    ws = spreadsheet.worksheet('NEW THRIFT DATA')
+    headers = [str(h).strip() for h in ws.row_values(1)]
+
+    col_cf = find_header_match(headers, ['name of cf', 'cf name', 'cf_name'])
+    if col_cf:
+      cf_col_idx = headers.index(col_cf) + 1
+      owner_cf = clean_str_cell(ws.cell(row_index, cf_col_idx).value).upper()
+      if owner_cf != cf_name:
+        return jsonify({
+            'status': 'error',
+            'message': 'ఈ రికార్డును మార్చే అనుమతి లేదు.',
+        })
+
+    existing_vals = ws.row_values(row_index)
+    aadhar_col_idx = (
+        headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
+    )
+    aadhar_clean = (
+        normalize_aadhar(existing_vals[aadhar_col_idx])
+        if aadhar_col_idx != -1 and aadhar_col_idx < len(existing_vals)
+        else ''
+    )
+    backup_row_before_update(
+        spreadsheet, headers, existing_vals, row_index, cf_name, aadhar_clean
+    )
+
+    col_map_fields = {
+        'name': find_header_match(
+            headers, ['name of benificiary', 'name of beneficiary', 'beneficiary']
+        ),
+        'phone': find_header_match(
+            headers, ['contact number', 'mobile', 'phone', 'contact']
+        ),
+        'rd1': find_header_match(headers, ['rd 1', 'rd_1', 'rd1']),
+        'rd2': find_header_match(headers, ['rd 2', 'rd_2', 'rd2']),
+    }
+
+    for key, col_name in col_map_fields.items():
+      if key in payload and col_name:
+        c_idx = headers.index(col_name) + 1
+        clean_v = clean_str_cell(payload.get(key))
+        ws.update_cell(row_index, c_idx, clean_v)
+
+    return jsonify(
+        {'status': 'success', 'message': 'వివరాలు అప్‌డేట్ అయ్యాయి!'}
+    )
+
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': f'అప్‌డేట్ లోపం: {str(e)}'})
+
+
+@cf_bp.route('/cf/generate-whatsapp-links-excel', methods=['POST'])
+def cf_generate_whatsapp_links_excel():
+  """అప్‌లోడ్ చేసిన ఎక్సెల్/CSV నుండి తెలుగు WhatsApp & SMS లింకుల ఎక్సెల్ జనరేట్ చేస్తుంది."""
+  if not session.get('cf_logged_in'):
+    return jsonify(
+        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
+    ), 401
+
+  try:
+    if 'wa_file' not in request.files:
+      return 'దయచేసి ఫైల్ అప్‌లోడ్ చేయండి.', 400
+    f = request.files['wa_file']
+    if not f or not f.filename:
+      return 'ఫైల్ ఎంచుకోలేదు.', 400
+
+    sheet_name = str(request.form.get('wa_sheet', '')).strip()
+    month_label = str(request.form.get('wa_month_label', '')).strip()
+    custom_tpl = str(request.form.get('wa_custom_template', '')).strip()
+
+    col_phone = str(request.form.get('wa_col_phone', '')).strip()
+    col_name = str(request.form.get('wa_col_name', '')).strip()
+    col_bank = str(request.form.get('wa_col_bank', '')).strip()
+    col_acc = str(request.form.get('wa_col_acc', '')).strip()
+    col_rd1 = str(request.form.get('wa_col_rd1', '')).strip()
+    col_rd2 = str(request.form.get('wa_col_rd2', '')).strip()
+
+    if f.filename.lower().endswith('.csv'):
+      df = pd.read_csv(f, dtype=str)
+    else:
+      xl = pd.ExcelFile(f)
+      target_sheet = (
+          sheet_name if sheet_name in xl.sheet_names else xl.sheet_names[0]
+      )
+      df = pd.read_excel(xl, sheet_name=target_sheet, dtype=str)
+
+    df.columns = [str(c).strip() for c in df.columns]
+    if col_phone not in df.columns:
+      return f"'{col_phone}' కాలమ్ ఫైల్‌లో కనుగొనబడలేదు.", 400
+
+    valid_rows = []
+    invalid_rows = []
+
+    for idx, row in df.iterrows():
+      m10 = clean_indian_mobile_10(row.get(col_phone, ''))
+      b_name = (
+          clean_str_cell(row.get(col_name, '')) if col_name in df.columns else ''
+      )
+      b_bank = (
+          clean_str_cell(row.get(col_bank, '')) if col_bank in df.columns else ''
+      )
+      b_acc = (
+          clean_str_cell(row.get(col_acc, '')) if col_acc in df.columns else ''
+      )
+      r1 = clean_str_cell(row.get(col_rd1, '')) if col_rd1 in df.columns else ''
+      r2 = clean_str_cell(row.get(col_rd2, '')) if col_rd2 in df.columns else ''
+
+      if custom_tpl:
+        msg = (
+            custom_tpl.replace('{name}', b_name or 'లబ్ధిదారులారా')
+            .replace('{bank}', b_bank or '-')
+            .replace('{acc}', b_acc or '-')
+            .replace('{rd1}', r1 or '-')
+            .replace('{rd2}', r2 or '-')
+            .replace('{balance}', r2 or '-')
+            .replace('{month}', month_label or '')
+        )
+      else:
+        m_txt = f' ({month_label})' if month_label else ''
+        msg = (
+            f"నమస్కారం {b_name or 'లబ్ధిదారులారా'} గారు,\n"
+            f'చేనేత మరియు జౌళి శాఖ - త్రిఫ్టు పథకం{m_txt} మీ వివరాలు:\n'
+            f'• బ్యాంక్: {b_bank or "-"}\n'
+            f'• ఖాతా సంఖ్య: {b_acc or "-"}\n'
+            f'• RD-1 ఖాతా: {r1 or "-"}\n'
+            f'• RD-2 ఖాతా: {r2 or "-"}\n'
+            'ఏవైనా లోపాలు/మార్పులు ఉంటే వెంటనే మీ CF గారికి తెలియజేయండి.'
+        )
+
+      encoded_msg = quote(msg, safe='')
+      if m10:
+        valid_rows.append({
+            'S.No': len(valid_rows) + 1,
+            'Beneficiary_Name': b_name,
+            'Mobile_10_Digit': m10,
+            'Bank_Name': b_bank,
+            'Bank_Account': b_acc,
+            'RD1_Account': r1,
+            'RD2_Account': r2,
+            'Telugu_Message': msg,
+            'WhatsApp_Link': f'https://api.whatsapp.com/send?phone=91{m10}&text={encoded_msg}',
+            'SMS_Link': f'sms:+91{m10}?body={encoded_msg}',
+        })
+      else:
+        invalid_rows.append({
+            'Row_No': idx + 2,
+            'Beneficiary_Name': b_name,
+            'Raw_Phone': clean_str_cell(row.get(col_phone, '')),
+            'RD1_Account': r1,
+        })
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+      df_valid = pd.DataFrame(valid_rows)
+      df_invalid = pd.DataFrame(invalid_rows)
+      df_valid.to_excel(writer, sheet_name='WhatsApp_SMS_Links', index=False)
+      df_invalid.to_excel(
+          writer, sheet_name='Invalid_Missing_Phone', index=False
+      )
+
+      if not df_valid.empty:
+        ws = writer.book['WhatsApp_SMS_Links']
+        wa_c = list(df_valid.columns).index('WhatsApp_Link') + 1
+        sms_c = list(df_valid.columns).index('SMS_Link') + 1
+        for r_i in range(2, len(df_valid) + 2):
+          c1 = ws.cell(r_i, wa_c)
+          c1.hyperlink = str(c1.value)
+          c1.font = Font(color='0563C1', underline='single')
+          c2 = ws.cell(r_i, sms_c)
+          c2.hyperlink = str(c2.value)
+          c2.font = Font(color='0563C1', underline='single')
+    buf.seek(0)
+
+    cf_lbl = session.get('cf_name', 'CF')
+    ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=f'{cf_lbl}_Telugu_WhatsApp_SMS_Links_{ts}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+  except Exception as e:
+    return f'WhatsApp/SMS లింక్ జనరేషన్ లోపం: {str(e)}', 500
+
+
+# ==============================================================================
+# 3. MONTHLY REPORTS DOWNLOAD (NAME-BASED & BANK-ALLOTTED)
+# ==============================================================================
+@cf_bp.route('/cf/download-report', methods=['POST'])
+def cf_download_report_by_name():
+  if not session.get('cf_logged_in'):
+    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
+
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
+
+    cf_name = session.get('cf_name')
+    current_month = int(request.form.get('month_number', 1))
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+
+    df_trans = pd.DataFrame(
+        spreadsheet.worksheet('Transactions_Year1').get_all_records()
+    )
+    df_thrift = pd.DataFrame(
+        spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
+    )
+
+    df_trans['Govt_Share'] = pd.to_numeric(
+        df_trans['Govt_Share'], errors='coerce'
+    ).fillna(0)
+    df_trans['MONTH_NUMBER'] = pd.to_numeric(
+        df_trans['MONTH_NUMBER'], errors='coerce'
+    ).fillna(0)
+
+    df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
+    df_trans_month = df_trans_month.drop_duplicates(
+        subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'],
+        keep='first',
+    )
+
+    df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
+    df_trans_month['RD1_Clean'] = (
+        df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)']
+        .astype(str)
+        .str.strip()
+    )
+
+    df_cross = pd.merge(
+        df_thrift,
+        df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']],
+        left_on='RD 1_Clean',
+        right_on='RD1_Clean',
+        how='left',
+    )
+    df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
+
+    cf_col = 'NAME OF CF' if 'NAME OF CF' in df_cross.columns else 'CF NAME'
+    group_df = df_cross[
+        df_cross[cf_col].astype(str).str.strip().str.upper() == cf_name
+    ].copy()
+
+    if group_df.empty:
+      return 'మీ పరిధిలో ఎలాంటి డేటా లభించలేదు.', 404
+
+    return generate_excel_response(
+        group_df, cf_name, current_month, 'Name_Based'
+    )
+
+  except Exception as e:
+    return f'రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}'
+
+
+@cf_bp.route('/cf/download-report-allotted-bank', methods=['POST'])
+def cf_download_report_by_bank():
+  if not session.get('cf_logged_in'):
+    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
+
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
+
+    cf_name = session.get('cf_name')
+    current_month = int(request.form.get('month_number', 1))
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+
+    df_trans = pd.DataFrame(
+        spreadsheet.worksheet('Transactions_Year1').get_all_records()
+    )
+    df_thrift = pd.DataFrame(
+        spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
+    )
+
+    df_trans['Govt_Share'] = pd.to_numeric(
+        df_trans['Govt_Share'], errors='coerce'
+    ).fillna(0)
+    df_trans['MONTH_NUMBER'] = pd.to_numeric(
+        df_trans['MONTH_NUMBER'], errors='coerce'
+    ).fillna(0)
+
+    df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
+    df_trans_month = df_trans_month.drop_duplicates(
+        subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'],
+        keep='first',
+    )
+
+    df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
+    df_trans_month['RD1_Clean'] = (
+        df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)']
+        .astype(str)
+        .str.strip()
+    )
+
+    bank_col = (
+        'FILE NAME'
+        if 'FILE NAME' in df_thrift.columns
+        else ('File Name' if 'File Name' in df_thrift.columns else 'Bank Name')
+    )
+
+    df_cross = pd.merge(
+        df_thrift,
+        df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']],
+        left_on='RD 1_Clean',
+        right_on='RD1_Clean',
+        how='left',
+    )
+    df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
+    allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
+
+    def match_bank(row):
+      b_name = str(row.get(bank_col, '')).strip().upper()
+      if not b_name or b_name == 'NAN' or b_name == 'NONE':
+        return False
+      return b_name in allowed_banks
+
+    group_df = df_cross[df_cross.apply(match_bank, axis=1)].copy()
+
+    if group_df.empty:
+      return (
+          f'మీ పరిధిలోని బ్యాంకులకు ({allowed_banks}) సంబంధించిన ఎలాంటి డేటా'
+          ' లభించలేదు.',
+          404,
+      )
+
+    return generate_excel_response(
+        group_df, cf_name, current_month, 'Bank_Allotted'
+    )
+
+  except Exception as e:
+    return f'రిపోర్ట్ జనరేట్ చేయడంలో లోపం: {str(e)}'
+
+
+def generate_excel_response(group_df, cf_name, current_month, report_type):
+  for col in ['Bank Account Number', 'RD 1']:
+    if col in group_df.columns:
+      group_df[col] = "'" + group_df[col].astype(str)
+
+  df_active = group_df[group_df['Govt_Share'] > 0].copy()
+  df_missing = group_df[group_df['Govt_Share'] == 0].copy()
+
+  wb = openpyxl.Workbook()
+  header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
+  blue_fill = PatternFill(
+      start_color='1F4E78', end_color='1F4E78', fill_type='solid'
+  )
+  red_fill = PatternFill(
+      start_color='C00000', end_color='C00000', fill_type='solid'
+  )
+  green_fill = PatternFill(
+      start_color='008000', end_color='008000', fill_type='solid'
+  )
+
+  ws1 = wb.active
+  ws1.title = 'Sent_To_Bank_List'
+  ws1.append([
+      'BANK_SNO',
+      'Name Of Benificiary',
+      'Aadhar Number',
+      'Bank Account Number',
+      'RD 1',
+      'Contact Number',
+      'FILE NAME',
+      'Govt Share Amount',
+      'Status',
+      'NAME OF CF',
+  ])
+  for col_num in range(1, 11):
+    ws1.cell(row=1, column=col_num).font = header_font
+    ws1.cell(row=1, column=col_num).fill = blue_fill
+  for _, r in df_active.iterrows():
+    ws1.append([
+        r.get('BANK_SNO', ''),
+        r.get('Name Of Benificiary', ''),
+        r.get('Aadhar Number', ''),
+        r.get('Bank Account Number', ''),
+        r.get('RD 1', ''),
+        r.get('Contact Number', ''),
+        r.get('FILE NAME', ''),
+        r.get('Govt_Share', 0),
+        f'{MONTH_MAP[current_month]} Govt_Share Released',
+        r.get('NAME OF CF', ''),
+    ])
+
+  ws2 = wb.create_sheet(title='Missing_or_Zero_List')
+  ws2.append([
+      'BANK_SNO',
+      'Name Of Benificiary',
+      'Aadhar Number',
+      'Bank Account Number',
+      'RD 1',
+      'Contact Number',
+      'FILE NAME',
+      'Status',
+      'NAME OF CF',
+  ])
+  for col_num in range(1, 10):
+    ws2.cell(row=1, column=col_num).font = header_font
+    ws2.cell(row=1, column=col_num).fill = red_fill
+  for _, r in df_missing.iterrows():
+    ws2.append([
+        r.get('BANK_SNO', ''),
+        r.get('Name Of Benificiary', ''),
+        r.get('Aadhar Number', ''),
+        r.get('Bank Account Number', ''),
+        r.get('RD 1', ''),
+        r.get('Contact Number', ''),
+        r.get('FILE NAME', ''),
+        f'Zero or missing transactions for {MONTH_MAP[current_month]}',
+        r.get('NAME OF CF', ''),
+    ])
+
+  ws3 = wb.create_sheet(title='All_Beneficiaries_Master')
+  ws3.append([
+      'BANK_SNO',
+      'Name Of Benificiary',
+      'Aadhar Number',
+      'Bank Account Number',
+      'RD 1',
+      'Contact Number',
+      'FILE NAME',
+      'Govt_Share',
+  ])
+  for col_num in range(1, 9):
+    ws3.cell(row=1, column=col_num).font = header_font
+    ws3.cell(row=1, column=col_num).fill = green_fill
+  for _, r in group_df.iterrows():
+    ws3.append([
+        r.get('BANK_SNO', ''),
+        r.get('Name Of Benificiary', ''),
+        r.get('Aadhar Number', ''),
+        r.get('Bank Account Number', ''),
+        r.get('RD 1', ''),
+        r.get('Contact Number', ''),
+        r.get('FILE NAME', ''),
+        r.get('Govt_Share', 0),
+    ])
+
+  output = io.BytesIO()
+  wb.save(output)
+  output.seek(0)
+
+  response = make_response(output.read())
+  response.headers['Content-Disposition'] = (
+      f'attachment; filename={cf_name}_{report_type}_Month_{current_month}_Report.xlsx'
+  )
+  response.headers['Content-Type'] = (
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  )
+  return response
+
+
+# ==============================================================================
+# 4. SEARCH, BANK FILES, SAVE & AI OCR
+# ==============================================================================
 @cf_bp.route('/cf/search-beneficiary', methods=['POST'])
 def cf_search_beneficiary():
-    if not session.get('cf_logged_in'):
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+  if not session.get('cf_logged_in'):
+    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
 
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
+
+    cf_name = session.get('cf_name')
+    data = request.get_json() if request.is_json else request.form
+    raw_aadhar = str(data.get('aadhar_number', '')).strip()
+    aadhar_clean = normalize_aadhar(raw_aadhar)
+    selected_file_name = str(data.get('file_name', '')).strip()
+
+    if not aadhar_clean:
+      return jsonify({
+          'status': 'error',
+          'message': 'దయచేసి సరైన ఆధార్ నంబర్ ఎంటర్ చేయండి!',
+      })
+    if not selected_file_name:
+      return jsonify({
+          'status': 'error',
+          'message': 'దయచేసి ముందుగా FILE NAME ఎంచుకోండి!',
+      })
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+
+    email_id = ''
     try:
-        from app import get_sheets_client, SPREADSHEET_NAME
+      ws_email = spreadsheet.worksheet('Bank_Email_Ids')
+      for row in ws_email.get_all_records():
+        if (
+            str(row.get('FILE_NAME') or row.get('FILE NAME', ''))
+            .strip()
+            .upper()
+            == selected_file_name.upper()
+        ):
+          email_id = str(row.get('OFFICIAL_EMAIL', '')).strip()
+          break
+    except Exception:
+      pass
 
-        cf_name = session.get('cf_name')
-        data = request.get_json() if request.is_json else request.form
-        raw_aadhar = str(data.get('aadhar_number', '')).strip()
-        aadhar_clean = normalize_aadhar(raw_aadhar)
-        selected_file_name = str(data.get('file_name', '')).strip()
+    worksheet_new = spreadsheet.worksheet('NEW THRIFT DATA')
+    records_new = worksheet_new.get_all_records()
+    columns = worksheet_new.row_values(1)
+    auto_ifsc = get_ifsc_for_file_name(selected_file_name, records_new)
 
-        if not aadhar_clean:
-            return jsonify({"status": "error", "message": "దయచేసి సరైన ఆధార్ నంబర్ ఎంటర్ చేయండి!"})
+    matched_record = None
+    source_sheet = None
 
-        if not selected_file_name:
-            return jsonify({"status": "error", "message": "దయచేసి ముందుగా FILE NAME ఎంచుకోండి!"})
+    for row in records_new:
+      if normalize_aadhar(row.get('Aadhar Number', '')) == aadhar_clean:
+        matched_record = row
+        source_sheet = 'new'
+        break
 
-        client = get_sheets_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
+    if not matched_record:
+      try:
+        worksheet_old = spreadsheet.worksheet('Old Thrift Data')
+        for row in worksheet_old.get_all_records():
+          if normalize_aadhar(row.get('Aadhar Number', '')) == aadhar_clean:
+            matched_record = row
+            source_sheet = 'old'
+            break
+      except Exception:
+        pass
 
-        email_id = ""
-        try:
-            ws_email = spreadsheet.worksheet('Bank_Email_Ids')
-            email_records = ws_email.get_all_records()
-            for row in email_records:
-                if str(row.get('FILE_NAME') or row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
-                    email_id = str(row.get('OFFICIAL_EMAIL', '')).strip()
-                    break
-        except Exception:
-            pass
-
-        worksheet_new = spreadsheet.worksheet('NEW THRIFT DATA')
-        records_new = worksheet_new.get_all_records()
-        columns = worksheet_new.row_values(1)
-
-        auto_ifsc = get_ifsc_for_file_name(selected_file_name, records_new)
-
-        matched_record = None
-        source_sheet = None
-
-        for row in records_new:
-            if normalize_aadhar(row.get('Aadhar Number', '')) == aadhar_clean:
-                matched_record = row
-                source_sheet = 'new'
-                break
-
-        if not matched_record:
-            try:
-                worksheet_old = spreadsheet.worksheet('Old Thrift Data')
-                records_old = worksheet_old.get_all_records()
-                for row in records_old:
-                    if normalize_aadhar(row.get('Aadhar Number', '')) == aadhar_clean:
-                        matched_record = row
-                        source_sheet = 'old'
-                        break
-            except Exception:
-                pass
-
-        if matched_record:
-            cleaned_matched = {}
-            for k, v in matched_record.items():
-                if any(date_keyword in k.lower() for date_keyword in ['dob', 'date of birth', 'date']):
-                    cleaned_matched[k] = format_date_val(v)
-                else:
-                    cleaned_matched[k] = v
-            matched_record = cleaned_matched
-
-        max_sno = 0
-        max_bank_sno = 0
-
-        for row in records_new:
-            s_val = str(row.get('SNO', '0')).strip()
-            if s_val.isdigit():
-                max_sno = max(max_sno, int(s_val))
-            if str(row.get('FILE NAME', '')).strip().upper() == selected_file_name.upper():
-                b_sno = str(row.get('BANK_SNO', '0')).strip()
-                if b_sno.isdigit():
-                    max_bank_sno = max(max_bank_sno, int(b_sno))
-
-        next_sno = max_sno + 1
-        next_bank_sno = max_bank_sno + 1
-
-        unique_professions = sorted(list(set([str(r.get('Profession', '')).strip() for r in records_new if r.get('Profession')])))
-        unique_villages = sorted(list(set([str(r.get('Village', '')).strip() for r in records_new if r.get('Village')])))
-        unique_areas = sorted(list(set([str(r.get('Area', '')).strip() for r in records_new if r.get('Area')])))
-        unique_unit_owners = sorted(list(set([str(r.get('Unit Owner', '')).strip() for r in records_new if r.get('Unit Owner')])))
-        unique_unit_hns = sorted(list(set([str(r.get('H.NO. Unit H.No', '')).strip() for r in records_new if r.get('H.NO. Unit H.No')])))
-        unique_relations = sorted(list(set([str(r.get('Relation', '')).strip() for r in records_new if r.get('Relation')])))
-
-        bank_name = selected_file_name
-
-        if matched_record and source_sheet == 'new':
-            current_ifsc = str(matched_record.get('IFSC code', '')).strip()
-            if not current_ifsc and auto_ifsc:
-                matched_record['IFSC code'] = auto_ifsc
-
-            return jsonify({
-                "status": "existing",
-                "message": "రికార్డు కనుగొనబడింది - ఆధార్ ఆధారంగా సురక్షితంగా అప్‌డేట్ (Update) అవుతుంది",
-                "data": matched_record,
-                "auto_ifsc": auto_ifsc,
-                "columns": columns,
-                "dropdown_data": {
-                    "professions": unique_professions,
-                    "villages": unique_villages,
-                    "areas": unique_areas,
-                    "unit_owners": unique_unit_owners,
-                    "unit_hns": unique_unit_hns,
-                    "relations": unique_relations
-                }
-            })
+    if matched_record:
+      cleaned_matched = {}
+      for k, v in matched_record.items():
+        if any(
+            dk in k.lower() for dk in ['dob', 'date of birth', 'date']
+        ):
+          cleaned_matched[k] = format_date_val(v)
         else:
-            base_data = matched_record.copy() if matched_record else {}
-            base_data['Aadhar Number'] = aadhar_clean
-            base_data['SNO'] = next_sno
-            base_data['BANK_SNO'] = next_bank_sno
-            base_data['FILE NAME'] = selected_file_name
-            base_data['Bank Name'] = bank_name
-            if auto_ifsc:
-                base_data['IFSC code'] = auto_ifsc
-            base_data['Caste'] = 'BC'
-            base_data['Profession'] = 'POWER LOOM WEAVER'
-            base_data['DISTRICT NAME'] = 'RAJANNA SIRCILLA'
-            base_data['MANDAL NAME'] = 'SIRCILLA'
-            base_data['NAME OF CF'] = cf_name
-            base_data['EMAIL ID'] = email_id
-            base_data['BANK SENT'] = 'NOT SENT'
-            base_data['8% Of Monthly Wages'] = 1200
-            base_data['MONTHLY WAGES'] = int(1200 * 100 / 8)
+          cleaned_matched[k] = v
+      matched_record = cleaned_matched
 
-            return jsonify({
-                "status": "new",
-                "message": "ఇది కొత్త ఎంట్రీ (New Entry) కింద చివరి డేటా రో కింద సురక్షితంగా సేవ్ అవుతుంది.",
-                "data": base_data,
-                "auto_ifsc": auto_ifsc,
-                "columns": columns,
-                "dropdown_data": {
-                    "professions": unique_professions,
-                    "villages": unique_villages,
-                    "areas": unique_areas,
-                    "unit_owners": unique_unit_owners,
-                    "unit_hns": unique_unit_hns,
-                    "relations": unique_relations
-                }
-            })
+    max_sno = 0
+    max_bank_sno = 0
+    for row in records_new:
+      s_val = str(row.get('SNO', '0')).strip()
+      if s_val.isdigit():
+        max_sno = max(max_sno, int(s_val))
+      if (
+          str(row.get('FILE NAME', '')).strip().upper()
+          == selected_file_name.upper()
+      ):
+        b_sno = str(row.get('BANK_SNO', '0')).strip()
+        if b_sno.isdigit():
+          max_bank_sno = max(max_bank_sno, int(b_sno))
 
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+    unique_professions = sorted(
+        list({
+            str(r.get('Profession', '')).strip()
+            for r in records_new
+            if r.get('Profession')
+        })
+    )
+    unique_villages = sorted(
+        list({
+            str(r.get('Village', '')).strip()
+            for r in records_new
+            if r.get('Village')
+        })
+    )
+    unique_areas = sorted(
+        list({
+            str(r.get('Area', '')).strip() for r in records_new if r.get('Area')
+        })
+    )
+    unique_unit_owners = sorted(
+        list({
+            str(r.get('Unit Owner', '')).strip()
+            for r in records_new
+            if r.get('Unit Owner')
+        })
+    )
+    unique_unit_hns = sorted(
+        list({
+            str(r.get('H.NO. Unit H.No', '')).strip()
+            for r in records_new
+            if r.get('H.NO. Unit H.No')
+        })
+    )
+    unique_relations = sorted(
+        list({
+            str(r.get('Relation', '')).strip()
+            for r in records_new
+            if r.get('Relation')
+        })
+    )
 
-# బ్రౌజర్ లో డ్రాప్-డౌన్ కోసం Bank_Email_Ids నుండి FILE NAME లను మరియు వాటి IFSC కోడ్‌లను పంపే రౌట్
+    if matched_record and source_sheet == 'new':
+      if not str(matched_record.get('IFSC code', '')).strip() and auto_ifsc:
+        matched_record['IFSC code'] = auto_ifsc
+      return jsonify({
+          'status': 'existing',
+          'message': (
+              'రికార్డు కనుగొనబడింది - ఆధార్ ఆధారంగా సురక్షితంగా అప్‌డేట్'
+              ' (Update) అవుతుంది'
+          ),
+          'data': matched_record,
+          'auto_ifsc': auto_ifsc,
+          'columns': columns,
+          'dropdown_data': {
+              'professions': unique_professions,
+              'villages': unique_villages,
+              'areas': unique_areas,
+              'unit_owners': unique_unit_owners,
+              'unit_hns': unique_unit_hns,
+              'relations': unique_relations,
+          },
+      })
+
+    base_data = matched_record.copy() if matched_record else {}
+    base_data['Aadhar Number'] = aadhar_clean
+    base_data['SNO'] = max_sno + 1
+    base_data['BANK_SNO'] = max_bank_sno + 1
+    base_data['FILE NAME'] = selected_file_name
+    base_data['Bank Name'] = selected_file_name
+    if auto_ifsc:
+      base_data['IFSC code'] = auto_ifsc
+    base_data['Caste'] = 'BC'
+    base_data['Profession'] = 'POWER LOOM WEAVER'
+    base_data['DISTRICT NAME'] = 'RAJANNA SIRCILLA'
+    base_data['MANDAL NAME'] = 'SIRCILLA'
+    base_data['NAME OF CF'] = cf_name
+    base_data['EMAIL ID'] = email_id
+    base_data['BANK SENT'] = 'NOT SENT'
+    base_data['8% Of Monthly Wages'] = 1200
+    base_data['MONTHLY WAGES'] = int(1200 * 100 / 8)
+
+    return jsonify({
+        'status': 'new',
+        'message': (
+            'ఇది కొత్త ఎంట్రీ (New Entry) కింద చివరి డేటా రో కింద సురక్షితంగా సేవ్'
+            ' అవుతుంది.'
+        ),
+        'data': base_data,
+        'auto_ifsc': auto_ifsc,
+        'columns': columns,
+        'dropdown_data': {
+            'professions': unique_professions,
+            'villages': unique_villages,
+            'areas': unique_areas,
+            'unit_owners': unique_unit_owners,
+            'unit_hns': unique_unit_hns,
+            'relations': unique_relations,
+        },
+    })
+
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)})
+
+
 @cf_bp.route('/cf/get-bank-files', methods=['GET'])
 def cf_get_bank_files():
-    if not session.get('cf_logged_in'):
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+  if not session.get('cf_logged_in'):
+    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
+
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+    ws = spreadsheet.worksheet('Bank_Email_Ids')
+    records = ws.get_all_records()
+
+    records_new = []
     try:
-        from app import get_sheets_client, SPREADSHEET_NAME
-        client = get_sheets_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
-        ws = spreadsheet.worksheet('Bank_Email_Ids')
-        records = ws.get_all_records()
+      records_new = spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
+    except Exception:
+      pass
 
-        records_new = []
-        try:
-            records_new = spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
-        except Exception:
-            pass
+    file_names = []
+    file_ifsc_map = {}
+    for r in records:
+      f_name = str(r.get('FILE_NAME') or r.get('FILE NAME') or '').strip()
+      if f_name:
+        file_names.append(f_name)
+        file_ifsc_map[f_name] = get_ifsc_for_file_name(f_name, records_new)
 
-        file_names = []
-        file_ifsc_map = {}
+    return jsonify({
+        'status': 'success',
+        'file_names': file_names,
+        'file_ifsc_map': file_ifsc_map,
+    })
+  except Exception as e:
+    return jsonify({
+        'status': 'error',
+        'message': str(e),
+        'file_names': [],
+        'file_ifsc_map': {},
+    })
 
-        for r in records:
-            f_name = str(r.get('FILE_NAME') or r.get('FILE NAME') or '').strip()
-            if f_name:
-                file_names.append(f_name)
-                file_ifsc_map[f_name] = get_ifsc_for_file_name(f_name, records_new)
 
-        return jsonify({
-            "status": "success",
-            "file_names": file_names,
-            "file_ifsc_map": file_ifsc_map
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e), "file_names": [], "file_ifsc_map": {}})
-
-# 6. row_index వాడకుండా ఆధార్ ఆధారంగా డేటాను సురక్షితంగా Update లేదా Insert చేయడం
 @cf_bp.route('/cf/save-beneficiary', methods=['POST'])
 def cf_save_beneficiary():
-    if not session.get('cf_logged_in'):
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+  if not session.get('cf_logged_in'):
+    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
 
-    try:
-        from app import get_sheets_client, SPREADSHEET_NAME
+  try:
+    from app import get_sheets_client, SPREADSHEET_NAME
 
-        cf_name = session.get('cf_name')
-        data = request.get_json() if request.is_json else request.form
+    cf_name = session.get('cf_name')
+    data = request.get_json() if request.is_json else request.form
 
-        requested_action = str(data.get('action_type', '')).strip().lower()
-        form_data = data.get('form_data') or {}
+    requested_action = str(data.get('action_type', '')).strip().lower()
+    form_data = data.get('form_data') or {}
 
-        if not isinstance(form_data, dict):
-            return jsonify({"status": "error", "message": "సరైన ఫారమ్ డేటా అందలేదు!"})
+    if not isinstance(form_data, dict):
+      return jsonify(
+          {'status': 'error', 'message': 'సరైన ఫారమ్ డేటా అందలేదు!'}
+      )
 
-        form_aadhar_clean = normalize_aadhar(form_data.get('Aadhar Number', ''))
-        if not form_aadhar_clean:
-            return jsonify({"status": "error", "message": "Aadhar Number తప్పనిసరి! ఖాళీగా సేవ్ చేయలేము."})
+    form_aadhar_clean = normalize_aadhar(form_data.get('Aadhar Number', ''))
+    if not form_aadhar_clean:
+      return jsonify({
+          'status': 'error',
+          'message': 'Aadhar Number తప్పనిసరి! ఖాళీగా సేవ్ చేయలేము.',
+      })
 
-        form_data['Aadhar Number'] = form_aadhar_clean
+    form_data['Aadhar Number'] = form_aadhar_clean
 
-        # 🔍 యూనిట్ H.No (లేదా రెసిడెన్షియల్ H.No) మరియు ఏరియా డేటాను క్లీన్ చేసి NAME OF CF ని ఖచ్చితంగా అనలైజ్ చేయడం
-        unit_hno = form_data.get('H.NO. Unit H.No', '')
-        residential_hno = form_data.get('H.NO. Residentional H.No', '')
-        unit_area = form_data.get('Area', '')
-        analyzed_cf = analyze_cf_name(unit_hno, unit_area, residential_hno)
-        form_data['NAME OF CF'] = analyzed_cf
+    unit_hno = form_data.get('H.NO. Unit H.No', '')
+    residential_hno = form_data.get('H.NO. Residentional H.No', '')
+    unit_area = form_data.get('Area', '')
+    analyzed_cf = analyze_cf_name(unit_hno, unit_area, residential_hno)
+    form_data['NAME OF CF'] = analyzed_cf
 
-        client = get_sheets_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
-        worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
-        headers = worksheet.row_values(1)
+    client = get_sheets_client()
+    spreadsheet = client.open(SPREADSHEET_NAME)
+    worksheet = spreadsheet.worksheet('NEW THRIFT DATA')
+    headers = worksheet.row_values(1)
 
-        if not headers:
-            return jsonify({"status": "error", "message": "షీట్ హెడర్స్ (Row 1) కనుగొనబడలేదు!"})
+    if not headers:
+      return jsonify(
+          {'status': 'error', 'message': 'షీట్ హెడర్స్ (Row 1) కనుగొనబడలేదు!'}
+      )
 
-        aadhar_col_idx = headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
-        if aadhar_col_idx == -1:
-            return jsonify({"status": "error", "message": "షీట్‌లో 'Aadhar Number' కాలమ్ కనుగొనబడలేదు!"})
+    aadhar_col_idx = (
+        headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
+    )
+    if aadhar_col_idx == -1:
+      return jsonify({
+          'status': 'error',
+          'message': "షీట్‌లో 'Aadhar Number' కాలమ్ కనుగొనబడలేదు!",
+      })
 
-        records_new = worksheet.get_all_records()
-        selected_file = str(form_data.get('FILE NAME', '')).strip()
-        if selected_file:
-            auto_ifsc = get_ifsc_for_file_name(selected_file, records_new)
-            if auto_ifsc:
-                form_data['IFSC code'] = auto_ifsc
+    records_new = worksheet.get_all_records()
+    selected_file = str(form_data.get('FILE NAME', '')).strip()
+    if selected_file:
+      auto_ifsc = get_ifsc_for_file_name(selected_file, records_new)
+      if auto_ifsc:
+        form_data['IFSC code'] = auto_ifsc
 
-        matched_row_num, all_aadhars = find_row_by_aadhar(worksheet, aadhar_col_idx, form_aadhar_clean)
+    matched_row_num, all_aadhars = find_row_by_aadhar(
+        worksheet, aadhar_col_idx, form_aadhar_clean
+    )
 
-        if requested_action == 'insert':
-            if matched_row_num is not None:
-                return jsonify({
-                    "status": "error",
-                    "message": f"ఈ ఆధార్ నంబర్ ఇప్పటికే Row {matched_row_num} లో ఉంది! కొత్త ఎంట్రీ (Insert) చేయలేము. దయచేసి Update ఎంచుకోండి."
-                })
-            effective_action = 'insert'
-        elif requested_action == 'update':
-            if matched_row_num is None:
-                return jsonify({
-                    "status": "error",
-                    "message": "అప్‌డేట్ చేయడానికి ఈ ఆధార్ నంబర్ షీట్‌లో కనుగొనబడలేదు! ఇది కొత్త ఎంట్రీ అయితే Insert ఎంచుకోండి."
-                })
-            effective_action = 'update'
-        else:
-            effective_action = 'update' if matched_row_num is not None else 'insert'
+    if requested_action == 'insert':
+      if matched_row_num is not None:
+        return jsonify({
+            'status': 'error',
+            'message': f'ఈ ఆధార్ నంబర్ ఇప్పటికే Row {matched_row_num} లో ఉంది!',
+        })
+      effective_action = 'insert'
+    elif requested_action == 'update':
+      if matched_row_num is None:
+        return jsonify({
+            'status': 'error',
+            'message': 'అప్‌డేట్ చేయడానికి ఈ ఆధార్ నంబర్ షీట్‌లో కనుగొనబడలేదు!',
+        })
+      effective_action = 'update'
+    else:
+      effective_action = 'update' if matched_row_num is not None else 'insert'
 
-        # ==================== UPDATE LOGIC ====================
-        if effective_action == 'update':
-            live_cell_aadhar = normalize_aadhar(all_aadhars[matched_row_num - 1])
-            if live_cell_aadhar != form_aadhar_clean:
-                return jsonify({
-                    "status": "error",
-                    "message": "భద్రతా తనిఖీ విఫలమైంది: ఆధార్ నంబర్ సరిపోలలేదు. ఎవరి డేటా overwrite అవ్వకుండా సేవ్ ఆపివేయబడింది!"
-                })
+    if effective_action == 'update':
+      live_cell_aadhar = normalize_aadhar(all_aadhars[matched_row_num - 1])
+      if live_cell_aadhar != form_aadhar_clean:
+        return jsonify({
+            'status': 'error',
+            'message': 'భద్రతా తనిఖీ విఫలమైంది: ఆధార్ నంబర్ సరిపోలలేదు.',
+        })
 
-            existing_row_values = worksheet.row_values(matched_row_num)
-            backup_row_before_update(spreadsheet, headers, existing_row_values, matched_row_num, cf_name, form_aadhar_clean)
+      existing_row_values = worksheet.row_values(matched_row_num)
+      backup_row_before_update(
+          spreadsheet,
+          headers,
+          existing_row_values,
+          matched_row_num,
+          cf_name,
+          form_aadhar_clean,
+      )
 
-            updated_row = list(existing_row_values[:len(headers)])
-            while len(updated_row) < len(headers):
-                updated_row.append("")
+      updated_row = list(existing_row_values[: len(headers)])
+      while len(updated_row) < len(headers):
+        updated_row.append('')
 
-            for col_name, val in form_data.items():
-                if col_name in headers:
-                    c_idx = headers.index(col_name)
-                    updated_row[c_idx] = "" if val is None else val
+      for col_name, val in form_data.items():
+        if col_name in headers:
+          c_idx = headers.index(col_name)
+          updated_row[c_idx] = '' if val is None else val
 
-            updated_row[aadhar_col_idx] = form_aadhar_clean
+      updated_row[aadhar_col_idx] = form_aadhar_clean
+      end_col_letter = get_column_letter(len(headers))
+      worksheet.update(
+          f'A{matched_row_num}:{end_col_letter}{matched_row_num}',
+          [updated_row],
+          value_input_option='USER_ENTERED',
+      )
 
-            end_col_letter = get_column_letter(len(headers))
-            range_notation = f"A{matched_row_num}:{end_col_letter}{matched_row_num}"
-            worksheet.update(range_notation, [updated_row], value_input_option='USER_ENTERED')
+      return jsonify({
+          'status': 'success',
+          'message': (
+              f'డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది! CF: {analyzed_cf}'
+          ),
+      })
 
-            return jsonify({
-                "status": "success",
-                "message": f"డేటా సురక్షితంగా అప్‌డేట్ చేయబడింది (IFSC ఆటో-సెట్ & Backup సేవ్ చేయబడింది)! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
-            })
+    elif effective_action == 'insert':
+      recheck_row, _ = find_row_by_aadhar(
+          worksheet, aadhar_col_idx, form_aadhar_clean
+      )
+      if recheck_row is not None:
+        return jsonify({
+            'status': 'error',
+            'message': f'ఈ ఆధార్ నంబర్ ఇప్పటికే Row {recheck_row} లో ఉంది!',
+        })
 
-        # ==================== INSERT LOGIC ====================
-        elif effective_action == 'insert':
-            recheck_row, _ = find_row_by_aadhar(worksheet, aadhar_col_idx, form_aadhar_clean)
-            if recheck_row is not None:
-                return jsonify({
-                    "status": "error",
-                    "message": f"ఈ ఆధార్ నంబర్ ఇప్పటికే Row {recheck_row} లో ఉంది! డూప్లికేట్ ఎంట్రీ నివారించబడింది."
-                })
+      max_sno = 0
+      if 'SNO' in headers:
+        sno_col_idx = headers.index('SNO') + 1
+        all_snos = worksheet.col_values(sno_col_idx)[1:]
+        max_sno = max(
+            [
+                int(str(s).strip())
+                for s in all_snos
+                if str(s).strip().isdigit()
+            ]
+            or [0]
+        )
 
-            max_sno = 0
-            if 'SNO' in headers:
-                sno_col_idx = headers.index('SNO') + 1
-                all_snos = worksheet.col_values(sno_col_idx)[1:]
-                max_sno = max([int(str(s).strip()) for s in all_snos if str(s).strip().isdigit()] or [0])
+      form_data['SNO'] = max_sno + 1
+      new_row = [
+          '' if form_data.get(h, '') is None else form_data.get(h, '')
+          for h in headers
+      ]
+      next_row_num = get_last_non_empty_row(worksheet) + 1
+      end_col_letter = get_column_letter(len(headers))
+      worksheet.update(
+          f'A{next_row_num}:{end_col_letter}{next_row_num}',
+          [new_row],
+          value_input_option='USER_ENTERED',
+      )
 
-            form_data['SNO'] = max_sno + 1
+      return jsonify({
+          'status': 'success',
+          'message': f'కొత్త రికార్డు సేవ్ చేయబడింది! CF: {analyzed_cf}',
+      })
 
-            new_row = []
-            for header in headers:
-                val = form_data.get(header, '')
-                new_row.append("" if val is None else val)
+    return jsonify({'status': 'error', 'message': 'సరికైన యాక్షన్ రాలేదు!'})
 
-            last_non_empty_row = get_last_non_empty_row(worksheet)
-            next_row_num = last_non_empty_row + 1
-
-            end_col_letter = get_column_letter(len(headers))
-            range_notation = f"A{next_row_num}:{end_col_letter}{next_row_num}"
-            worksheet.update(range_notation, [new_row], value_input_option='USER_ENTERED')
-
-            return jsonify({
-                "status": "success",
-                "message": f"కొత్త రికార్డు చివరి రో లో సురక్షితంగా సేవ్ చేయబడింది (IFSC ఆటో-సెట్)! ఆటో-అనలైజ్ చేయబడిన CF: {analyzed_cf}"
-            })
-
-        return jsonify({"status": "error", "message": "సరికైన యాక్షన్ రాలేదు!"})
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"సేవ్ చేయడంలో లోపం: {str(e)}"})
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': f'సేవ్ చేయడంలో లోపం: {str(e)}'})
 
 
 @cf_bp.route('/cf/ai-ocr', methods=['POST'])
 def cf_ai_ocr():
-    if not session.get('cf_logged_in'):
-        return jsonify({"status": "error", "message": "దయచేసి లాగిన్ అవ్వండి!"})
+  if not session.get('cf_logged_in'):
+    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        return jsonify({"status": "fallback", "message": "AI API Key లేదు, లోకల్ OCR వాడుతోంది."})
+  api_key = os.environ.get('OPENROUTER_API_KEY', '').strip()
+  if not api_key:
+    return jsonify({
+        'status': 'fallback',
+        'message': 'AI API Key లేదు, లోకల్ OCR వాడుతోంది.',
+    })
 
-    try:
-        data = request.get_json() or {}
-        image_base64 = data.get("image_base64", "")
-        scan_type = data.get("scan_type", "Aadhar Number")
+  try:
+    data = request.get_json() or {}
+    image_base64 = data.get('image_base64', '')
+    scan_type = data.get('scan_type', 'Aadhar Number')
 
-        if not image_base64:
-            return jsonify({"status": "error", "message": "ఇమేజ్ అందలేదు."})
+    if not image_base64:
+      return jsonify({'status': 'error', 'message': 'ఇమేజ్ అందలేదు.'})
 
-        model_name = os.environ.get("QWEN_VL_MODEL", "qwen/qwen2.5-vl-72b-instruct:free")
-
-        prompt_text = f"""
+    model_name = os.environ.get(
+        'QWEN_VL_MODEL', 'qwen/qwen2.5-vl-72b-instruct:free'
+    )
+    prompt_text = f"""
 You are an expert Indian government document & handwritten form data extractor for Telangana Handlooms & Textiles.
-Analyze this image carefully (it may contain printed text, Telugu + English mix, or handwritten notes/forms/Aadhaar/Bank Passbook).
-Focus on scan context: "{scan_type}".
-
-Extract all visible fields accurately and return ONLY a valid JSON object with these exact keys (use empty string "" if not visible):
-{{
-  "number": "primary 12-digit ID OR 10-digit Mobile OR Bank Account Number based on {scan_type} (digits only, no spaces)",
-  "id_number": "12-digit beneficiary ID digits only",
-  "name": "Beneficiary full name in ENGLISH CAPITAL LETTERS",
-  "father_name": "Father or Husband name (C/O, S/O, W/O, D/O) in ENGLISH CAPITAL LETTERS",
-  "dob": "Date of birth in DD/MM/YYYY format (or YYYY if only year is given)",
-  "house_no": "Residential House Number (e.g. 3-6-45) in UPPERCASE",
-  "village": "Village or Town name in ENGLISH CAPITAL LETTERS",
-  "mandal": "Mandal name in ENGLISH CAPITAL LETTERS",
-  "district": "District name in ENGLISH CAPITAL LETTERS (e.g. RAJANNA SIRCILLA)",
-  "mobile": "10-digit mobile number digits only",
-  "account_number": "Bank account number digits only",
-  "ifsc": "11-character IFSC code in UPPERCASE",
-  "unit_hno": "Working loom/unit house number if visible",
-  "unit_owner": "Unit owner name in ENGLISH CAPITAL LETTERS if visible",
-  "nominee_name": "Nominee name in ENGLISH CAPITAL LETTERS if visible",
-  "nominee_id": "12-digit nominee ID digits only if visible",
-  "nominee_dob": "Nominee DOB in DD/MM/YYYY or YYYY if visible"
-}}
-Return ONLY raw JSON. No markdown, no explanation.
+Analyze this image carefully and return ONLY a valid JSON object with keys:
+"number", "id_number", "name", "father_name", "dob", "house_no", "village", "mandal", "district", "mobile", "account_number", "ifsc", "unit_hno", "unit_owner", "nominee_name", "nominee_id", "nominee_dob".
+Scan context: "{scan_type}". Use "" if not visible. Return ONLY raw JSON.
 """
+    resp = requests.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'model': model_name,
+            'temperature': 0.0,
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': prompt_text},
+                    {'type': 'image_url', 'image_url': {'url': image_base64}},
+                ],
+            }],
+        },
+        timeout=25,
+    )
 
-        resp = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": model_name,
-                "temperature": 0.0,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt_text},
-                            {"type": "image_url", "image_url": {"url": image_base64}}
-                        ]
-                    }
-                ]
-            },
-            timeout=25
-        )
+    if resp.status_code != 200:
+      return jsonify(
+          {'status': 'fallback', 'message': f'AI API Status {resp.status_code}'}
+      )
 
-        if resp.status_code != 200:
-            return jsonify({"status": "fallback", "message": f"AI API Status {resp.status_code}"})
+    raw_content = resp.json()['choices'][0]['message']['content'].strip()
+    raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
+    raw_content = re.sub(r'\s*```$', '', raw_content).strip()
+    return jsonify({'status': 'success', 'extracted': json.loads(raw_content)})
 
-        res_json = resp.json()
-        raw_content = res_json["choices"][0]["message"]["content"].strip()
-        raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
-        raw_content = re.sub(r'\s*```$', '', raw_content).strip()
-
-        extracted = json.loads(raw_content)
-        return jsonify({"status": "success", "extracted": extracted})
-
-    except Exception as e:
-        return jsonify({"status": "fallback", "message": str(e)})
+  except Exception as e:
+    return jsonify({'status': 'fallback', 'message': str(e)})
