@@ -1,10 +1,10 @@
 from urllib.parse import quote
-import base64
 import datetime
 import io
 import json
 import os
 import re
+import time
 from flask import Blueprint, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 import openpyxl
 from openpyxl.styles import Font, PatternFill
@@ -14,7 +14,35 @@ import requests
 
 cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 
-# నెలల పేర్ల మ్యాపింగ్[cite: 5]
+# ⚡ ఇన్-మెమరీ TTL క్యాష్ (రిఫ్రెష్ ఆప్షన్ & షార్ట్ TTL తో సురక్షితం)
+_CACHE = {}
+CACHE_TTL_SECONDS = 15
+
+
+def _cache_get(key):
+  entry = _CACHE.get(key)
+  if not entry:
+    return None
+  expires_at, val = entry
+  if time.monotonic() > expires_at:
+    _CACHE.pop(key, None)
+    return None
+  return val
+
+
+def _cache_set(key, val, ttl=CACHE_TTL_SECONDS):
+  _CACHE[key] = (time.monotonic() + ttl, val)
+
+
+def _cache_invalidate(prefix=''):
+  if not prefix:
+    _CACHE.clear()
+    return
+  for k in [k for k in _CACHE if k.startswith(prefix)]:
+    _CACHE.pop(k, None)
+
+
+# నెలల పేర్ల మ్యాపింగ్
 MONTH_MAP = {
     1: 'June-2026',
     2: 'July-2026',
@@ -30,7 +58,7 @@ MONTH_MAP = {
     12: 'May-2027',
 }
 
-# 📋 CF వారీగా కేటాయించిన బ్యాంకుల మ్యాపింగ్[cite: 5]
+# 📋 CF వారీగా కేటాయించిన బ్యాంకుల మ్యాపింగ్
 CF_BANK_MAPPING = {
     'NARESH': ['BANK OF BARODA', 'BANK OF INDIA'],
     'SATHISH': ['KDCCB', 'PUNJAB NATIONAL BANK'],
@@ -47,10 +75,10 @@ CF_BANK_MAPPING = {
     'NAGARJUNA': ['UNION BANK OF INDIA'],
     'KANAKARAJU': ['INDIAN BANK'],
     'KAMALAKAR': ['INDIAN BANK'],
-    'MARKANDEYULU': ['BOINPARI UNION BANK', 'NIMMAPALLY'],
+    'MARKANDEYULU': ['BOINPARI UNION BANK', 'BOINPALLI UNION BANK', 'BOINPALLE UNION BANK', 'NIMMAPALLY'],
 }
 
-# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్[cite: 5]
+# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్ (డూప్లికేట్/టైపో కీలు తొలగించబడ్డాయి)
 FILE_NAME_IFSC_MAPPING = {
     '12903_STATE BANK OF INDIA': 'SBIN0012903',
     '20140_STATE BANK OF INDIA': 'SBIN0020140',
@@ -59,6 +87,7 @@ FILE_NAME_IFSC_MAPPING = {
     'BANK OF INDIA': 'BKID0005745',
     'BOINPALLI UNION BANK': 'UBIN0807486',
     'BOINPALLE UNION BANK': 'UBIN0807486',
+    'BOINPARI UNION BANK': 'UBIN0807486',
     'CANARA BANK': 'CNRB0004170',
     'CENTRAL BANK OF INDIA': 'CBIN0285183',
     'INDIAN BANK': 'IDIB000S289',
@@ -70,7 +99,7 @@ FILE_NAME_IFSC_MAPPING = {
     'UNION BANK OF INDIA': 'UBIN0805289',
 }
 
-# 🔑 CF పాస్‌వర్డ్స్ మ్యాపింగ్[cite: 5]
+# 🔑 CF పాస్‌వర్డ్స్ మ్యాపింగ్
 CF_PASSWORDS = {
     'NARESH': 'naresh@2026',
     'SATHISH': 'sathish@2026',
@@ -83,7 +112,7 @@ CF_PASSWORDS = {
     'MARKANDEYULU': 'markandeyulu@2026',
 }
 
-# 🏛️ సిరిసిల్ల మున్సిపాలిటీ వార్డుల వారీగా CF మ్యాపింగ్[cite: 5]
+# 🏛️ సిరిసిల్ల మున్సిపాలిటీ వార్డుల వారీగా CF మ్యాపింగ్
 WARD_CF_MAPPING = {
     20: 'DEVADAS',
     17: 'KANAKARAJU',
@@ -120,7 +149,7 @@ WARD_CF_MAPPING = {
     14: 'NAVEEN',
 }
 
-# 🔍 సిరిసిల్ల మున్సిపాలిటీ మాస్టర్ డేటా రేంజ్ మ్యాపింగ్[cite: 5]
+# 🔍 సిరిసిల్ల మున్సిపాలిటీ మాస్టర్ డేటా రేంజ్ మ్యాపింగ్
 MUNICIPALITY_RANGES = [
     ('2-5', 1, 11, 1),
     ('2-5', 95, 149, 1),
@@ -262,7 +291,7 @@ MUNICIPALITY_RANGES = [
     ('2-1', 77, 92, 33),
 ]
 
-# 🌍 ఏరియా / విలేజ్ వారీగా CF మ్యాపింగ్[cite: 5]
+# 🌍 ఏరియా / విలేజ్ వారీగా CF మ్యాపింగ్
 AREA_CF_MAPPING = {
     'NARESH': [
         'THANGALLA PALLY',
@@ -378,10 +407,21 @@ def extract_block_and_door(cleaned_hno):
 
 
 def get_ifsc_for_file_name(file_name, records_list=None):
+  """FILE NAME ఆధారంగా ముందుగా మాస్టర్ మ్యాపింగ్, ఆ తర్వాత షీట్ డేటా నుండి IFSC ఇస్తుంది."""
   clean_file = re.sub(r'\s+', ' ', str(file_name or '').strip().upper())
   if not clean_file or clean_file in ['NAN', 'NONE']:
     return ''
 
+  # 1. ప్రామాణిక FILE_NAME_IFSC_MAPPING చెక్
+  if clean_file in FILE_NAME_IFSC_MAPPING:
+    return FILE_NAME_IFSC_MAPPING[clean_file]
+
+  # 2. Boinpalli / Boinpalle / Boinpari స్పెల్లింగ్ వేరియంట్స్ నార్మలైజేషన్
+  normalized_variant = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', clean_file)
+  if normalized_variant in FILE_NAME_IFSC_MAPPING:
+    return FILE_NAME_IFSC_MAPPING[normalized_variant]
+
+  # 3. మ్యాపింగ్‌లో లేకపోతే షీట్ రికార్డులలో అత్యధికంగా ఉన్న చెల్లుబాటు అయ్యే IFSC తీసుకోవడం
   if records_list:
     ifsc_counts = {}
     for row in records_list:
@@ -396,11 +436,7 @@ def get_ifsc_for_file_name(file_name, records_list=None):
     if ifsc_counts:
       return max(ifsc_counts, key=ifsc_counts.get)
 
-  if clean_file in FILE_NAME_IFSC_MAPPING:
-    return FILE_NAME_IFSC_MAPPING[clean_file]
-
-  normalized_variant = clean_file.replace('BOINPALLE', 'BOINPALLI')
-  return FILE_NAME_IFSC_MAPPING.get(normalized_variant, '')
+  return ''
 
 
 def normalize_aadhar(val):
@@ -585,7 +621,7 @@ def cf_logout():
 # ==============================================================================
 @cf_bp.route('/cf/my-beneficiaries', methods=['GET'])
 def cf_my_beneficiaries():
-  """లాగిన్ అయిన CF కు సంబంధించిన లబ్ధిదారుల వివరాలను ఇస్తుంది."""
+  """లాగిన్ అయిన CF కు సంబంధించిన లబ్ధిదారుల వివరాలను ఇస్తుంది (?refresh=1 తో క్యాష్ క్లియర్ అవుతుంది)."""
   if not session.get('cf_logged_in'):
     return jsonify(
         {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
@@ -597,6 +633,15 @@ def cf_my_beneficiaries():
     cf_name = str(session.get('cf_name') or '').strip().upper()
     current_month = str(request.args.get('month_number', '1')).strip()
     bank_filter = str(request.args.get('bank_name', 'ALL')).strip().upper()
+    force_refresh = str(request.args.get('refresh', '')).strip() in ('1', 'true', 'yes')
+
+    cache_key = f'ben:{cf_name}:{current_month}:{bank_filter}'
+    if force_refresh:
+      _cache_invalidate(f'ben:{cf_name}:')
+    else:
+      cached = _cache_get(cache_key)
+      if cached is not None:
+        return jsonify({'status': 'success', 'data': cached, 'cached': True})
 
     client = get_sheets_client()
     spreadsheet = client.open(SPREADSHEET_NAME)
@@ -629,7 +674,6 @@ def cf_my_beneficiaries():
     )
     col_sno = find_header_match(headers, ['bank_sno', 'sno'])
 
-    # నెలవారీ బ్యాలెన్స్ ఉంటే Transactions_Year1 నుండి మ్యాప్ చేయడం
     bal_by_sno = {}
     try:
       ws_trans = spreadsheet.worksheet('Transactions_Year1')
@@ -692,7 +736,8 @@ def cf_my_beneficiaries():
           'is_complete': is_complete,
       })
 
-    return jsonify({'status': 'success', 'data': results})
+    _cache_set(cache_key, results)
+    return jsonify({'status': 'success', 'data': results, 'cached': False})
 
   except Exception as e:
     return jsonify(
@@ -762,6 +807,7 @@ def cf_quick_update_beneficiary():
         clean_v = clean_str_cell(payload.get(key))
         ws.update_cell(row_index, c_idx, clean_v)
 
+    _cache_invalidate(f'ben:{cf_name}:')
     return jsonify(
         {'status': 'success', 'message': 'వివరాలు అప్‌డేట్ అయ్యాయి!'}
     )
@@ -907,6 +953,45 @@ def cf_generate_whatsapp_links_excel():
 # ==============================================================================
 # 3. MONTHLY REPORTS DOWNLOAD (NAME-BASED & BANK-ALLOTTED)
 # ==============================================================================
+def _build_monthly_cross_df(spreadsheet, current_month):
+  df_trans = pd.DataFrame(
+      spreadsheet.worksheet('Transactions_Year1').get_all_records()
+  )
+  df_thrift = pd.DataFrame(
+      spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
+  )
+
+  df_trans['Govt_Share'] = pd.to_numeric(
+      df_trans['Govt_Share'], errors='coerce'
+  ).fillna(0)
+  df_trans['MONTH_NUMBER'] = pd.to_numeric(
+      df_trans['MONTH_NUMBER'], errors='coerce'
+  ).fillna(0)
+
+  df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
+  df_trans_month = df_trans_month.drop_duplicates(
+      subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'],
+      keep='first',
+  )
+
+  df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
+  df_trans_month['RD1_Clean'] = (
+      df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)']
+      .astype(str)
+      .str.strip()
+  )
+
+  df_cross = pd.merge(
+      df_thrift,
+      df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']],
+      left_on='RD 1_Clean',
+      right_on='RD1_Clean',
+      how='left',
+  )
+  df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
+  return df_cross
+
+
 @cf_bp.route('/cf/download-report', methods=['POST'])
 def cf_download_report_by_name():
   if not session.get('cf_logged_in'):
@@ -920,42 +1005,7 @@ def cf_download_report_by_name():
 
     client = get_sheets_client()
     spreadsheet = client.open(SPREADSHEET_NAME)
-
-    df_trans = pd.DataFrame(
-        spreadsheet.worksheet('Transactions_Year1').get_all_records()
-    )
-    df_thrift = pd.DataFrame(
-        spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
-    )
-
-    df_trans['Govt_Share'] = pd.to_numeric(
-        df_trans['Govt_Share'], errors='coerce'
-    ).fillna(0)
-    df_trans['MONTH_NUMBER'] = pd.to_numeric(
-        df_trans['MONTH_NUMBER'], errors='coerce'
-    ).fillna(0)
-
-    df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
-    df_trans_month = df_trans_month.drop_duplicates(
-        subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'],
-        keep='first',
-    )
-
-    df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
-    df_trans_month['RD1_Clean'] = (
-        df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)']
-        .astype(str)
-        .str.strip()
-    )
-
-    df_cross = pd.merge(
-        df_thrift,
-        df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']],
-        left_on='RD 1_Clean',
-        right_on='RD1_Clean',
-        how='left',
-    )
-    df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
+    df_cross = _build_monthly_cross_df(spreadsheet, current_month)
 
     cf_col = 'NAME OF CF' if 'NAME OF CF' in df_cross.columns else 'CF NAME'
     group_df = df_cross[
@@ -986,53 +1036,18 @@ def cf_download_report_by_bank():
 
     client = get_sheets_client()
     spreadsheet = client.open(SPREADSHEET_NAME)
-
-    df_trans = pd.DataFrame(
-        spreadsheet.worksheet('Transactions_Year1').get_all_records()
-    )
-    df_thrift = pd.DataFrame(
-        spreadsheet.worksheet('NEW THRIFT DATA').get_all_records()
-    )
-
-    df_trans['Govt_Share'] = pd.to_numeric(
-        df_trans['Govt_Share'], errors='coerce'
-    ).fillna(0)
-    df_trans['MONTH_NUMBER'] = pd.to_numeric(
-        df_trans['MONTH_NUMBER'], errors='coerce'
-    ).fillna(0)
-
-    df_trans_month = df_trans[df_trans['MONTH_NUMBER'] == current_month].copy()
-    df_trans_month = df_trans_month.drop_duplicates(
-        subset=['MONTH_NUMBER', 'RD ACCOUNT_1 (Beneficiary Contribution)'],
-        keep='first',
-    )
-
-    df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
-    df_trans_month['RD1_Clean'] = (
-        df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)']
-        .astype(str)
-        .str.strip()
-    )
+    df_cross = _build_monthly_cross_df(spreadsheet, current_month)
 
     bank_col = (
         'FILE NAME'
-        if 'FILE NAME' in df_thrift.columns
-        else ('File Name' if 'File Name' in df_thrift.columns else 'Bank Name')
+        if 'FILE NAME' in df_cross.columns
+        else ('File Name' if 'File Name' in df_cross.columns else 'Bank Name')
     )
-
-    df_cross = pd.merge(
-        df_thrift,
-        df_trans_month[['RD1_Clean', 'Govt_Share', 'MONTH_NUMBER']],
-        left_on='RD 1_Clean',
-        right_on='RD1_Clean',
-        how='left',
-    )
-    df_cross['Govt_Share'] = df_cross['Govt_Share'].fillna(0)
     allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
 
     def match_bank(row):
       b_name = str(row.get(bank_col, '')).strip().upper()
-      if not b_name or b_name == 'NAN' or b_name == 'NONE':
+      if not b_name or b_name in ('NAN', 'NONE'):
         return False
       return b_name in allowed_banks
 
@@ -1189,10 +1204,10 @@ def cf_search_beneficiary():
     aadhar_clean = normalize_aadhar(raw_aadhar)
     selected_file_name = str(data.get('file_name', '')).strip()
 
-    if not aadhar_clean:
+    if len(aadhar_clean) != 12:
       return jsonify({
           'status': 'error',
-          'message': 'దయచేసి సరైన ఆధార్ నంబర్ ఎంటర్ చేయండి!',
+          'message': 'దయచేసి సరైన 12 అంకెల నంబర్ ఎంటర్ చేయండి!',
       })
     if not selected_file_name:
       return jsonify({
@@ -1246,9 +1261,7 @@ def cf_search_beneficiary():
     if matched_record:
       cleaned_matched = {}
       for k, v in matched_record.items():
-        if any(
-            dk in k.lower() for dk in ['dob', 'date of birth', 'date']
-        ):
+        if any(dk in k.lower() for dk in ['dob', 'date of birth', 'date']):
           cleaned_matched[k] = format_date_val(v)
         else:
           cleaned_matched[k] = v
@@ -1309,6 +1322,15 @@ def cf_search_beneficiary():
         })
     )
 
+    dropdown_payload = {
+        'professions': unique_professions,
+        'villages': unique_villages,
+        'areas': unique_areas,
+        'unit_owners': unique_unit_owners,
+        'unit_hns': unique_unit_hns,
+        'relations': unique_relations,
+    }
+
     if matched_record and source_sheet == 'new':
       if not str(matched_record.get('IFSC code', '')).strip() and auto_ifsc:
         matched_record['IFSC code'] = auto_ifsc
@@ -1321,14 +1343,7 @@ def cf_search_beneficiary():
           'data': matched_record,
           'auto_ifsc': auto_ifsc,
           'columns': columns,
-          'dropdown_data': {
-              'professions': unique_professions,
-              'villages': unique_villages,
-              'areas': unique_areas,
-              'unit_owners': unique_unit_owners,
-              'unit_hns': unique_unit_hns,
-              'relations': unique_relations,
-          },
+          'dropdown_data': dropdown_payload,
       })
 
     base_data = matched_record.copy() if matched_record else {}
@@ -1358,14 +1373,7 @@ def cf_search_beneficiary():
         'data': base_data,
         'auto_ifsc': auto_ifsc,
         'columns': columns,
-        'dropdown_data': {
-            'professions': unique_professions,
-            'villages': unique_villages,
-            'areas': unique_areas,
-            'unit_owners': unique_unit_owners,
-            'unit_hns': unique_unit_hns,
-            'relations': unique_relations,
-        },
+        'dropdown_data': dropdown_payload,
     })
 
   except Exception as e:
@@ -1377,6 +1385,10 @@ def cf_get_bank_files():
   if not session.get('cf_logged_in'):
     return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'})
   try:
+    cached = _cache_get('bank_files')
+    if cached is not None:
+      return jsonify({'status': 'success', **cached})
+
     from app import get_sheets_client, SPREADSHEET_NAME
 
     client = get_sheets_client()
@@ -1398,11 +1410,9 @@ def cf_get_bank_files():
         file_names.append(f_name)
         file_ifsc_map[f_name] = get_ifsc_for_file_name(f_name, records_new)
 
-    return jsonify({
-        'status': 'success',
-        'file_names': file_names,
-        'file_ifsc_map': file_ifsc_map,
-    })
+    payload = {'file_names': file_names, 'file_ifsc_map': file_ifsc_map}
+    _cache_set('bank_files', payload, ttl=120)
+    return jsonify({'status': 'success', **payload})
   except Exception as e:
     return jsonify({
         'status': 'error',
@@ -1432,10 +1442,10 @@ def cf_save_beneficiary():
       )
 
     form_aadhar_clean = normalize_aadhar(form_data.get('Aadhar Number', ''))
-    if not form_aadhar_clean:
+    if len(form_aadhar_clean) != 12:
       return jsonify({
           'status': 'error',
-          'message': 'Aadhar Number తప్పనిసరి! ఖాళీగా సేవ్ చేయలేము.',
+          'message': 'సరైన 12 అంకెల Aadhar Number తప్పనిసరి!',
       })
 
     form_data['Aadhar Number'] = form_aadhar_clean
@@ -1465,10 +1475,13 @@ def cf_save_beneficiary():
           'message': "షీట్‌లో 'Aadhar Number' కాలమ్ కనుగొనబడలేదు!",
       })
 
-    records_new = worksheet.get_all_records()
     selected_file = str(form_data.get('FILE NAME', '')).strip()
     if selected_file:
-      auto_ifsc = get_ifsc_for_file_name(selected_file, records_new)
+      auto_ifsc = get_ifsc_for_file_name(selected_file)
+      if not auto_ifsc:
+        auto_ifsc = get_ifsc_for_file_name(
+            selected_file, worksheet.get_all_records()
+        )
       if auto_ifsc:
         form_data['IFSC code'] = auto_ifsc
 
@@ -1528,6 +1541,8 @@ def cf_save_beneficiary():
           value_input_option='USER_ENTERED',
       )
 
+      _cache_invalidate('ben:')
+      _cache_invalidate('bank_files')
       return jsonify({
           'status': 'success',
           'message': (
@@ -1571,6 +1586,8 @@ def cf_save_beneficiary():
           value_input_option='USER_ENTERED',
       )
 
+      _cache_invalidate('ben:')
+      _cache_invalidate('bank_files')
       return jsonify({
           'status': 'success',
           'message': f'కొత్త రికార్డు సేవ్ చేయబడింది! CF: {analyzed_cf}',
