@@ -1,17 +1,17 @@
-from urllib.parse import quote
+import base64
 import datetime
 import io
 import json
 import os
 import re
 import time
-from flask import Blueprint, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
+from urllib.parse import quote
+from flask import Blueprint, jsonify, make_response, redirect, render_template, request, session, url_for
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 import pandas as pd
 import requests
-import base64
 
 cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 
@@ -76,10 +76,15 @@ CF_BANK_MAPPING = {
     'NAGARJUNA': ['UNION BANK OF INDIA'],
     'KANAKARAJU': ['INDIAN BANK'],
     'KAMALAKAR': ['INDIAN BANK'],
-    'MARKANDEYULU': ['BOINPARI UNION BANK', 'BOINPALLI UNION BANK', 'BOINPALLE UNION BANK', 'NIMMAPALLY'],
+    'MARKANDEYULU': [
+        'BOINPARI UNION BANK',
+        'BOINPALLI UNION BANK',
+        'BOINPALLE UNION BANK',
+        'NIMMAPALLY',
+    ],
 }
 
-# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్ (డూప్లికేట్/టైపో కీలు తొలగించబడ్డాయి)
+# 🏦 FILE NAME ఆధారంగా డిఫాల్ట్ / ప్రైమరీ IFSC CODE మ్యాపింగ్
 FILE_NAME_IFSC_MAPPING = {
     '12903_STATE BANK OF INDIA': 'SBIN0012903',
     '20140_STATE BANK OF INDIA': 'SBIN0020140',
@@ -327,6 +332,9 @@ AREA_CF_MAPPING = {
 }
 
 
+# ==============================================================================
+# HELPER & DATA CLEANING FUNCTIONS
+# ==============================================================================
 def clean_str_cell(val):
   """సెల్ విలువలోని .0, అపోస్ట్రోఫీలు, NaN లను సురక్షితంగా క్లీన్ చేస్తుంది."""
   if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -351,16 +359,48 @@ def clean_indian_mobile_10(raw_val):
   return ''
 
 
-def find_header_match(headers, candidates):
-  """హెడర్ జాబితాలో సరిపోయే కాలమ్ పేరును కనుగొంటుంది."""
-  lower_map = {str(h).strip().lower(): h for h in headers}
+def _norm_col_key(text):
+  """కాలమ్ పేర్లను పోల్చడానికి spaces, underscores, dots, hyphens తొలగిస్తుంది."""
+  s = re.sub(r'[^a-z0-9]+', ' ', str(text or '').strip().lower())
+  return re.sub(r'\s+', ' ', s).strip()
+
+
+def find_header_match(headers, candidates, allow_partial=True):
+  """
+    హెడర్ జాబితాలో సరిపోయే కాలమ్‌ను సురక్షితంగా కనుగొంటుంది.
+    చిన్న పదాల వల్ల 'Name' -> 'Father Name' లాంటి తప్పు సబ్‌స్ట్రింగ్ మ్యాచ్‌లను నివారిస్తుంది.
+    """
+  if not headers or not candidates:
+    return None
+
+  exact_map = {str(h).strip().lower(): h for h in headers}
+  norm_map = {_norm_col_key(h): h for h in headers}
+
   for c in candidates:
-    if c.lower() in lower_map:
-      return lower_map[c.lower()]
-  for h in headers:
-    hl = str(h).strip().lower()
-    if any(c.lower() in hl for c in candidates):
-      return h
+    cl = str(c).strip().lower()
+    if cl in exact_map:
+      return exact_map[cl]
+
+  for c in candidates:
+    cn = _norm_col_key(c)
+    if cn and cn in norm_map:
+      return norm_map[cn]
+
+  if not allow_partial:
+    return None
+
+  for c in candidates:
+    cn = _norm_col_key(c)
+    if len(cn) < 4:
+      continue
+    pattern = re.compile(
+        rf'(?:^|\b|_|\s){re.escape(cn)}(?:$|\b|_|\s)', re.IGNORECASE
+    )
+    for h in headers:
+      hn = _norm_col_key(h)
+      if pattern.search(hn):
+        return h
+
   return None
 
 
@@ -407,37 +447,168 @@ def extract_block_and_door(cleaned_hno):
   return None, None
 
 
+def _clean_ifsc(val):
+  """11 అక్షరాల చెల్లుబాటు అయ్యే IFSC కోడ్‌ను క్లీన్ చేసి తిరిగి ఇస్తుంది (లేదా '')."""
+  s = re.sub(r'[^A-Z0-9]', '', clean_str_cell(val).upper())
+  if re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', s):
+    return s
+  return ''
+
+
 def get_ifsc_for_file_name(file_name, records_list=None):
   """FILE NAME ఆధారంగా ముందుగా మాస్టర్ మ్యాపింగ్, ఆ తర్వాత షీట్ డేటా నుండి IFSC ఇస్తుంది."""
   clean_file = re.sub(r'\s+', ' ', str(file_name or '').strip().upper())
   if not clean_file or clean_file in ['NAN', 'NONE']:
     return ''
 
-  # 1. ప్రామాణిక FILE_NAME_IFSC_MAPPING చెక్
   if clean_file in FILE_NAME_IFSC_MAPPING:
     return FILE_NAME_IFSC_MAPPING[clean_file]
 
-  # 2. Boinpalli / Boinpalle / Boinpari స్పెల్లింగ్ వేరియంట్స్ నార్మలైజేషన్
   normalized_variant = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', clean_file)
   if normalized_variant in FILE_NAME_IFSC_MAPPING:
     return FILE_NAME_IFSC_MAPPING[normalized_variant]
 
-  # 3. మ్యాపింగ్‌లో లేకపోతే షీట్ రికార్డులలో అత్యధికంగా ఉన్న చెల్లుబాటు అయ్యే IFSC తీసుకోవడం
   if records_list:
     ifsc_counts = {}
     for row in records_list:
       r_file = re.sub(
           r'\s+', ' ', str(row.get('FILE NAME', '') or '').strip().upper()
       )
-      r_ifsc = str(
+      r_ifsc = _clean_ifsc(
           row.get('IFSC code', '') or row.get('IFSC CODE', '') or ''
-      ).strip().upper()
-      if r_file == clean_file and re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', r_ifsc):
+      )
+      if r_file == clean_file and r_ifsc:
         ifsc_counts[r_ifsc] = ifsc_counts.get(r_ifsc, 0) + 1
     if ifsc_counts:
       return max(ifsc_counts, key=ifsc_counts.get)
 
   return ''
+
+
+def _build_ifsc_to_file_map(records_new=None):
+  """IFSC కోడ్ నుండి FILE NAME ను కనుగొనడానికి రివర్స్ మ్యాపింగ్ సిద్ధం చేస్తుంది."""
+  ifsc_to_file = {}
+
+  for f_name, ifsc_code in FILE_NAME_IFSC_MAPPING.items():
+    c_ifsc = _clean_ifsc(ifsc_code)
+    c_file = re.sub(r'\s+', ' ', str(f_name).strip().upper())
+    if c_ifsc and c_file and c_ifsc not in ifsc_to_file:
+      ifsc_to_file[c_ifsc] = c_file
+
+  if records_new:
+    for r in records_new:
+      r_file = re.sub(
+          r'\s+',
+          ' ',
+          clean_str_cell(
+              r.get('FILE NAME') or r.get('Bank Name') or ''
+          ).upper(),
+      )
+      r_ifsc = _clean_ifsc(r.get('IFSC code') or r.get('IFSC CODE') or '')
+      if r_ifsc and r_file and r_ifsc not in ifsc_to_file:
+        ifsc_to_file[r_ifsc] = r_file
+
+  return ifsc_to_file
+
+
+def _resolve_bank_file_and_ifsc(
+    row_dict,
+    records_new,
+    email_map,
+    cf_name='',
+    default_file_name='',
+    allow_single_cf_bank=True,
+    ifsc_to_file_map=None,
+):
+  """
+    రో లో ఉన్న IFSC code, Bank Name, FILE NAME లేదా CF మ్యాపింగ్ ఆధారంగా
+    కచ్చితమైన FILE NAME, Bank Name, IFSC code, EMAIL ID లను నిర్ణయిస్తుంది.
+    """
+  if ifsc_to_file_map is None:
+    ifsc_to_file_map = _build_ifsc_to_file_map(records_new)
+
+  raw_file = re.sub(
+      r'\s+',
+      ' ',
+      clean_str_cell(
+          row_dict.get('FILE NAME')
+          or row_dict.get('File Name')
+          or default_file_name
+          or ''
+      ).upper(),
+  )
+  raw_bank = re.sub(
+      r'\s+',
+      ' ',
+      clean_str_cell(
+          row_dict.get('Bank Name') or row_dict.get('BANK NAME') or ''
+      ).upper(),
+  )
+  raw_ifsc = _clean_ifsc(
+      row_dict.get('IFSC code') or row_dict.get('IFSC CODE') or ''
+  )
+
+  resolved_file = ''
+
+  # 1. ముందుగా IFSC కోడ్ ఆధారంగా FILE NAME కనుగొనడం
+  if raw_ifsc and raw_ifsc in ifsc_to_file_map:
+    resolved_file = ifsc_to_file_map[raw_ifsc]
+
+  # 2. FILE NAME నేరుగా మ్యాపింగ్‌లో ఉంటే దాన్ని వాడటం
+  if not resolved_file and raw_file:
+    norm_file = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', raw_file)
+    if raw_file in FILE_NAME_IFSC_MAPPING:
+      resolved_file = raw_file
+    elif norm_file in FILE_NAME_IFSC_MAPPING:
+      resolved_file = norm_file
+    else:
+      resolved_file = raw_file
+
+  # 3. Bank Name ఆధారంగా FILE NAME మ్యాచ్ చేయడం
+  if not resolved_file and raw_bank:
+    norm_bank = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', raw_bank)
+    if raw_bank in FILE_NAME_IFSC_MAPPING:
+      resolved_file = raw_bank
+    elif norm_bank in FILE_NAME_IFSC_MAPPING:
+      resolved_file = norm_bank
+    else:
+      for k in FILE_NAME_IFSC_MAPPING:
+        if raw_bank == k or norm_bank == k:
+          resolved_file = k
+          break
+      if not resolved_file:
+        for k in FILE_NAME_IFSC_MAPPING:
+          if raw_bank in k or norm_bank in k:
+            resolved_file = k
+            break
+
+  # 4. ఇంకా ఖాళీగా ఉంటే CF కు కేటాయించిన బ్యాంకులలో ఒకే బ్యాంక్ ఉంటే దాన్ని తీసుకోవడం
+  if not resolved_file and allow_single_cf_bank and cf_name:
+    cf_banks = [
+        re.sub(r'\s+', ' ', str(b).strip().upper())
+        for b in CF_BANK_MAPPING.get(str(cf_name).strip().upper(), [])
+    ]
+    if len(cf_banks) == 1:
+      resolved_file = cf_banks[0]
+
+  resolved_ifsc = raw_ifsc
+  if not resolved_ifsc and resolved_file:
+    resolved_ifsc = _clean_ifsc(
+        get_ifsc_for_file_name(resolved_file, records_new)
+    )
+
+  if raw_ifsc and raw_ifsc in ifsc_to_file_map:
+    resolved_file = ifsc_to_file_map[raw_ifsc]
+
+  resolved_bank = raw_bank if raw_bank else resolved_file
+
+  resolved_email = clean_str_cell(
+      row_dict.get('EMAIL ID') or row_dict.get('Email ID') or ''
+  )
+  if not resolved_email and resolved_file:
+    resolved_email = email_map.get(resolved_file, '')
+
+  return resolved_file, resolved_bank, resolved_ifsc, resolved_email
 
 
 def normalize_aadhar(val):
@@ -535,6 +706,18 @@ def analyze_cf_name(unit_hno, unit_area, residential_hno=''):
   return 'MARKANDEYULU'
 
 
+def _clean_row_before_cf_mapping(mapped_dict):
+  """CF మ్యాపింగ్‌కు ముందు ఇంటి నంబర్లు, ఏరియా డేటాను క్లీన్ చేస్తుంది."""
+  cleaned_unit_hno = clean_hno_for_matching(
+      mapped_dict.get('H.NO. Unit H.No', '')
+  )
+  cleaned_res_hno = clean_hno_for_matching(
+      mapped_dict.get('H.NO. Residentional H.No', '')
+  )
+  cleaned_area = clean_area_for_matching(mapped_dict.get('Area', ''))
+  return cleaned_unit_hno, cleaned_res_hno, cleaned_area
+
+
 def format_date_val(val):
   if not val or pd.isna(val):
     return ''
@@ -624,9 +807,10 @@ def cf_logout():
 def cf_my_beneficiaries():
   """లాగిన్ అయిన CF కు సంబంధించిన లబ్ధిదారుల వివరాలను ఇస్తుంది (?refresh=1 తో క్యాష్ క్లియర్ అవుతుంది)."""
   if not session.get('cf_logged_in'):
-    return jsonify(
-        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
-    ), 401
+    return (
+        jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
+        401,
+    )
 
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
@@ -634,7 +818,11 @@ def cf_my_beneficiaries():
     cf_name = str(session.get('cf_name') or '').strip().upper()
     current_month = str(request.args.get('month_number', '1')).strip()
     bank_filter = str(request.args.get('bank_name', 'ALL')).strip().upper()
-    force_refresh = str(request.args.get('refresh', '')).strip() in ('1', 'true', 'yes')
+    force_refresh = str(request.args.get('refresh', '')).strip() in (
+        '1',
+        'true',
+        'yes',
+    )
 
     cache_key = f'ben:{cf_name}:{current_month}:{bank_filter}'
     if force_refresh:
@@ -698,6 +886,7 @@ def cf_my_beneficiaries():
 
     results = []
     for r_idx, row in enumerate(all_rows[1:], start=2):
+
       def cell_v(col_key):
         if not col_key or col_key not in idx_map:
           return ''
@@ -741,18 +930,20 @@ def cf_my_beneficiaries():
     return jsonify({'status': 'success', 'data': results, 'cached': False})
 
   except Exception as e:
-    return jsonify(
-        {'status': 'error', 'message': f'జాబితా లోడ్ లోపం: {str(e)}'}
-    ), 500
+    return (
+        jsonify({'status': 'error', 'message': f'జాబితా లోడ్ లోపం: {str(e)}'}),
+        500,
+    )
 
 
 @cf_bp.route('/cf/quick-update-beneficiary', methods=['POST'])
 def cf_quick_update_beneficiary():
   """CF డ్యాష్‌బోర్డ్ టేబుల్ నుండి లబ్ధిదారుడి పేరు, ఫోన్, RD1, RD2 తక్షణమే అప్‌డేట్ చేస్తుంది."""
   if not session.get('cf_logged_in'):
-    return jsonify(
-        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
-    ), 401
+    return (
+        jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
+        401,
+    )
 
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
@@ -793,7 +984,8 @@ def cf_quick_update_beneficiary():
 
     col_map_fields = {
         'name': find_header_match(
-            headers, ['name of benificiary', 'name of beneficiary', 'beneficiary']
+            headers,
+            ['name of benificiary', 'name of beneficiary', 'beneficiary'],
         ),
         'phone': find_header_match(
             headers, ['contact number', 'mobile', 'phone', 'contact']
@@ -821,9 +1013,10 @@ def cf_quick_update_beneficiary():
 def cf_generate_whatsapp_links_excel():
   """అప్‌లోడ్ చేసిన ఎక్సెల్/CSV నుండి తెలుగు WhatsApp & SMS లింకుల ఎక్సెల్ జనరేట్ చేస్తుంది."""
   if not session.get('cf_logged_in'):
-    return jsonify(
-        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
-    ), 401
+    return (
+        jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
+        401,
+    )
 
   try:
     if 'wa_file' not in request.files:
@@ -906,7 +1099,9 @@ def cf_generate_whatsapp_links_excel():
             'RD1_Account': r1,
             'RD2_Account': r2,
             'Telugu_Message': msg,
-            'WhatsApp_Link': f'https://api.whatsapp.com/send?phone=91{m10}&text={encoded_msg}',
+            'WhatsApp_Link': (
+                f'https://api.whatsapp.com/send?phone=91{m10}&text={encoded_msg}'
+            ),
             'SMS_Link': f'sms:+91{m10}?body={encoded_msg}',
         })
       else:
@@ -945,7 +1140,9 @@ def cf_generate_whatsapp_links_excel():
         buf,
         as_attachment=True,
         download_name=f'{cf_lbl}_Telugu_WhatsApp_SMS_Links_{ts}.xlsx',
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        mimetype=(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ),
     )
   except Exception as e:
     return f'WhatsApp/SMS లింక్ జనరేషన్ లోపం: {str(e)}', 500
@@ -1044,7 +1241,9 @@ def cf_download_report_by_bank():
         if 'FILE NAME' in df_cross.columns
         else ('File Name' if 'File Name' in df_cross.columns else 'Bank Name')
     )
-    allowed_banks = [b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])]
+    allowed_banks = [
+        b.strip().upper() for b in CF_BANK_MAPPING.get(cf_name, [])
+    ]
 
     def match_bank(row):
       b_name = str(row.get(bank_col, '')).strip().upper()
@@ -1650,9 +1849,10 @@ Scan context: "{scan_type}". Use "" if not visible. Return ONLY raw JSON.
     )
 
     if resp.status_code != 200:
-      return jsonify(
-          {'status': 'fallback', 'message': f'AI API Status {resp.status_code}'}
-      )
+      return jsonify({
+          'status': 'fallback',
+          'message': f'AI API Status {resp.status_code}',
+      })
 
     raw_content = resp.json()['choices'][0]['message']['content'].strip()
     raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
@@ -1663,69 +1863,9 @@ Scan context: "{scan_type}". Use "" if not visible. Return ONLY raw JSON.
     return jsonify({'status': 'fallback', 'message': str(e)})
 
 
-def _resolve_bank_file_and_ifsc(
-    row_dict,
-    records_new,
-    email_map,
-    cf_name='',
-    default_file_name='',
-    allow_single_cf_bank=True,
-):
-  """రో లేదా ఫైల్ సెటప్ ఆధారంగా FILE NAME, Bank Name, IFSC code, EMAIL ID లను ఆటోమేట్ చేస్తుంది."""
-  raw_file = clean_str_cell(
-      row_dict.get('FILE NAME')
-      or row_dict.get('File Name')
-      or default_file_name
-      or ''
-  )
-  raw_bank = clean_str_cell(
-      row_dict.get('Bank Name') or row_dict.get('BANK NAME') or ''
-  )
-
-  # బ్యాంక్ పేరు ఇచ్చి FILE NAME లేకపోతే FILE_NAME_IFSC_MAPPING తో మ్యాచ్ చేయడం
-  resolved_file = raw_file.upper()
-  if not resolved_file and raw_bank:
-    bank_upper = re.sub(r'\s+', ' ', raw_bank.upper())
-    if bank_upper in FILE_NAME_IFSC_MAPPING:
-      resolved_file = bank_upper
-    else:
-      norm_bank = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', bank_upper)
-      if norm_bank in FILE_NAME_IFSC_MAPPING:
-        resolved_file = norm_bank
-      else:
-        for k in FILE_NAME_IFSC_MAPPING:
-          if bank_upper in k or k in bank_upper:
-            resolved_file = k
-            break
-
-  # ఇంకా ఖాళీగా ఉంటే CF కి కేటాయించిన బ్యాంకులలో ఒకే బ్యాంక్ ఉంటే దాన్ని తీసుకోవడం
-  if not resolved_file and allow_single_cf_bank and cf_name:
-    cf_banks = CF_BANK_MAPPING.get(str(cf_name).strip().upper(), [])
-    if len(cf_banks) == 1:
-      resolved_file = str(cf_banks[0]).strip().upper()
-
-  resolved_bank = raw_bank.upper() if raw_bank else resolved_file
-  resolved_ifsc = (
-      get_ifsc_for_file_name(resolved_file, records_new)
-      if resolved_file
-      else ''
-  )
-  if not resolved_ifsc:
-    existing_ifsc = clean_str_cell(
-        row_dict.get('IFSC code') or row_dict.get('IFSC CODE') or ''
-    ).upper()
-    if re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', existing_ifsc):
-      resolved_ifsc = existing_ifsc
-
-  resolved_email = clean_str_cell(
-      row_dict.get('EMAIL ID') or row_dict.get('Email ID') or ''
-  )
-  if not resolved_email and resolved_file:
-    resolved_email = email_map.get(resolved_file, '')
-
-  return resolved_file, resolved_bank, resolved_ifsc, resolved_email
-
-
+# ==============================================================================
+# 5. BULK UPLOAD TO NEW THRIFT DATA (DEDUPLICATED & OPTIMIZED)
+# ==============================================================================
 def _build_existing_records_excel_b64(existing_items, headers):
   """ఇన్సర్ట్ చేయకుండా ఆపివేసిన (ఇదివరకు ఉన్న) రికార్డ్‌లను Excel బైట్స్/base64 గా మారుస్తుంది."""
   wb = openpyxl.Workbook()
@@ -1766,24 +1906,28 @@ def _build_existing_records_excel_b64(existing_items, headers):
 def cf_bulk_upload_thrift():
   """NEW THRIFT DATA లో Aadhar Number కీ కాలమ్ తో బల్క్ ఇన్సర్ట్ / అప్‌డేట్ చేస్తుంది."""
   if not session.get('cf_logged_in'):
-    return jsonify(
-        {'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}
-    ), 401
+    return (
+        jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
+        401,
+    )
 
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
 
     if 'bulk_file' not in request.files:
-      return jsonify(
-          {'status': 'error', 'message': 'దయచేసి Excel లేదా CSV ఫైల్ అప్‌లోడ్ చేయండి!'}
-      )
+      return jsonify({
+          'status': 'error',
+          'message': 'దయచేసి Excel లేదా CSV ఫైల్ అప్‌లోడ్ చేయండి!',
+      })
 
     f = request.files['bulk_file']
     if not f or not f.filename:
       return jsonify({'status': 'error', 'message': 'ఫైల్ ఎంచుకోలేదు!'})
 
     sheet_name = str(request.form.get('bulk_sheet', '')).strip()
-    upload_mode = str(request.form.get('upload_mode', 'insert_only')).strip().lower()
+    upload_mode = (
+        str(request.form.get('upload_mode', 'insert_only')).strip().lower()
+    )
     default_file_name = str(request.form.get('default_file_name', '')).strip()
     cf_name = str(session.get('cf_name') or '').strip().upper()
 
@@ -1803,7 +1947,9 @@ def cf_bulk_upload_thrift():
 
     df.columns = [str(c).strip() for c in df.columns]
     aadhar_src_col = find_header_match(
-        df.columns, ['aadhar number', 'aadhaar number', 'aadhar', 'aadhaar', 'uid']
+        df.columns,
+        ['aadhar number', 'aadhaar number', 'aadhar', 'aadhaar', 'uid'],
+        allow_partial=False,
     )
     if not aadhar_src_col:
       return jsonify({
@@ -1814,456 +1960,31 @@ def cf_bulk_upload_thrift():
     client = get_sheets_client()
     spreadsheet = client.open(SPREADSHEET_NAME)
     ws = spreadsheet.worksheet('NEW THRIFT DATA')
-    headers = [str(h).strip() for h in ws.row_values(1)]
 
+    # ఒకే API కాల్ తో మొత్తం షీట్ డేటా తెచ్చుకోవడం
+    existing_all_rows = ws.get_all_values()
+    if not existing_all_rows:
+      return jsonify(
+          {'status': 'error', 'message': "'NEW THRIFT DATA' షీట్ ఖాళీగా ఉంది!"}
+      )
+
+    headers = [str(h).strip() for h in existing_all_rows[0]]
     if 'Aadhar Number' not in headers:
       return jsonify({
           'status': 'error',
           'message': "'NEW THRIFT DATA' షీట్‌లో 'Aadhar Number' కాలమ్ లేదు!",
       })
 
-    aadhar_col_idx = headers.index('Aadhar Number')
-    existing_all_rows = ws.get_all_values()
-    records_new = ws.get_all_records()
-
-    # బ్యాంక్ ఈమెయిల్ మ్యాపింగ్
-    email_map = {}
-    try:
-      ws_email = spreadsheet.worksheet('Bank_Email_Ids')
-      for er in ws_email.get_all_records():
-        ef = clean_str_cell(
-            er.get('FILE_NAME') or er.get('FILE NAME') or ''
-        ).upper()
-        em = clean_str_cell(er.get('OFFICIAL_EMAIL') or '')
-        if ef and em:
-          email_map[ef] = em
-    except Exception:
-      pass
-
-    # ఇప్పటికే షీట్‌లో ఉన్న ఆధార్ నంబర్ల మ్యాప్: aadhar_12 -> sheet_row_num
-    existing_aadhar_to_row = {}
-    for r_idx, r_vals in enumerate(existing_all_rows[1:], start=2):
-      if aadhar_col_idx < len(r_vals):
-        a_norm = normalize_aadhar(r_vals[aadhar_col_idx])
-        if len(a_norm) == 12 and a_norm not in existing_aadhar_to_row:
-          existing_aadhar_to_row[a_norm] = r_idx
-
-    # SNO గరిష్ట విలువ
-    max_sno = 0
-    if 'SNO' in headers:
-      sno_idx = headers.index('SNO')
-      for r_vals in existing_all_rows[1:]:
-        if sno_idx < len(r_vals):
-          s_txt = clean_str_cell(r_vals[sno_idx])
-          if s_txt.isdigit():
-            max_sno = max(max_sno, int(s_txt))
-
-    seen_in_file = set()
-    invalid_rows = []
-    existing_skipped_items = []
-    to_insert_rows = []
-    to_update_items = []
-
-    for idx, row in df.iterrows():
-      excel_row_no = idx + 2
-      raw_a = row.get(aadhar_src_col, '')
-      a_clean = normalize_aadhar(raw_a)
-
-      if len(a_clean) != 12:
-        invalid_rows.append({
-            'row_no': excel_row_no,
-            'raw_aadhar': clean_str_cell(raw_a),
-            'name': clean_str_cell(row.get('Name Of Benificiary', '')),
-            'reason': '12 అంకెల ఆధార్ నంబర్ లేదు',
-        })
-        continue
-
-      # ఫైల్ లోపలే డూప్లికేట్ ఉంటే స్కిప్
-      if a_clean in seen_in_file:
-        existing_skipped_items.append({
-            'reason': f'Uploaded File Duplicate (Row {excel_row_no})',
-            'existing_row': 'In Upload File',
-            'record': {'Aadhar Number': a_clean, 'Name Of Benificiary': clean_str_cell(row.get('Name Of Benificiary', ''))},
-        })
-        continue
-      seen_in_file.add(a_clean)
-
-      # షీట్ కాలమ్స్ ప్రకారం డేటా సిద్ధం చేయడం
-      mapped_dict = {}
-      for h in headers:
-        matched_src = find_header_match(df.columns, [h])
-        mapped_dict[h] = clean_str_cell(row.get(matched_src, '')) if matched_src else ''
-
-      mapped_dict['Aadhar Number'] = a_clean
-
-      # ఆటోమేటిక్ CF Allotment లాజిక్
-      analyzed_cf = analyze_cf_name(
-          mapped_dict.get('H.NO. Unit H.No', ''),
-          mapped_dict.get('Area', ''),
-          mapped_dict.get('H.NO. Residentional H.No', ''),
-      )
-      mapped_dict['NAME OF CF'] = analyzed_cf or cf_name
-
-      # ఆటోమేటిక్ బ్యాంక్ FILE NAME, Bank Name, IFSC, EMAIL ID లాజిక్
-      res_file, res_bank, res_ifsc, res_email = _resolve_bank_file_and_ifsc(
-          mapped_dict,
-          records_new,
-          email_map,
-          cf_name=mapped_dict['NAME OF CF'],
-          default_file_name=default_file_name,
-          allow_single_cf_bank=True,
-      )
-      if res_file:
-        mapped_dict['FILE NAME'] = res_file
-      if res_bank:
-        mapped_dict['Bank Name'] = res_bank
-      if res_ifsc:
-        mapped_dict['IFSC code'] = res_ifsc
-      if res_email:
-        mapped_dict['EMAIL ID'] = res_email
-
-      # డిఫాల్ట్ విలువలు (ఖాళీగా ఉంటే)
-      if not mapped_dict.get('Caste'):
-        mapped_dict['Caste'] = 'BC'
-      if not mapped_dict.get('Profession'):
-        mapped_dict['Profession'] = 'POWER LOOM WEAVER'
-      if not mapped_dict.get('DISTRICT NAME'):
-        mapped_dict['DISTRICT NAME'] = 'RAJANNA SIRCILLA'
-      if not mapped_dict.get('MANDAL NAME'):
-        mapped_dict['MANDAL NAME'] = 'SIRCILLA'
-      if not mapped_dict.get('BANK SENT'):
-        mapped_dict['BANK SENT'] = 'NOT SENT'
-
-      # ఇప్పటికే షీట్‌లో ఉందో లేదో తనిఖీ
-      if a_clean in existing_aadhar_to_row:
-        sheet_r = existing_aadhar_to_row[a_clean]
-        old_r_vals = (
-            existing_all_rows[sheet_r - 1]
-            if (sheet_r - 1) < len(existing_all_rows)
-            else []
-        )
-        old_rec = {
-            h: (old_r_vals[i] if i < len(old_r_vals) else '')
-            for i, h in enumerate(headers)
+    # existing_all_rows నుండి records_new తయారు చేయడం (అదనపు API కాల్ లేకుండా)
+    records_new = [
+        {
+            headers[i]: (r_vals[i] if i < len(r_vals) else '')
+            for i in range(len(headers))
         }
-        old_rec['Aadhar Number'] = a_clean
-
-        if upload_mode == 'update_existing':
-          to_update_items.append({
-              'sheet_row': sheet_r,
-              'aadhar': a_clean,
-              'old_vals': old_r_vals,
-              'new_dict': mapped_dict,
-          })
-        else:
-          # Insert Only మోడ్: ఇన్సర్ట్ చేయకుండా ఆపివేసి డౌన్‌లోడ్ లిస్ట్‌లో చేర్చడం
-          existing_skipped_items.append({
-              'reason': f'Already exists in NEW THRIFT DATA (Row {sheet_r})',
-              'existing_row': sheet_r,
-              'record': old_rec,
-          })
-      else:
-        max_sno += 1
-        mapped_dict['SNO'] = str(max_sno)
-        new_row_list = [mapped_dict.get(h, '') for h in headers]
-        to_insert_rows.append(new_row_list)
-
-    # అప్‌డేట్‌లు అమలు చేయడం (update_existing మోడ్ అయితే)
-    updated_count = 0
-    for upd in to_update_items:
-      r_num = upd['sheet_row']
-      a_val = upd['aadhar']
-      old_vals = upd['old_vals']
-      n_dict = upd['new_dict']
-
-      backup_row_before_update(
-          spreadsheet, headers, old_vals, r_num, cf_name, a_val
-      )
-
-      merged = list(old_vals[: len(headers)])
-      while len(merged) < len(headers):
-        merged.append('')
-
-      for idx_h, h_name in enumerate(headers):
-        if h_name == 'Aadhar Number':
-          merged[idx_h] = a_val
-          continue
-        incoming_v = clean_str_cell(n_dict.get(h_name, ''))
-        if incoming_v != '':
-          merged[idx_h] = incoming_v
-
-      end_col_letter = get_column_letter(len(headers))
-      ws.update(
-          f'A{r_num}:{end_col_letter}{r_num}',
-          [merged],
-          value_input_option='USER_ENTERED',
-      )
-      updated_count += 1
-
-    # కొత్త రికార్డ్‌లను చివరి డేటా రో తర్వాత బల్క్ ఇన్సర్ట్ చేయడం
-    inserted_count = 0
-    if to_insert_rows:
-      start_row = get_last_non_empty_row(ws) + 1
-      end_col_letter = get_column_letter(len(headers))
-      end_row = start_row + len(to_insert_rows) - 1
-      ws.update(
-          f'A{start_row}:{end_col_letter}{end_row}',
-          to_insert_rows,
-          value_input_option='USER_ENTERED',
-      )
-      inserted_count = len(to_insert_rows)
-
-    _cache_invalidate('ben:')
-    _cache_invalidate('bank_files')
-
-    existing_b64 = (
-        _build_existing_records_excel_b64(existing_skipped_items, headers)
-        if existing_skipped_items
-        else ''
-    )
-
-    msg = (
-        f"పూర్తయింది! కొత్తవి Insert: {inserted_count} | "
-        f"Update: {updated_count} | "
-        f"ఇదివరకు ఉన్నవి (Skipped): {len(existing_skipped_items)} | "
-        f"చెల్లనివి: {len(invalid_rows)}"
-    )
-
-    return jsonify({
-        'status': 'success',
-        'message': msg,
-        'inserted_count': inserted_count,
-        'updated_count': updated_count,
-        'existing_skipped_count': len(existing_skipped_items),
-        'invalid_count': len(invalid_rows),
-        'existing_excel_b64': existing_b64,
-        'existing_filename': f"Existing_Records_Skipped_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-    })
-
-  except Exception as e:
-    return jsonify({'status': 'error', 'message': f'బల్క్ ప్రాసెస్ లోపం: {str(e)}'}), 500
-
-
-def _norm_col_key(text):
-  """కాలమ్ పేర్లను పోల్చడానికి spaces, underscores, dots, hyphens తొలగిస్తుంది."""
-  s = re.sub(r'[^a-z0-9]+', ' ', str(text or '').strip().lower())
-  return re.sub(r'\s+', ' ', s).strip()
-
-
-def find_header_match(headers, candidates, allow_partial=True):
-  """
-    హెడర్ జాబితాలో సరిపోయే కాలమ్‌ను సురక్షితంగా కనుగొంటుంది.
-    చిన్న పదాల వల్ల 'Name' -> 'Father Name' లాంటి తప్పు సబ్‌స్ట్రింగ్ మ్యాచ్‌లను నివారిస్తుంది.
-    """
-  if not headers or not candidates:
-    return None
-
-  exact_map = {str(h).strip().lower(): h for h in headers}
-  norm_map = {_norm_col_key(h): h for h in headers}
-
-  for c in candidates:
-    cl = str(c).strip().lower()
-    if cl in exact_map:
-      return exact_map[cl]
-
-  for c in candidates:
-    cn = _norm_col_key(c)
-    if cn and cn in norm_map:
-      return norm_map[cn]
-
-  if not allow_partial:
-    return None
-
-  # Partial match: కనీసం 4 అక్షరాలు ఉన్న candidates కు మాత్రమే, పూర్తి పదం/సెగ్మెంట్ సరిపోతేనే అనుమతిస్తాము
-  for c in candidates:
-    cn = _norm_col_key(c)
-    if len(cn) < 4:
-      continue
-    pattern = re.compile(rf'(?:^|\b|_|\s){re.escape(cn)}(?:$|\b|_|\s)', re.IGNORECASE)
-    for h in headers:
-      hn = _norm_col_key(h)
-      if pattern.search(hn):
-        return h
-
-  return None
-
-
-def _clean_ifsc(val):
-  """11 అక్షరాల చెల్లుబాటు అయ్యే IFSC కోడ్‌ను క్లీన్ చేసి తిరిగి ఇస్తుంది (లేదా '')."""
-  s = re.sub(r'[^A-Z0-9]', '', clean_str_cell(val).upper())
-  if re.match(r'^[A-Z]{4}0[A-Z0-9]{6}$', s):
-    return s
-  return ''
-
-
-def _build_ifsc_to_file_map(records_new=None):
-  """IFSC కోడ్ నుండి FILE NAME ను కనుగొనడానికి రివర్స్ మ్యాపింగ్ సిద్ధం చేస్తుంది."""
-  ifsc_to_file = {}
-
-  # ప్రాధాన్యత క్రమంలో మాస్టర్ మ్యాపింగ్ నుండి IFSC -> FILE NAME
-  for f_name, ifsc_code in FILE_NAME_IFSC_MAPPING.items():
-    c_ifsc = _clean_ifsc(ifsc_code)
-    c_file = re.sub(r'\s+', ' ', str(f_name).strip().upper())
-    if c_ifsc and c_file and c_ifsc not in ifsc_to_file:
-      ifsc_to_file[c_ifsc] = c_file
-
-  # షీట్‌లోని ఇప్పటికే ఉన్న రికార్డుల నుండి కూడా IFSC -> FILE NAME నేర్చుకోవడం
-  if records_new:
-    for r in records_new:
-      r_file = re.sub(r'\s+', ' ', clean_str_cell(r.get('FILE NAME') or r.get('Bank Name') or '').upper())
-      r_ifsc = _clean_ifsc(r.get('IFSC code') or r.get('IFSC CODE') or '')
-      if r_ifsc and r_file and r_ifsc not in ifsc_to_file:
-        ifsc_to_file[r_ifsc] = r_file
-
-  return ifsc_to_file
-
-
-def _resolve_bank_file_and_ifsc(
-    row_dict,
-    records_new,
-    email_map,
-    cf_name='',
-    default_file_name='',
-    allow_single_cf_bank=True,
-    ifsc_to_file_map=None,
-):
-  """
-    రో లో ఉన్న IFSC code, Bank Name, FILE NAME లేదా CF మ్యాపింగ్ ఆధారంగా
-    కచ్చితమైన FILE NAME, Bank Name, IFSC code, EMAIL ID లను నిర్ణయిస్తుంది.
-    """
-  if ifsc_to_file_map is None:
-    ifsc_to_file_map = _build_ifsc_to_file_map(records_new)
-
-  raw_file = re.sub(
-      r'\s+',
-      ' ',
-      clean_str_cell(row_dict.get('FILE NAME') or row_dict.get('File Name') or default_file_name or '').upper(),
-  )
-  raw_bank = re.sub(
-      r'\s+',
-      ' ',
-      clean_str_cell(row_dict.get('Bank Name') or row_dict.get('BANK NAME') or '').upper(),
-  )
-  raw_ifsc = _clean_ifsc(row_dict.get('IFSC code') or row_dict.get('IFSC CODE') or '')
-
-  resolved_file = ''
-
-  # 1. ముందుగా IFSC కోడ్ ఆధారంగా FILE NAME కనుగొనడం (చాలా కచ్చితమైనది)
-  if raw_ifsc and raw_ifsc in ifsc_to_file_map:
-    resolved_file = ifsc_to_file_map[raw_ifsc]
-
-  # 2. FILE NAME నేరుగా మ్యాపింగ్‌లో ఉంటే దాన్ని వాడటం
-  if not resolved_file and raw_file:
-    norm_file = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', raw_file)
-    if raw_file in FILE_NAME_IFSC_MAPPING:
-      resolved_file = raw_file
-    elif norm_file in FILE_NAME_IFSC_MAPPING:
-      resolved_file = norm_file
-    else:
-      resolved_file = raw_file
-
-  # 3. Bank Name ఆధారంగా FILE NAME మ్యాచ్ చేయడం
-  if not resolved_file and raw_bank:
-    norm_bank = re.sub(r'BOINPARI|BOINPALLE', 'BOINPALLI', raw_bank)
-    if raw_bank in FILE_NAME_IFSC_MAPPING:
-      resolved_file = raw_bank
-    elif norm_bank in FILE_NAME_IFSC_MAPPING:
-      resolved_file = norm_bank
-    else:
-      for k in FILE_NAME_IFSC_MAPPING:
-        if raw_bank == k or norm_bank == k:
-          resolved_file = k
-          break
-      if not resolved_file:
-        for k in FILE_NAME_IFSC_MAPPING:
-          if raw_bank in k or norm_bank in k:
-            resolved_file = k
-            break
-
-  # 4. ఇంకా ఖాళీగా ఉంటే CF కు కేటాయించిన బ్యాంకులలో ఒకే బ్యాంక్ ఉంటే దాన్ని తీసుకోవడం
-  if not resolved_file and allow_single_cf_bank and cf_name:
-    cf_banks = [
-        re.sub(r'\s+', ' ', str(b).strip().upper())
-        for b in CF_BANK_MAPPING.get(str(cf_name).strip().upper(), [])
+        for r_vals in existing_all_rows[1:]
     ]
-    if len(cf_banks) == 1:
-      resolved_file = cf_banks[0]
-
-  # IFSC కోడ్ నిర్ణయించడం: రో లో చెల్లుబాటు అయ్యే IFSC ఉంటే అదే, లేకపోతే resolved_file నుండి ఆటోమేటిక్ IFSC
-  resolved_ifsc = raw_ifsc
-  if not resolved_ifsc and resolved_file:
-    resolved_ifsc = _clean_ifsc(get_ifsc_for_file_name(resolved_file, records_new))
-
-  # IFSC ద్వారా కొత్త FILE NAME దొరికి, ముందే ఉన్న FILE NAME తో విభేదిస్తే IFSC మ్యాచ్‌కే ప్రాధాన్యత
-  if raw_ifsc and raw_ifsc in ifsc_to_file_map:
-    resolved_file = ifsc_to_file_map[raw_ifsc]
-
-  resolved_bank = raw_bank if raw_bank else resolved_file
-
-  resolved_email = clean_str_cell(row_dict.get('EMAIL ID') or row_dict.get('Email ID') or '')
-  if not resolved_email and resolved_file:
-    resolved_email = email_map.get(resolved_file, '')
-
-  return resolved_file, resolved_bank, resolved_ifsc, resolved_email
-
-
-def _clean_row_before_cf_mapping(mapped_dict):
-  """CF మ్యాపింగ్‌కు ముందు ఇంటి నంబర్లు, ఏరియా డేటాను క్లీన్ చేస్తుంది."""
-  cleaned_unit_hno = clean_hno_for_matching(mapped_dict.get('H.NO. Unit H.No', ''))
-  cleaned_res_hno = clean_hno_for_matching(mapped_dict.get('H.NO. Residentional H.No', ''))
-  cleaned_area = clean_area_for_matching(mapped_dict.get('Area', ''))
-  return cleaned_unit_hno, cleaned_res_hno, cleaned_area
-
-
-@cf_bp.route('/cf/bulk-upload-thrift', methods=['POST'])
-def cf_bulk_upload_thrift():
-  """NEW THRIFT DATA లో Aadhar Number కీ కాలమ్ తో బల్క్ ఇన్సర్ట్ / అప్‌డేట్ చేస్తుంది."""
-  if not session.get('cf_logged_in'):
-    return jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}), 401
-
-  try:
-    from app import get_sheets_client, SPREADSHEET_NAME
-
-    if 'bulk_file' not in request.files:
-      return jsonify({'status': 'error', 'message': 'దయచేసి Excel లేదా CSV ఫైల్ అప్‌లోడ్ చేయండి!'})
-
-    f = request.files['bulk_file']
-    if not f or not f.filename:
-      return jsonify({'status': 'error', 'message': 'ఫైల్ ఎంచుకోలేదు!'})
-
-    sheet_name = str(request.form.get('bulk_sheet', '')).strip()
-    upload_mode = str(request.form.get('upload_mode', 'insert_only')).strip().lower()
-    default_file_name = str(request.form.get('default_file_name', '')).strip()
-    cf_name = str(session.get('cf_name') or '').strip().upper()
-
-    if f.filename.lower().endswith('.csv'):
-      df = pd.read_csv(f, dtype=str)
-    else:
-      xl = pd.ExcelFile(f)
-      target_sheet = sheet_name if sheet_name in xl.sheet_names else xl.sheet_names[0]
-      df = pd.read_excel(xl, sheet_name=target_sheet, dtype=str)
-
-    if df.empty:
-      return jsonify({'status': 'error', 'message': 'అప్‌లోడ్ చేసిన ఫైల్‌లో డేటా లేదు!'})
-
-    df.columns = [str(c).strip() for c in df.columns]
-    aadhar_src_col = find_header_match(
-        df.columns, ['aadhar number', 'aadhaar number', 'aadhar', 'aadhaar', 'uid'], allow_partial=False
-    )
-    if not aadhar_src_col:
-      return jsonify({'status': 'error', 'message': "ఫైల్‌లో 'Aadhar Number' కాలమ్ కనుగొనబడలేదు!"})
-
-    client = get_sheets_client()
-    spreadsheet = client.open(SPREADSHEET_NAME)
-    ws = spreadsheet.worksheet('NEW THRIFT DATA')
-    headers = [str(h).strip() for h in ws.row_values(1)]
-
-    if 'Aadhar Number' not in headers:
-      return jsonify({'status': 'error', 'message': "'NEW THRIFT DATA' షీట్‌లో 'Aadhar Number' కాలమ్ లేదు!"})
 
     aadhar_col_idx = headers.index('Aadhar Number')
-    existing_all_rows = ws.get_all_values()
-    records_new = ws.get_all_records()
     ifsc_to_file_map = _build_ifsc_to_file_map(records_new)
 
     # బ్యాంక్ ఈమెయిల్ మ్యాపింగ్
@@ -2271,16 +1992,25 @@ def cf_bulk_upload_thrift():
     try:
       ws_email = spreadsheet.worksheet('Bank_Email_Ids')
       for er in ws_email.get_all_records():
-        ef = re.sub(r'\s+', ' ', clean_str_cell(er.get('FILE_NAME') or er.get('FILE NAME') or '').upper())
+        ef = re.sub(
+            r'\s+',
+            ' ',
+            clean_str_cell(
+                er.get('FILE_NAME') or er.get('FILE NAME') or ''
+            ).upper(),
+        )
         em = clean_str_cell(er.get('OFFICIAL_EMAIL') or '')
         if ef and em:
           email_map[ef] = em
     except Exception:
       pass
 
-    # ఇప్పటికే షీట్‌లో ఉన్న ఆధార్ నంబర్ల మ్యాప్
+    # ఇప్పటికే షీట్‌లో ఉన్న ఆధార్ నంబర్ల మ్యాప్ మరియు చివరి నాన్-ఎమ్ప్టీ రో
     existing_aadhar_to_row = {}
+    last_non_empty_row = 1
     for r_idx, r_vals in enumerate(existing_all_rows[1:], start=2):
+      if any(str(cell).strip() != '' for cell in r_vals):
+        last_non_empty_row = r_idx
       if aadhar_col_idx < len(r_vals):
         a_norm = normalize_aadhar(r_vals[aadhar_col_idx])
         if len(a_norm) == 12 and a_norm not in existing_aadhar_to_row:
@@ -2308,9 +2038,13 @@ def cf_bulk_upload_thrift():
             b_int = int(b_txt)
             max_bank_sno_global = max(max_bank_sno_global, b_int)
             if fname_idx != -1 and fname_idx < len(r_vals):
-              f_key = re.sub(r'\s+', ' ', clean_str_cell(r_vals[fname_idx]).upper())
+              f_key = re.sub(
+                  r'\s+', ' ', clean_str_cell(r_vals[fname_idx]).upper()
+              )
               if f_key:
-                max_bank_sno_by_file[f_key] = max(max_bank_sno_by_file.get(f_key, 0), b_int)
+                max_bank_sno_by_file[f_key] = max(
+                    max_bank_sno_by_file.get(f_key, 0), b_int
+                )
 
     seen_in_file = set()
     invalid_rows = []
@@ -2338,7 +2072,9 @@ def cf_bulk_upload_thrift():
             'existing_row': 'In Upload File',
             'record': {
                 'Aadhar Number': a_clean,
-                'Name Of Benificiary': clean_str_cell(row.get('Name Of Benificiary', '')),
+                'Name Of Benificiary': clean_str_cell(
+                    row.get('Name Of Benificiary', '')
+                ),
             },
         })
         continue
@@ -2350,12 +2086,16 @@ def cf_bulk_upload_thrift():
         matched_src = find_header_match(df.columns, [h], allow_partial=False)
         if not matched_src:
           matched_src = find_header_match(df.columns, [h], allow_partial=True)
-        mapped_dict[h] = clean_str_cell(row.get(matched_src, '')) if matched_src else ''
+        mapped_dict[h] = (
+            clean_str_cell(row.get(matched_src, '')) if matched_src else ''
+        )
 
       mapped_dict['Aadhar Number'] = a_clean
 
       # 1. ముందుగా H.No మరియు Area డేటాను క్లీన్ చేసి, ఆ తర్వాతే CF మ్యాపింగ్ చేయడం
-      clean_uhno, clean_rhno, clean_area = _clean_row_before_cf_mapping(mapped_dict)
+      clean_uhno, clean_rhno, clean_area = _clean_row_before_cf_mapping(
+          mapped_dict
+      )
       analyzed_cf = analyze_cf_name(clean_uhno, clean_area, clean_rhno)
       mapped_dict['NAME OF CF'] = analyzed_cf or cf_name
 
@@ -2420,8 +2160,10 @@ def cf_bulk_upload_thrift():
         max_sno += 1
         mapped_dict['SNO'] = str(max_sno)
 
-        # ఆటోమేటిక్ BANK_SNO కేటాయింపు (ఫైల్ వారీగా లేదా గ్లోబల్‌గా)
-        if 'BANK_SNO' in headers and not clean_str_cell(mapped_dict.get('BANK_SNO', '')):
+        # ఆటోమేటిక్ BANK_SNO కేటాయింపు
+        if 'BANK_SNO' in headers and not clean_str_cell(
+            mapped_dict.get('BANK_SNO', '')
+        ):
           if res_file:
             next_bsno = max_bank_sno_by_file.get(res_file, 0) + 1
             max_bank_sno_by_file[res_file] = next_bsno
@@ -2442,7 +2184,9 @@ def cf_bulk_upload_thrift():
       old_vals = upd['old_vals']
       n_dict = upd['new_dict']
 
-      backup_row_before_update(spreadsheet, headers, old_vals, r_num, cf_name, a_val)
+      backup_row_before_update(
+          spreadsheet, headers, old_vals, r_num, cf_name, a_val
+      )
 
       merged = list(old_vals[: len(headers)])
       while len(merged) < len(headers):
@@ -2467,7 +2211,7 @@ def cf_bulk_upload_thrift():
     # కొత్త రికార్డ్‌లను ఇన్సర్ట్ చేయడం
     inserted_count = 0
     if to_insert_rows:
-      start_row = get_last_non_empty_row(ws) + 1
+      start_row = last_non_empty_row + 1
       end_col_letter = get_column_letter(len(headers))
       end_row = start_row + len(to_insert_rows) - 1
       ws.update(
@@ -2487,10 +2231,10 @@ def cf_bulk_upload_thrift():
     )
 
     msg = (
-        f"పూర్తయింది! కొత్తవి Insert: {inserted_count} | "
-        f"Update: {updated_count} | "
-        f"ఇదివరకు ఉన్నవి (Skipped): {len(existing_skipped_items)} | "
-        f"చెల్లనివి: {len(invalid_rows)}"
+        f'పూర్తయింది! కొత్తవి Insert: {inserted_count} | '
+        f'Update: {updated_count} | '
+        f'ఇదివరకు ఉన్నవి (Skipped): {len(existing_skipped_items)} | '
+        f'చెల్లనివి: {len(invalid_rows)}'
     )
 
     return jsonify({
@@ -2501,8 +2245,13 @@ def cf_bulk_upload_thrift():
         'existing_skipped_count': len(existing_skipped_items),
         'invalid_count': len(invalid_rows),
         'existing_excel_b64': existing_b64,
-        'existing_filename': f"Existing_Records_Skipped_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        'existing_filename': (
+            f"Existing_Records_Skipped_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        ),
     })
 
   except Exception as e:
-    return jsonify({'status': 'error', 'message': f'బల్క్ ప్రాసెస్ లోపం: {str(e)}'}), 500
+    return (
+        jsonify({'status': 'error', 'message': f'బల్క్ ప్రాసెస్ లోపం: {str(e)}'}),
+        500,
+    )
