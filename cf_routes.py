@@ -6,7 +6,7 @@ import os
 import re
 import time
 from urllib.parse import quote
-from flask import Blueprint, jsonify, make_response, redirect, render_template, request, session, url_for
+from flask import Blueprint, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -18,11 +18,14 @@ cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 # ⚡ ఇన్-మెమరీ TTL క్యాష్ (రిఫ్రెష్ ఆప్షన్ & షార్ట్ TTL తో సురక్షితం)
 _CACHE = {}
 CACHE_TTL_SECONDS = 15
-# 👑 పూర్తి నియంత్రణ (All CFs / All Banks View & Edit) ఉన్న CF లు
+
+# 👑 పూర్తి నియంత్రణ (All CFs / All Banks View & Edit & Bulk Upload) ఉన్న CF లు
 FULL_CONTROL_CFS = {'SRIKANTH'}  # అవసరమైతే మరికొందరి పేర్లు ఇక్కడ చేర్చండి
 
+
 def has_full_control(cf_name):
-    return str(cf_name or '').strip().upper() in FULL_CONTROL_CFS
+  return str(cf_name or '').strip().upper() in FULL_CONTROL_CFS
+
 
 def _cache_get(key):
   entry = _CACHE.get(key)
@@ -442,7 +445,7 @@ def find_header_match(headers, candidates, allow_partial=True):
     if len(cn) < 4:
       continue
     pattern = re.compile(
-        rf'(?:^||_|\s){re.escape(cn)}(?:$||_|\s)', re.IGNORECASE
+        rf'(?:^| |_|\s){re.escape(cn)}(?:$| |_|\s)', re.IGNORECASE
     )
     for h_norm, h_orig in norm_map.items():
       if pattern.search(h_norm):
@@ -469,13 +472,14 @@ def clean_hno_for_matching(hno_val):
   s = re.sub(r'\s+', ' ', s).strip(' -/')
   return s
 
+
 def clean_area_for_matching(area_val):
   if area_val is None:
     return ''
   s = str(area_val).strip().upper()
   if not s or s in ['NAN', 'NONE', 'NULL', '-']:
     return ''
-  s = re.sub(r'H\.?\s*N\.?\s*O\.?', ' ', s, flags=re.IGNORECASE)
+  s = re.sub(r' H\.?\s*N\.?\s*O\.? ', ' ', s, flags=re.IGNORECASE)
   s = re.sub(r'[^A-Z0-9\s]', ' ', s)
   s = re.sub(r'\s+', ' ', s).strip()
   return s
@@ -489,7 +493,6 @@ def extract_block_and_door(cleaned_hno):
   if not cleaned_hno:
     return None, None
 
-  # ముందు స్పేస్ లేకపోయినా పనిచేసేలా సరిచేశాం
   m = re.search(
       r'(?:^|[^\d-])(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno
   )
@@ -503,6 +506,7 @@ def extract_block_and_door(cleaned_hno):
     return f'{int(m2.group(1))}-{int(m2.group(2))}', None
 
   return None, None
+
 
 def _clean_ifsc(val):
   """11 అక్షరాల చెల్లుబాటు అయ్యే IFSC కోడ్‌ను క్లీన్ చేసి తిరిగి ఇస్తుంది (లేదా '')."""
@@ -844,6 +848,7 @@ def cf_dashboard():
       'cf_dashboard.html',
       cf_name=cf_name,
       has_full_control=has_full_control(cf_name),
+      all_cf_names=sorted(CF_PASSWORDS.keys()),
       months=MONTH_MAP,
       allotted_banks=allotted_banks,
       allotted_wards=allotted_wards,
@@ -869,31 +874,25 @@ def cf_my_beneficiaries():
         jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
         401,
     )
- 
+
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
 
     cf_name = str(session.get('cf_name') or '').strip().upper()
+    full_ctrl = has_full_control(cf_name)
     current_month = str(request.args.get('month_number', '1')).strip()
     bank_filter = str(request.args.get('bank_name', 'ALL')).strip().upper()
+    cf_filter = str(
+        request.args.get('cf_filter', 'ALL' if full_ctrl else 'MINE')
+    ).strip().upper()
     force_refresh = str(request.args.get('refresh', '')).strip() in (
         '1',
         'true',
         'yes',
     )
 
+    cache_key = f'ben:{cf_name}:{current_month}:{bank_filter}:{cf_filter}'
 
-    cf_filter = str(request.args.get('cf_filter', 'MINE')).strip().upper()
-    if not has_full_control(cf_name):
-      if col_cf and row_cf != cf_name:
-        continue
-    else:
-      if cf_filter and cf_filter not in ('ALL', 'MINE'):
-        if row_cf != cf_filter:
-            continue
-
-    cache_key = f"ben:{cf_name}:{current_month}:{bank_filter}:{cf_filter}"
-    
     if force_refresh:
       _cache_invalidate(f'ben:{cf_name}:')
     else:
@@ -963,8 +962,18 @@ def cf_my_beneficiaries():
         return clean_str_cell(row[pos]) if pos < len(row) else ''
 
       row_cf = cell_v(col_cf).upper()
-      if col_cf and row_cf != cf_name:
-        continue
+
+      # 👑 Full Control ఉన్న CF అయితే CF ఫిల్టర్ ఆధారంగా; సాధారణ CF అయితే స్వంత రికార్డులు మాత్రమే
+      if not full_ctrl:
+        if col_cf and row_cf != cf_name:
+          continue
+      else:
+        if cf_filter == 'MINE':
+          if col_cf and row_cf != cf_name:
+            continue
+        elif cf_filter and cf_filter != 'ALL':
+          if col_cf and row_cf != cf_filter:
+            continue
 
       b_name = cell_v(col_file_bank)
       if bank_filter and bank_filter != 'ALL':
@@ -985,6 +994,7 @@ def cf_my_beneficiaries():
           'row_index': r_idx,
           'sno': sno_v or str(len(results) + 1),
           'masked_id': f'SNO #{sno_v}' if sno_v else f'Row {r_idx}',
+          'cf_name': row_cf,
           'name': cell_v(col_name),
           'phone': phone_v,
           'bank_name': b_name,
@@ -1013,7 +1023,6 @@ def cf_quick_update_beneficiary():
         jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
         401,
     )
-    
 
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
@@ -1033,10 +1042,11 @@ def cf_quick_update_beneficiary():
     if col_cf and not has_full_control(cf_name):
       cf_col_idx = headers.index(col_cf) + 1
       owner_cf = clean_str_cell(ws.cell(row_index, cf_col_idx).value).upper()
-    if owner_cf != cf_name:
-        return jsonify({'status': 'error', 'message': 'ఈ రికార్డును మార్చే అనుమతి లేదు.'})
-      
-    
+      if owner_cf != cf_name:
+        return jsonify(
+            {'status': 'error', 'message': 'ఈ రికార్డును మార్చే అనుమతి లేదు.'}
+        )
+
     existing_vals = ws.row_values(row_index)
     aadhar_col_idx = (
         headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
@@ -1074,7 +1084,7 @@ def cf_quick_update_beneficiary():
           clean_v = clean_str_cell(payload.get(key))
         ws.update_cell(row_index, c_idx, clean_v)
 
-    _cache_invalidate(f'ben:{cf_name}:')
+    _cache_invalidate('ben:')
     return jsonify(
         {'status': 'success', 'message': 'వివరాలు అప్‌డేట్ అయ్యాయి!'}
     )
@@ -2010,6 +2020,13 @@ def cf_bulk_upload_thrift():
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
 
+    cf_name = str(session.get('cf_name') or '').strip().upper()
+    if not has_full_control(cf_name):
+      return (
+          jsonify({'status': 'error', 'message': 'బల్క్ అప్‌లోడ్ అనుమతి లేదు.'}),
+          403,
+      )
+
     if 'bulk_file' not in request.files:
       return jsonify({
           'status': 'error',
@@ -2025,10 +2042,6 @@ def cf_bulk_upload_thrift():
         str(request.form.get('upload_mode', 'insert_only')).strip().lower()
     )
     default_file_name = str(request.form.get('default_file_name', '')).strip()
-    cf_name = str(session.get('cf_name') or '').strip().upper()
-
-    if not has_full_control(cf_name):
-    return jsonify({'status': 'error', 'message': 'బల్క్ అప్‌లోడ్ అనుమతి లేదు . '}), 403
 
     if f.filename.lower().endswith('.csv'):
       df = pd.read_csv(f, dtype=str)
