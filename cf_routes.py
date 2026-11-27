@@ -448,7 +448,7 @@ def find_header_match(headers, candidates, allow_partial=True):
 
 
 def clean_hno_for_matching(hno_val):
-  if hno_val is None:
+  if hno_val is None or (isinstance(hno_val, float) and pd.isna(hno_val)):
     return ''
   s = str(hno_val).strip().upper()
   if not s or s in ['NAN', 'NONE', 'NULL', '-']:
@@ -459,12 +459,11 @@ def clean_hno_for_matching(hno_val):
       s,
       flags=re.IGNORECASE,
   )
-  s = re.sub(r'H\.?\s*N\.?\s*O\.?', '', s, flags=re.IGNORECASE)
+  s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', '', s, flags=re.IGNORECASE)
   s = re.sub(r'\s*-\s*', '-', s)
   s = re.sub(r'\s*/\s*', '/', s)
   s = re.sub(r'\s+', ' ', s).strip(' -/')
   return s
-
 
 def clean_area_for_matching(area_val):
   if area_val is None:
