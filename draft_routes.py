@@ -1,16 +1,41 @@
-import imaplib
-import os
-import threading
-import time
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import imaplib
+import os
+import threading
+import time
 from flask import Blueprint, current_app, jsonify, render_template, request
 from num2words import num2words
 import pandas as pd
 
 draft_bp = Blueprint('draft_bp', __name__)
+
+# బ్యాక్‌గ్రౌండ్ టాస్క్‌ల లైవ్ స్టేటస్ ట్రాక్ చేయడానికి మెమరీ స్టోర్
+LIVE_TASK_STATUS = {}
+
+EXPECTED_HEADERS = [
+    'Timestamp',
+    'Process Step',
+    'Bank Name',
+    'Month',
+    'Batch',
+    'Cheque No',
+    'Cheque Date',
+    'Amount',
+    'Beneficiaries Count',
+    'Status',
+]
+
+
+def get_or_create_transactions_ws(sh):
+  try:
+    ws = sh.worksheet('Bank_Transactions')
+  except Exception:
+    ws = sh.add_worksheet(title='Bank_Transactions', rows=500, cols=12)
+    ws.append_row(EXPECTED_HEADERS)
+  return ws
 
 
 @draft_bp.route('/draft-generator')
@@ -25,7 +50,7 @@ def draft_generator_page():
 def get_bank_doc_details():
   """ఫ్రంట్ ఎండ్ నుండి బ్యాంక్ పేరు బట్టి PREPARE_DOC_RD_TRANSACTIONS నుండి డిఫాల్ట్ విలువలు పంపడానికి"""
   try:
-    from app import get_sheets_client, SPREADSHEET_NAME
+    from app import SPREADSHEET_NAME, get_sheets_client
 
     bank_name = request.args.get('bank_name', '').strip()
     client = get_sheets_client()
@@ -33,10 +58,7 @@ def get_bank_doc_details():
     ws_doc = sh.worksheet('PREPARE_DOC_RD_TRANSACTIONS')
     records = ws_doc.get_all_records()
 
-    default_data = {
-        'Cheque_No': '',
-        'Cheque_Date': '',
-    }
+    default_data = {'Cheque_No': '', 'Cheque_Date': ''}
     for row in records:
       if str(row.get('FILE_NAME', '')).strip().lower() == bank_name.lower():
         default_data = {
@@ -49,8 +71,127 @@ def get_bank_doc_details():
     return jsonify({'status': 'error', 'message': str(e)})
 
 
-def background_draft_task(data, app_context):
-  """బ్యాక్‌గ్రౌండ్‌లో 1 నుండి 12 దశలకు అనుగుణంగా (Excel, Word, IMAP) ప్రాసెసింగ్"""
+# ==============================================================================
+# LIVE BANK TRANSACTIONS CRUD APIs (షీట్‌లోకి వెళ్లకుండానే అన్ని మార్పుల కోసం)
+# ==============================================================================
+@draft_bp.route('/api/bank-transactions', methods=['GET'])
+def get_bank_transactions():
+  """Bank_Transactions షీట్ నుండి అన్ని వివరాలను లైవ్‌లో తీసుకురావడం"""
+  try:
+    from app import SPREADSHEET_NAME, get_sheets_client
+
+    client = get_sheets_client()
+    sh = client.open(SPREADSHEET_NAME)
+    ws = get_or_create_transactions_ws(sh)
+
+    all_values = ws.get_all_values()
+    if len(all_values) <= 1:
+      return jsonify(
+          {'status': 'success', 'data': [], 'active_tasks': LIVE_TASK_STATUS}
+      )
+
+    headers = all_values[0]
+    rows_data = []
+    # 2వ వరుస నుండి డేటా ప్రారంభం (row_num = షీట్‌లోని అసలు రో నంబర్)
+    for idx, row in enumerate(all_values[1:], start=2):
+      item = {'row_num': idx}
+      for col_idx, h in enumerate(headers):
+        item[h] = row[col_idx] if col_idx < len(row) else ''
+      if 'Status' not in item or not item['Status']:
+        item['Status'] = 'Completed'
+      rows_data.append(item)
+
+    # తాజావి పైన కనిపించేలా రివర్స్ చేయడం
+    rows_data.reverse()
+    return jsonify({
+        'status': 'success',
+        'data': rows_data,
+        'active_tasks': LIVE_TASK_STATUS,
+    })
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@draft_bp.route('/api/bank-transactions', methods=['POST'])
+def add_bank_transaction():
+  """కొత్త ట్రాన్సాక్షన్ ఎంట్రీని నేరుగా షీట్‌లోకి యాడ్ చేయడం"""
+  try:
+    from app import SPREADSHEET_NAME, get_sheets_client
+
+    data = request.get_json()
+    client = get_sheets_client()
+    sh = client.open(SPREADSHEET_NAME)
+    ws = get_or_create_transactions_ws(sh)
+
+    new_row = [
+        time.strftime('%Y-%m-%d %H:%M:%S'),
+        data.get('Process Step', ''),
+        data.get('Bank Name', ''),
+        data.get('Month', ''),
+        data.get('Batch', ''),
+        data.get('Cheque No', ''),
+        data.get('Cheque Date', ''),
+        data.get('Amount', 0),
+        data.get('Beneficiaries Count', 0),
+        data.get('Status', 'Manual Entry'),
+    ]
+    ws.append_row(new_row)
+    return jsonify(
+        {'status': 'success', 'message': 'కొత్త వివరాలు విజయవంతంగా జతచేయబడ్డాయి!'}
+    )
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@draft_bp.route('/api/bank-transactions/<int:row_num>', methods=['PUT'])
+def update_bank_transaction(row_num):
+  """ఇప్పటికే ఉన్న ట్రాన్సాక్షన్ రో ను ఎడిట్/అప్‌డేట్ చేయడం"""
+  try:
+    from app import SPREADSHEET_NAME, get_sheets_client
+
+    data = request.get_json()
+    client = get_sheets_client()
+    sh = client.open(SPREADSHEET_NAME)
+    ws = get_or_create_transactions_ws(sh)
+
+    updated_row = [
+        data.get('Timestamp', time.strftime('%Y-%m-%d %H:%M:%S')),
+        data.get('Process Step', ''),
+        data.get('Bank Name', ''),
+        data.get('Month', ''),
+        data.get('Batch', ''),
+        data.get('Cheque No', ''),
+        data.get('Cheque Date', ''),
+        data.get('Amount', 0),
+        data.get('Beneficiaries Count', 0),
+        data.get('Status', 'Updated'),
+    ]
+    ws.update(f'A{row_num}:J{row_num}', [updated_row])
+    return jsonify({'status': 'success', 'message': 'వివరాలు అప్‌డేట్ చేయబడ్డాయి!'})
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@draft_bp.route('/api/bank-transactions/<int:row_num>', methods=['DELETE'])
+def delete_bank_transaction(row_num):
+  """అవసరం లేని రో ను షీట్ నుండి తొలగించడం"""
+  try:
+    from app import SPREADSHEET_NAME, get_sheets_client
+
+    client = get_sheets_client()
+    sh = client.open(SPREADSHEET_NAME)
+    ws = get_or_create_transactions_ws(sh)
+
+    ws.delete_rows(row_num)
+    return jsonify({'status': 'success', 'message': 'రికార్డు తొలగించబడింది!'})
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# ==============================================================================
+# BACKGROUND DRAFT TASK (లైవ్ ప్రోగ్రెస్ అప్‌డేట్స్ తో)
+# ==============================================================================
+def background_draft_task(task_id, data, app_context):
   from app import (
       APP_PASSWORD,
       MONTH_MAPPING,
@@ -64,9 +205,7 @@ def background_draft_task(data, app_context):
     if pd.isna(val) or val is None:
       return ''
     s = str(val).strip()
-    if s.endswith('.0'):
-      s = s[:-2]
-    return s
+    return s[:-2] if s.endswith('.0') else s
 
   def build_beneficiary_export_df(df_in, include_status_col=False):
     if df_in is None or df_in.empty:
@@ -110,19 +249,21 @@ def background_draft_task(data, app_context):
     return out
 
   with app_context:
+    selected_bank = str(data.get('bank_name', '')).strip()
     try:
+      LIVE_TASK_STATUS[task_id] = {
+          'bank': selected_bank,
+          'stage': '1/4: Google Sheets నుండి డేటా సేకరణ...',
+          'status': 'processing',
+      }
+
       process_step = str(data.get('process_step', '8')).strip()
       target_month = int(data.get('month', 1))
       target_batch = int(data.get('batch', 1))
-      selected_bank = str(data.get('bank_name', '')).strip()
 
       user_cheque_no = str(data.get('cheque_no', '')).strip()
       user_cheque_date = str(data.get('cheque_date', '')).strip()
       user_cheque_amount = str(data.get('cheque_amount', '')).strip()
-
-      if not selected_bank:
-        print('Error: Bank name is missing in background task.')
-        return
 
       step_cfg = PROCESS_STEPS_CONFIG.get(
           process_step, PROCESS_STEPS_CONFIG['8']
@@ -140,7 +281,6 @@ def background_draft_task(data, app_context):
       ws_thrift = sh.worksheet('NEW THRIFT DATA')
       df_thrift_all = pd.DataFrame(ws_thrift.get_all_records())
 
-      # BANK SENT ఆధారంగా NOT SENT వారిని మరియు ఇప్పటికే పంపినవారిని గుర్తించడం
       if 'BANK SENT' in df_thrift_all.columns:
         not_sent_mask_all = (
             df_thrift_all['BANK SENT'].astype(str).str.strip().str.upper()
@@ -163,7 +303,11 @@ def background_draft_task(data, app_context):
 
       bank_email = email_dict.get(selected_bank, '')
       if not bank_email or '@' not in bank_email:
-        print(f'Error: {selected_bank} కి అధికారిక ఈమెయిల్ ఐడి లేదు!')
+        LIVE_TASK_STATUS[task_id] = {
+            'bank': selected_bank,
+            'stage': 'లోపం: అధికారిక ఇమెయిల్ ఐడి లేదు!',
+            'status': 'error',
+        }
         return
 
       try:
@@ -181,7 +325,6 @@ def background_draft_task(data, app_context):
       cheque_no = user_cheque_no or str(bank_doc_info.get('Cheque_No', ''))
       cheque_date = user_cheque_date or str(bank_doc_info.get('Cheque_Date', ''))
 
-      # బ్యాంకు వారీగా Sent మరియు Not Sent డేటా వేరు చేయడం
       bank_sent_df = df_thrift_sent_all[
           df_thrift_sent_all['FILE NAME'].astype(str).str.strip()
           == selected_bank
@@ -199,9 +342,12 @@ def background_draft_task(data, app_context):
         else:
           sub_df['BANK_REMARKS_CLEAN'] = ''
 
+      LIVE_TASK_STATUS[task_id][
+          'stage'
+      ] = '2/4: Excel & Word ఫైల్స్ తయారవుతున్నాయి...'
+
       target_folder_path = f'/tmp/Step_{process_step}_Bank_Files_Month_{target_month}_Batch_{target_batch}'
       os.makedirs(target_folder_path, exist_ok=True)
-
       local_excel_path = os.path.join(
           target_folder_path,
           f'{selected_bank}_Step{process_step}_{step_cfg["sheet_name"]}_M{target_month}_B{target_batch}.xlsx',
@@ -211,36 +357,35 @@ def background_draft_task(data, app_context):
       pending_count = 0
       total_govt_share = 0.0
 
-      # ========================================================
-      # దశల వారీగా (Step 1 to 12) Excel File తయారీ లాజిక్
-      # ========================================================
       with pd.ExcelWriter(local_excel_path, engine='openpyxl') as writer:
-        # --- దశ 1 & దశ 2 (ప్రారంభ దశలు: NOT SENT వారు Current_Eligible_List లో, Sent వారు Already_Sent_To_Bank షీట్‌లో) ---
         if process_step in ['1', '2']:
-          if process_step == '2' and not bank_not_sent_df.empty and 'RD 1' in bank_not_sent_df.columns:
+          if (
+              process_step == '2'
+              and not bank_not_sent_df.empty
+              and 'RD 1' in bank_not_sent_df.columns
+          ):
             rd1_col = bank_not_sent_df['RD 1'].astype(str).str.strip()
             pending_rd_df = bank_not_sent_df[
-                (rd1_col == '') | (rd1_col == '0') | (rd1_col.str.lower() == 'nan')
+                (rd1_col == '')
+                | (rd1_col == '0')
+                | (rd1_col.str.lower() == 'nan')
             ].copy()
             current_eligible_df = (
-                pending_rd_df if len(pending_rd_df) > 0 else bank_not_sent_df.copy()
+                pending_rd_df
+                if len(pending_rd_df) > 0
+                else bank_not_sent_df.copy()
             )
           else:
             current_eligible_df = bank_not_sent_df.copy()
 
           record_count = len(current_eligible_df)
-
-          df_eligible_out = build_beneficiary_export_df(current_eligible_df)
-          df_eligible_out.to_excel(
+          build_beneficiary_export_df(current_eligible_df).to_excel(
               writer, sheet_name='Current_Eligible_List', index=False
           )
-
-          df_already_sent_out = build_beneficiary_export_df(bank_sent_df)
-          df_already_sent_out.to_excel(
+          build_beneficiary_export_df(bank_sent_df).to_excel(
               writer, sheet_name='Already_Sent_To_Bank', index=False
           )
 
-        # --- దశ 6, 7, 8, 9 (నెలవారీ లావాదేవీలు / Govt Share / Credit Advice) ---
         elif process_step in ['6', '7', '8', '9']:
           df_trans['Govt_Share'] = pd.to_numeric(
               df_trans['Govt_Share'], errors='coerce'
@@ -272,13 +417,11 @@ def background_draft_task(data, app_context):
               if 'BATCH_NUMBER' in bank_month_df.columns
               else 0
           )
-
-          if 'BANK_REMARKS' in bank_month_df.columns:
-            bank_month_df['BANK_REMARKS_CLEAN'] = (
-                bank_month_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
-            )
-          else:
-            bank_month_df['BANK_REMARKS_CLEAN'] = ''
+          bank_month_df['BANK_REMARKS_CLEAN'] = (
+              bank_month_df['BANK_REMARKS'].astype(str).str.strip().str.upper()
+              if 'BANK_REMARKS' in bank_month_df.columns
+              else ''
+          )
 
           died_mask = bank_month_df['BANK_REMARKS_CLEAN'].str.contains(
               'DIED', na=False
@@ -343,7 +486,9 @@ def background_draft_task(data, app_context):
               if 'Contact Number' in active_df.columns
               else ''
           )
-          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
+          export_df.to_excel(
+              writer, sheet_name=step_cfg['sheet_name'], index=False
+          )
 
           if pending_count > 0:
             p_export_df = pd.DataFrame()
@@ -392,7 +537,6 @@ def background_draft_task(data, app_context):
                 writer, sheet_name='Not_Sent_To_Bank', index=False
             )
 
-        # --- దశ 3 & దశ 10 మరియు మిగిలిన దశలు ---
         elif process_step == '10':
           remarks_mask = bank_sent_df['BANK_REMARKS_CLEAN'] != ''
           rect_df = (
@@ -418,7 +562,9 @@ def background_draft_task(data, app_context):
           )
           export_df['Issue / Remarks'] = rect_df.get('BANK_REMARKS', '')
           export_df['Bank Action / Updated Details'] = ''
-          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
+          export_df.to_excel(
+              writer, sheet_name=step_cfg['sheet_name'], index=False
+          )
 
           if not bank_not_sent_df.empty:
             build_beneficiary_export_df(bank_not_sent_df).to_excel(
@@ -427,9 +573,9 @@ def background_draft_task(data, app_context):
 
         else:
           record_count = len(bank_sent_df)
-          export_df = build_beneficiary_export_df(bank_sent_df)
-          export_df.to_excel(writer, sheet_name=step_cfg['sheet_name'], index=False)
-
+          build_beneficiary_export_df(bank_sent_df).to_excel(
+              writer, sheet_name=step_cfg['sheet_name'], index=False
+          )
           if not bank_not_sent_df.empty:
             build_beneficiary_export_df(bank_not_sent_df).to_excel(
                 writer, sheet_name='Not_Sent_To_Bank', index=False
@@ -437,9 +583,6 @@ def background_draft_task(data, app_context):
 
       cheque_amount = user_cheque_amount or str(total_govt_share)
 
-      # ========================================================
-      # Word Letter తయారీ (దశకు తగిన Template వాడుతూ)
-      # ========================================================
       letter_path = None
       doc_template_path = step_cfg['template']
       if not os.path.exists(doc_template_path):
@@ -471,8 +614,7 @@ def background_draft_task(data, app_context):
             '{{Batch_Number}}': str(target_batch),
             '{{This_Office_Previous_Dates}}': str(
                 bank_doc_info.get(
-                    'This_Office_Previous_Dates',
-                    '04/07/2026 , 15/07/2026',
+                    'This_Office_Previous_Dates', '04/07/2026 , 15/07/2026'
                 )
             ),
         }
@@ -481,7 +623,6 @@ def background_draft_task(data, app_context):
           for k, v in replacements.items():
             if k in p.text:
               p.text = p.text.replace(k, str(v))
-
         for table in doc.tables:
           for row in table.rows:
             for cell in row.cells:
@@ -495,19 +636,19 @@ def background_draft_task(data, app_context):
         )
         doc.save(letter_path)
 
-      # ========================================================
-      # Gmail Draft తయారీ (IMAP)
-      # ========================================================
+      LIVE_TASK_STATUS[task_id][
+          'stage'
+      ] = '3/4: Gmail Drafts కి అప్‌లోడ్ అవుతోంది...'
+
       subject = f"{step_cfg['subject_prefix']} - {selected_month_name} {selected_year} (Batch-{target_batch}) - Rc.No. 176/2025-RSCL - {selected_bank}"
 
       pending_notice_html = ''
       if pending_count > 0:
         pending_notice_html = f"""
-            <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
-                <p style="margin:0; font-weight: bold;">⚠️ Pending / Excluded Accounts Notice:</p>
-                <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are pending, unassigned, or marked as expired.</p>
-            </div>
-            """
+                <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; margin-top: 15px; border-radius: 4px; color: #856404;">
+                    <p style="margin:0; font-weight: bold;">⚠️ Pending / Excluded Accounts Notice:</p>
+                    <p style="margin:5px 0 0 0;">There are <b>{pending_count} beneficiaries</b> whose accounts are pending, unassigned, or marked as expired.</p>
+                </div>"""
 
       if process_step in ['6', '7', '8'] and (total_govt_share > 0 or cheque_no):
         cheque_info_html = f'<p><b>Summary Details:</b> Beneficiaries: {record_count} | Amount: ₹{total_govt_share:,.2f} | Cheque No: {cheque_no}</p>'
@@ -515,70 +656,60 @@ def background_draft_task(data, app_context):
         cheque_info_html = f"<p><b>Summary Details:</b> Total Beneficiaries in List: {record_count} | Stage: {step_cfg['step_name']}</p>"
 
       cc_recipients_html = """
-        <br>
-        <p style="font-size: 13px; color: #555; line-height: 1.4;">
-            <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
-            1. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) / సమన్వయము కొరకు పంపడమైనది.<br>
-            2. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
-        </p>
-        """
+            <br><p style="font-size: 13px; color: #555; line-height: 1.4;">
+                <b>Copy submitted to / కాపీ సమర్పించడమైనది:</b><br>
+                1. <b>Branch Manager, Union Bank of India (Nodal Branch)</b> — పాజిటివ్ పే సిస్టమ్ (PPS) / సమన్వయము కొరకు పంపడమైనది.<br>
+                2. <b>Assistant Director, Handlooms & Textiles, Rajanna Sircilla</b> — కార్యాలయ రికార్డులు మరియు పర్యవేక్షణ నిమిత్తము.
+            </p>"""
 
       OFFICIAL_SIGNATURE_HTML = """
-        <br><br>
-        <hr style="border: 0; border-top: 1px solid #ccc;">
-        <p style="font-family: Arial, sans-serif; font-size: 13px; color: #333;">
-            <b>ఇట్లు / Regards,</b><br>
-            <b>Office of the Assistant Director</b><br>
-            Handlooms & Textiles, Rajanna Sircilla District.<br>
-            Government of Telangana.<br>
-            📧 Email: cf.thrift.sircillats@gmail.com | 📞 Phone: +91-9700389438
-        </p>
-        """
+            <br><br><hr style="border: 0; border-top: 1px solid #ccc;">
+            <p style="font-family: Arial, sans-serif; font-size: 13px; color: #333;">
+                <b>ఇట్లు / Regards,</b><br><b>Office of the Assistant Director</b><br>
+                Handlooms & Textiles, Rajanna Sircilla District.<br>Government of Telangana.<br>
+                📧 Email: cf.thrift.sircillats@gmail.com | 📞 Phone: +91-9700389438
+            </p>"""
 
       body_html = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; line-height: 1.5;">
-            <p>Dear <b>{selected_bank} Branch Manager</b>,</p>
-            <p>Please find attached the official letter along with the Beneficiary Excel List for <b>{step_cfg['body_desc']}</b> for <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
-            {cheque_info_html}
-            {pending_notice_html}
-            <p>Kindly process the same strictly adhering to the scheme guidelines and <b>RBI Positive Pay System (PPS)</b> norms wherever applicable.</p>
-            <p style="color: #444; font-weight: bold; margin-top: 15px;">ఈ విషయము తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.</p>
-            {cc_recipients_html}
-            {OFFICIAL_SIGNATURE_HTML}
-        </body>
-        </html>
-        """
+            <html><body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; line-height: 1.5;">
+                <p>Dear <b>{selected_bank} Branch Manager</b>,</p>
+                <p>Please find attached the official letter along with the Beneficiary Excel List for <b>{step_cfg['body_desc']}</b> for <b>{selected_month_name} {selected_year} (Batch-{target_batch})</b>.</p>
+                {cheque_info_html}
+                {pending_notice_html}
+                <p>Kindly process the same strictly adhering to the scheme guidelines and <b>RBI Positive Pay System (PPS)</b> norms wherever applicable.</p>
+                <p style="color: #444; font-weight: bold; margin-top: 15px;">ఈ విషయము తగు సమాచారము మరియు తగిన తదుపరి చర్య నిమిత్తము పంపడమైనది.</p>
+                {cc_recipients_html}
+                {OFFICIAL_SIGNATURE_HTML}
+            </body></html>"""
 
       message = MIMEMultipart()
       message['To'] = bank_email
-      message['Cc'] = ', '.join([
-          'ubin0827444@unionbankofindia.bank.in',
-          'rajannahandtex@gmail.com',
-      ])
+      message['Cc'] = (
+          'ubin0827444@unionbankofindia.bank.in, rajannahandtex@gmail.com'
+      )
       message['From'] = SENDER_EMAIL
       message['Subject'] = subject
       message.attach(MIMEText(body_html, 'html'))
 
       if os.path.exists(local_excel_path):
-        excel_filename = os.path.basename(local_excel_path)
         with open(local_excel_path, 'rb') as f:
           part1 = MIMEBase('application', 'octet-stream')
           part1.set_payload(f.read())
         encoders.encode_base64(part1)
         part1.add_header(
-            'Content-Disposition', f'attachment; filename="{excel_filename}"'
+            'Content-Disposition',
+            f'attachment; filename="{os.path.basename(local_excel_path)}"',
         )
         message.attach(part1)
 
       if letter_path and os.path.exists(letter_path):
-        letter_filename = os.path.basename(letter_path)
         with open(letter_path, 'rb') as f:
           part2 = MIMEBase('application', 'octet-stream')
           part2.set_payload(f.read())
         encoders.encode_base64(part2)
         part2.add_header(
-            'Content-Disposition', f'attachment; filename="{letter_filename}"'
+            'Content-Disposition',
+            f'attachment; filename="{os.path.basename(letter_path)}"',
         )
         message.attach(part2)
 
@@ -592,46 +723,36 @@ def background_draft_task(data, app_context):
       )
       mail.logout()
 
-      try:
-        try:
-          ws_log = sh.worksheet('Bank_Transactions')
-        except Exception:
-          ws_log = sh.add_worksheet(
-              title='Bank_Transactions', rows=100, cols=12
-          )
-          ws_log.append_row([
-              'Timestamp',
-              'Process Step',
-              'Bank Name',
-              'Month',
-              'Batch',
-              'Cheque No',
-              'Cheque Date',
-              'Amount',
-              'Beneficiaries Count',
-          ])
+      LIVE_TASK_STATUS[task_id][
+          'stage'
+      ] = '4/4: Bank_Transactions షీట్‌లో నమోదు అవుతోంది...'
 
-        ws_log.append_row([
-            time.strftime('%Y-%m-%d %H:%M:%S'),
-            step_cfg['step_name'],
-            selected_bank,
-            f'{selected_month_name} {selected_year}',
-            target_batch,
-            cheque_no,
-            cheque_date,
-            total_govt_share,
-            record_count,
-        ])
-      except Exception as log_err:
-        print(f'Logging Error: {log_err}')
+      ws_log = get_or_create_transactions_ws(sh)
+      ws_log.append_row([
+          time.strftime('%Y-%m-%d %H:%M:%S'),
+          step_cfg['step_name'],
+          selected_bank,
+          f'{selected_month_name} {selected_year}',
+          target_batch,
+          cheque_no,
+          cheque_date,
+          total_govt_share,
+          record_count,
+          'Draft Created',
+      ])
 
-      print(
-          f'Background Draft generated successfully for {selected_bank} (Step'
-          f' {process_step})!'
-      )
+      LIVE_TASK_STATUS[task_id] = {
+          'bank': selected_bank,
+          'stage': 'డ్రాఫ్ట్ విజయవంతంగా పూర్తయింది!',
+          'status': 'completed',
+      }
 
     except Exception as e:
-      print(f'Background Draft Generation Error: {str(e)}')
+      LIVE_TASK_STATUS[task_id] = {
+          'bank': selected_bank,
+          'stage': f'లోపం: {str(e)}',
+          'status': 'error',
+      }
 
 
 @draft_bp.route('/api/generate-draft', methods=['POST'])
@@ -651,23 +772,24 @@ def generate_draft_api():
           400,
       )
 
+    task_id = f'task_{int(time.time() * 1000)}'
     step_label = PROCESS_STEPS_CONFIG.get(process_step, {}).get(
         'step_name', f'దశ {process_step}'
     )
     app_context = current_app._get_current_object().app_context()
 
     thread = threading.Thread(
-        target=background_draft_task, args=(data, app_context)
+        target=background_draft_task, args=(task_id, data, app_context)
     )
     thread.daemon = True
     thread.start()
 
     return jsonify({
         'status': 'success',
+        'task_id': task_id,
         'message': (
-            f'"{step_label}" కోసం {selected_bank} ఇమెయిల్ డ్రాఫ్ట్'
-            ' బ్యాక్‌గ్రౌండ్‌లో తయారవుతోంది. దయచేసి కొన్ని క్షణాల తరువాత మీ'
-            ' జిమెయిల్ డ్రాఫ్ట్స్ చెక్ చేయండి!'
+            f'"{step_label}" కోసం {selected_bank} డ్రాఫ్ట్ ప్రాసెస్'
+            ' ప్రారంభమైంది. క్రింద లైవ్ టేబుల్‌లో ప్రోగ్రెస్ చూడవచ్చు!'
         ),
     })
 
