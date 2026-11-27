@@ -18,7 +18,11 @@ cf_bp = Blueprint('cf_bp', __name__, template_folder='templates')
 # ⚡ ఇన్-మెమరీ TTL క్యాష్ (రిఫ్రెష్ ఆప్షన్ & షార్ట్ TTL తో సురక్షితం)
 _CACHE = {}
 CACHE_TTL_SECONDS = 15
+# 👑 పూర్తి నియంత్రణ (All CFs / All Banks View & Edit) ఉన్న CF లు
+FULL_CONTROL_CFS = {'SRIKANTH'}  # అవసరమైతే మరికొందరి పేర్లు ఇక్కడ చేర్చండి
 
+def has_full_control(cf_name):
+    return str(cf_name or '').strip().upper() in FULL_CONTROL_CFS
 
 def _cache_get(key):
   entry = _CACHE.get(key)
@@ -839,6 +843,7 @@ def cf_dashboard():
   return render_template(
       'cf_dashboard.html',
       cf_name=cf_name,
+      has_full_control=has_full_control(cf_name),
       months=MONTH_MAP,
       allotted_banks=allotted_banks,
       allotted_wards=allotted_wards,
@@ -864,7 +869,7 @@ def cf_my_beneficiaries():
         jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
         401,
     )
-
+ 
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
 
@@ -877,7 +882,18 @@ def cf_my_beneficiaries():
         'yes',
     )
 
-    cache_key = f'ben:{cf_name}:{current_month}:{bank_filter}'
+
+    cf_filter = str(request.args.get('cf_filter', 'MINE')).strip().upper()
+    if not has_full_control(cf_name):
+      if col_cf and row_cf != cf_name:
+        continue
+    else:
+      if cf_filter and cf_filter not in ('ALL', 'MINE'):
+        if row_cf != cf_filter:
+            continue
+
+    cache_key = f"ben:{cf_name}:{current_month}:{bank_filter}:{cf_filter}"
+    
     if force_refresh:
       _cache_invalidate(f'ben:{cf_name}:')
     else:
@@ -997,6 +1013,7 @@ def cf_quick_update_beneficiary():
         jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
         401,
     )
+    
 
   try:
     from app import get_sheets_client, SPREADSHEET_NAME
@@ -1013,15 +1030,13 @@ def cf_quick_update_beneficiary():
     headers = [str(h).strip() for h in ws.row_values(1)]
 
     col_cf = find_header_match(headers, ['name of cf', 'cf name', 'cf_name'])
-    if col_cf:
+    if col_cf and not has_full_control(cf_name):
       cf_col_idx = headers.index(col_cf) + 1
       owner_cf = clean_str_cell(ws.cell(row_index, cf_col_idx).value).upper()
-      if owner_cf != cf_name:
-        return jsonify({
-            'status': 'error',
-            'message': 'ఈ రికార్డును మార్చే అనుమతి లేదు.',
-        })
-
+    if owner_cf != cf_name:
+        return jsonify({'status': 'error', 'message': 'ఈ రికార్డును మార్చే అనుమతి లేదు.'})
+      
+    
     existing_vals = ws.row_values(row_index)
     aadhar_col_idx = (
         headers.index('Aadhar Number') if 'Aadhar Number' in headers else -1
@@ -2011,6 +2026,9 @@ def cf_bulk_upload_thrift():
     )
     default_file_name = str(request.form.get('default_file_name', '')).strip()
     cf_name = str(session.get('cf_name') or '').strip().upper()
+
+    if not has_full_control(cf_name):
+    return jsonify({'status': 'error', 'message': 'బల్క్ అప్‌లోడ్ అనుమతి లేదు . '}), 403
 
     if f.filename.lower().endswith('.csv'):
       df = pd.read_csv(f, dtype=str)
