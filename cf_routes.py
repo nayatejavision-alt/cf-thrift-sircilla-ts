@@ -368,41 +368,71 @@ def _norm_col_key(text):
 def find_header_match(headers, candidates, allow_partial=True):
   """
     హెడర్ జాబితాలో సరిపోయే కాలమ్‌ను సురక్షితంగా కనుగొంటుంది.
-    చిన్న పదాల వల్ల 'Name' -> 'Father Name' లాంటి తప్పు సబ్‌స్ట్రింగ్ మ్యాచ్‌లను నివారిస్తుంది.
+    pd.Index వచ్చినా Ambiguous truth value ఎర్రర్ రాకుండా list గా మారుస్తుంది.
     """
-  if not headers or not candidates:
+  if headers is None or candidates is None:
     return None
 
-  exact_map = {str(h).strip().lower(): h for h in headers}
-  norm_map = {_norm_col_key(h): h for h in headers}
+  if isinstance(headers, pd.Index):
+    headers_list = headers.tolist()
+  else:
+    headers_list = list(headers)
 
-  for c in candidates:
-    cl = str(c).strip().lower()
+  if isinstance(candidates, pd.Index):
+    candidates_list = candidates.tolist()
+  else:
+    candidates_list = list(candidates)
+
+  if len(headers_list) == 0 or len(candidates_list) == 0:
+    return None
+
+  exact_map = {}
+  norm_map = {}
+  for h in headers_list:
+    h_str = str(h).strip()
+    if not h_str or h_str.lower() == 'nan':
+      continue
+    hl = h_str.lower()
+    if hl not in exact_map:
+      exact_map[hl] = h_str
+    hn = _norm_col_key(h_str)
+    if hn and hn not in norm_map:
+      norm_map[hn] = h_str
+
+  for c in candidates_list:
+    c_str = str(c).strip()
+    if not c_str:
+      continue
+    cl = c_str.lower()
     if cl in exact_map:
       return exact_map[cl]
 
-  for c in candidates:
-    cn = _norm_col_key(c)
+  for c in candidates_list:
+    c_str = str(c).strip()
+    if not c_str:
+      continue
+    cn = _norm_col_key(c_str)
     if cn and cn in norm_map:
       return norm_map[cn]
 
   if not allow_partial:
     return None
 
-  for c in candidates:
-    cn = _norm_col_key(c)
+  for c in candidates_list:
+    c_str = str(c).strip()
+    if not c_str:
+      continue
+    cn = _norm_col_key(c_str)
     if len(cn) < 4:
       continue
     pattern = re.compile(
         rf'(?:^|\b|_|\s){re.escape(cn)}(?:$|\b|_|\s)', re.IGNORECASE
     )
-    for h in headers:
-      hn = _norm_col_key(h)
-      if pattern.search(hn):
-        return h
+    for h_norm, h_orig in norm_map.items():
+      if pattern.search(h_norm):
+        return h_orig
 
   return None
-
 
 def clean_hno_for_matching(hno_val):
   if hno_val is None:
@@ -1945,9 +1975,24 @@ def cf_bulk_upload_thrift():
           {'status': 'error', 'message': 'అప్‌లోడ్ చేసిన ఫైల్‌లో డేటా లేదు!'}
       )
 
-    df.columns = [str(c).strip() for c in df.columns]
+    # కాలమ్ పేర్లను సురక్షితంగా list గా మార్చడం
+    clean_cols = []
+    seen_cols = {}
+    for idx_c, c in enumerate(df.columns.tolist()):
+      c_name = str(c).strip() if c is not None else f'Col_{idx_c}'
+      if not c_name or c_name.lower() == 'nan':
+        c_name = f'Unnamed_{idx_c}'
+      if c_name in seen_cols:
+        seen_cols[c_name] += 1
+        c_name = f'{c_name}_{seen_cols[c_name]}'
+      else:
+        seen_cols[c_name] = 0
+      clean_cols.append(c_name)
+    df.columns = clean_cols
+    df_col_list = list(df.columns)
+
     aadhar_src_col = find_header_match(
-        df.columns,
+        df_col_list,
         ['aadhar number', 'aadhaar number', 'aadhar', 'aadhaar', 'uid'],
         allow_partial=False,
     )
@@ -1961,7 +2006,6 @@ def cf_bulk_upload_thrift():
     spreadsheet = client.open(SPREADSHEET_NAME)
     ws = spreadsheet.worksheet('NEW THRIFT DATA')
 
-    # ఒకే API కాల్ తో మొత్తం షీట్ డేటా తెచ్చుకోవడం
     existing_all_rows = ws.get_all_values()
     if not existing_all_rows:
       return jsonify(
@@ -1975,7 +2019,6 @@ def cf_bulk_upload_thrift():
           'message': "'NEW THRIFT DATA' షీట్‌లో 'Aadhar Number' కాలమ్ లేదు!",
       })
 
-    # existing_all_rows నుండి records_new తయారు చేయడం (అదనపు API కాల్ లేకుండా)
     records_new = [
         {
             headers[i]: (r_vals[i] if i < len(r_vals) else '')
@@ -1987,7 +2030,6 @@ def cf_bulk_upload_thrift():
     aadhar_col_idx = headers.index('Aadhar Number')
     ifsc_to_file_map = _build_ifsc_to_file_map(records_new)
 
-    # బ్యాంక్ ఈమెయిల్ మ్యాపింగ్
     email_map = {}
     try:
       ws_email = spreadsheet.worksheet('Bank_Email_Ids')
@@ -2005,7 +2047,6 @@ def cf_bulk_upload_thrift():
     except Exception:
       pass
 
-    # ఇప్పటికే షీట్‌లో ఉన్న ఆధార్ నంబర్ల మ్యాప్ మరియు చివరి నాన్-ఎమ్ప్టీ రో
     existing_aadhar_to_row = {}
     last_non_empty_row = 1
     for r_idx, r_vals in enumerate(existing_all_rows[1:], start=2):
@@ -2016,7 +2057,6 @@ def cf_bulk_upload_thrift():
         if len(a_norm) == 12 and a_norm not in existing_aadhar_to_row:
           existing_aadhar_to_row[a_norm] = r_idx
 
-    # SNO మరియు FILE NAME వారీగా BANK_SNO గరిష్ట విలువలు
     max_sno = 0
     if 'SNO' in headers:
       sno_idx = headers.index('SNO')
@@ -2080,26 +2120,23 @@ def cf_bulk_upload_thrift():
         continue
       seen_in_file.add(a_clean)
 
-      # షీట్ కాలమ్స్ ప్రకారం సురక్షితంగా డేటా మ్యాపింగ్
       mapped_dict = {}
       for h in headers:
-        matched_src = find_header_match(df.columns, [h], allow_partial=False)
+        matched_src = find_header_match(df_col_list, [h], allow_partial=False)
         if not matched_src:
-          matched_src = find_header_match(df.columns, [h], allow_partial=True)
+          matched_src = find_header_match(df_col_list, [h], allow_partial=True)
         mapped_dict[h] = (
             clean_str_cell(row.get(matched_src, '')) if matched_src else ''
         )
 
       mapped_dict['Aadhar Number'] = a_clean
 
-      # 1. ముందుగా H.No మరియు Area డేటాను క్లీన్ చేసి, ఆ తర్వాతే CF మ్యాపింగ్ చేయడం
       clean_uhno, clean_rhno, clean_area = _clean_row_before_cf_mapping(
           mapped_dict
       )
       analyzed_cf = analyze_cf_name(clean_uhno, clean_area, clean_rhno)
       mapped_dict['NAME OF CF'] = analyzed_cf or cf_name
 
-      # 2. బ్యాంక్ పేరు / IFSC కోడ్ / ఫైల్ నేమ్ ఆధారంగా FILE NAME, Bank Name, IFSC, EMAIL ID నిర్ణయించడం
       res_file, res_bank, res_ifsc, res_email = _resolve_bank_file_and_ifsc(
           mapped_dict,
           records_new,
@@ -2118,7 +2155,6 @@ def cf_bulk_upload_thrift():
       if res_email:
         mapped_dict['EMAIL ID'] = res_email
 
-      # డిఫాల్ట్ విలువలు (ఖాళీగా ఉంటే)
       if not mapped_dict.get('Caste'):
         mapped_dict['Caste'] = 'BC'
       if not mapped_dict.get('Profession'):
@@ -2160,7 +2196,6 @@ def cf_bulk_upload_thrift():
         max_sno += 1
         mapped_dict['SNO'] = str(max_sno)
 
-        # ఆటోమేటిక్ BANK_SNO కేటాయింపు
         if 'BANK_SNO' in headers and not clean_str_cell(
             mapped_dict.get('BANK_SNO', '')
         ):
@@ -2176,7 +2211,6 @@ def cf_bulk_upload_thrift():
         new_row_list = [mapped_dict.get(h, '') for h in headers]
         to_insert_rows.append(new_row_list)
 
-    # అప్‌డేట్‌లు అమలు చేయడం
     updated_count = 0
     for upd in to_update_items:
       r_num = upd['sheet_row']
@@ -2208,7 +2242,6 @@ def cf_bulk_upload_thrift():
       )
       updated_count += 1
 
-    # కొత్త రికార్డ్‌లను ఇన్సర్ట్ చేయడం
     inserted_count = 0
     if to_insert_rows:
       start_row = last_non_empty_row + 1
