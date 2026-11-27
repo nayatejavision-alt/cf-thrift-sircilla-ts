@@ -52,11 +52,18 @@
         <div class="cf-info-card shadow-sm p-4 mb-4">
             <div class="row g-3 align-items-center">
                 <div class="col-md-7">
-                    <div class="small text-emerald-200 fw-semibold">👨‍💼 Community Facilitator Profile</div>
+                    <div class="small text-emerald-200 fw-semibold">
+                        👨‍💼 Community Facilitator Profile
+                        {% if has_full_control %}
+                            <span class="badge bg-warning text-dark ms-2">👑 Full Control</span>
+                        {% endif %}
+                    </div>
                     <h3 class="fw-bold mb-1">{{ cf_name }}</h3>
                     <div class="small mb-2">
                         <strong>🏦 కేటాయించిన బ్యాంకులు:</strong>
-                        {% if allotted_banks %}
+                        {% if has_full_control %}
+                            అన్ని బ్యాంకులు (Full Access)
+                        {% elif allotted_banks %}
                             {{ allotted_banks | join(', ') }}
                         {% else %}
                             అన్ని బ్యాంకులు
@@ -107,6 +114,17 @@
                     <small class="text-muted">లబ్ధిదారుడు అడిగితే వెంటనే WhatsApp/SMS పంపండి; వివరాలలో లోపాలుంటే ఇక్కడే మార్చి సేవ్ చేయండి.</small>
                 </div>
                 <div class="d-flex flex-wrap gap-2 align-items-center">
+                    {% if has_full_control %}
+                    <select id="cf_owner_filter" class="form-select form-select-sm" style="width: 175px;" onchange="loadMyCfBeneficiaries()">
+                        <option value="ALL">అన్ని CF లు (All CFs)</option>
+                        <option value="MINE">నావి మాత్రమే ({{ cf_name }})</option>
+                        {% if all_cf_names %}
+                            {% for c_item in all_cf_names %}
+                            <option value="{{ c_item }}">{{ c_item }}</option>
+                            {% endfor %}
+                        {% endif %}
+                    </select>
+                    {% endif %}
                     <select id="cf_month_filter" class="form-select form-select-sm" style="width: 165px;" onchange="loadMyCfBeneficiaries()">
                         {% for m_num, m_name in months.items() %}
                         <option value="{{ m_num }}">Month {{ m_num }} ({{ m_name }})</option>
@@ -160,42 +178,43 @@
             </div>
         </div>
 
-        <!-- Bulk Insert / Update into NEW THRIFT DATA -->
+        <!-- Bulk Insert / Update into NEW THRIFT DATA (కేవలం Full Control CF లకు మాత్రమే) -->
         {% if has_full_control %}
-<div class="card border-0 shadow-sm rounded-4 p-4 bg-white mb-4 border-start border-4 border-primary">
-    <h4 class="fw-bold text-primary mb-1">📤 Bulk Upload into NEW THRIFT DATA (Aadhaar Key)</h4>
-    <p class="text-muted small mb-3">
-        <strong>Aadhar Number</strong> కీ ఆధారంగా కొత్త రికార్డ్‌లను ఇన్సర్ట్ చేస్తుంది; <strong>CF</strong> మరియు <strong>Bank FILE NAME / IFSC</strong> ఆటోమేటిక్‌గా సెట్ అవుతాయి. ఇదివరకు ఉన్న రికార్డ్‌లను ఇన్సర్ట్ చేయకుండా ఆపి, వాటిని Excel గా డౌన్‌లోడ్ చేసుకునే అవకాశం ఇస్తుంది.
-    </p>
+        <div class="card border-0 shadow-sm rounded-4 p-4 bg-white mb-4 border-start border-4 border-primary">
+            <h4 class="fw-bold text-primary mb-1">📤 Bulk Upload into NEW THRIFT DATA (Aadhaar Key)</h4>
+            <p class="text-muted small mb-3">
+                <strong>Aadhar Number</strong> కీ ఆధారంగా కొత్త రికార్డ్‌లను ఇన్సర్ట్ చేస్తుంది; <strong>CF</strong> మరియు <strong>Bank FILE NAME / IFSC</strong> ఆటోమేటిక్‌గా సెట్ అవుతాయి. ఇదివరకు ఉన్న రికార్డ్‌లను ఇన్సర్ట్ చేయకుండా ఆపి, వాటిని Excel గా డౌన్‌లోడ్ చేసుకునే అవకాశం ఇస్తుంది.
+            </p>
 
-    <div class="row g-2 mb-3">
-        <div class="col-md-4">
-            <label class="form-label small fw-bold">ఫైల్ (.xlsx, .xls, .csv):</label>
-            <input type="file" id="bulk_thrift_file" accept=".xlsx,.xls,.csv" class="form-control form-control-sm" onchange="onBulkFileChange()">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label small fw-bold">షీట్ (Excel అయితే):</label>
-            <select id="bulk_thrift_sheet" class="form-select form-select-sm"></select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label small fw-bold">మోడ్ (Mode):</label>
-            <select id="bulk_upload_mode" class="form-select form-select-sm">
-                <option value="insert_only" selected>Only New Insert (ఇప్పటికే ఉన్నవి Skip)</option>
-                <option value="update_existing">Insert New + Update Existing</option>
-            </select>
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-            <button type="button" class="btn btn-primary btn-sm w-100 fw-bold" onclick="runBulkThriftUpload()">🚀 ప్రాసెస్ చేయి</button>
-        </div>
-    </div>
+            <div class="row g-2 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold">ఫైల్ (.xlsx, .xls, .csv):</label>
+                    <input type="file" id="bulk_thrift_file" accept=".xlsx,.xls,.csv" class="form-control form-control-sm" onchange="onBulkFileChange()">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">షీట్ (Excel అయితే):</label>
+                    <select id="bulk_thrift_sheet" class="form-select form-select-sm"></select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">మోడ్ (Mode):</label>
+                    <select id="bulk_upload_mode" class="form-select form-select-sm">
+                        <option value="insert_only" selected>Only New Insert (ఇప్పటికే ఉన్నవి Skip)</option>
+                        <option value="update_existing">Insert New + Update Existing</option>
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="button" class="btn btn-primary btn-sm w-100 fw-bold" onclick="runBulkThriftUpload()">🚀 ప్రాసెస్ చేయి</button>
+                </div>
+            </div>
 
-    <div id="bulk_upload_result_box" class="alert alert-secondary d-none mb-0">
-        <div id="bulk_upload_summary_text" class="fw-semibold small mb-2"></div>
-        <button type="button" id="btn_download_existing_excel" class="btn btn-danger btn-sm fw-bold d-none" onclick="downloadExistingSkippedExcel()">
-            📥 ఇదివరకు ఉన్న రికార్డ్‌లను Excel డౌన్‌లోడ్ చేయండి
-        </button>
-    </div>
-</div>
+            <div id="bulk_upload_result_box" class="alert alert-secondary d-none mb-0">
+                <div id="bulk_upload_summary_text" class="fw-semibold small mb-2"></div>
+                <button type="button" id="btn_download_existing_excel" class="btn btn-danger btn-sm fw-bold d-none" onclick="downloadExistingSkippedExcel()">
+                    📥 ఇదివరకు ఉన్న రికార్డ్‌లను Excel డౌన్‌లోడ్ చేయండి
+                </button>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- 2. Bulk WhatsApp & SMS Telugu Message Link Generator Tool -->
         <div class="card border-0 shadow-sm rounded-4 p-4 bg-white mb-4 border-start border-4 border-success">
@@ -386,11 +405,23 @@
                 if (data.status === 'success') {
                     fileIfscMap = data.file_ifsc_map || {};
                     const select = document.getElementById('file_name_select');
+                    const bankFilterSelect = document.getElementById('cf_bank_filter');
+                    const hasFullCtrl = {{ 'true' if has_full_control else 'false' }};
+                    const existingBankOpts = new Set(Array.from(bankFilterSelect.options).map(o => o.value));
+
                     data.file_names.forEach(name => {
                         let opt = document.createElement('option');
                         opt.value = name;
                         opt.textContent = name;
                         select.appendChild(opt);
+
+                        if (hasFullCtrl && !existingBankOpts.has(name)) {
+                            let bOpt = document.createElement('option');
+                            bOpt.value = name;
+                            bOpt.textContent = name;
+                            bankFilterSelect.appendChild(bOpt);
+                            existingBankOpts.add(name);
+                        }
                     });
                 }
             } catch (e) {}
@@ -399,11 +430,12 @@
         async function loadMyCfBeneficiaries() {
             const monthVal = document.getElementById('cf_month_filter').value || '1';
             const bankVal = document.getElementById('cf_bank_filter').value || 'ALL';
+            const cfOwnerVal = document.getElementById('cf_owner_filter')?.value || 'MINE';
             const statusMsg = document.getElementById('cf_list_status_msg');
             statusMsg.textContent = '🔄 లబ్ధిదారుల జాబితా లోడ్ అవుతోంది...';
 
             try {
-                const res = await fetch(`/cf/my-beneficiaries?month_number=${encodeURIComponent(monthVal)}&bank_name=${encodeURIComponent(bankVal)}`);
+                const res = await fetch(`/cf/my-beneficiaries?month_number=${encodeURIComponent(monthVal)}&bank_name=${encodeURIComponent(bankVal)}&cf_filter=${encodeURIComponent(cfOwnerVal)}`);
                 const data = await res.json();
                 if (data.status === 'success') {
                     cfAllRecords = data.data || [];
@@ -515,7 +547,7 @@
                 if (stFilter === 'issues' && r.is_complete) return false;
                 if (stFilter === 'complete' && !r.is_complete) return false;
                 if (!q) return true;
-                return [r.name, r.phone, r.bank_acc, r.rd1, r.rd2, r.bank_name, r.masked_id]
+                return [r.name, r.phone, r.bank_acc, r.rd1, r.rd2, r.bank_name, r.masked_id, r.cf_name]
                     .some(v => String(v || '').toLowerCase().includes(q));
             });
 
@@ -532,7 +564,7 @@
                         <td class="fw-bold">${i + 1}</td>
                         <td>
                             <input type="text" id="cf_name_${rid}" value="${escAttr(r.name)}" class="form-control form-control-sm" style="min-width: 150px;">
-                            <small class="text-muted">${escAttr(r.masked_id)}</small>
+                            <small class="text-muted">${escAttr(r.masked_id)}${r.cf_name ? ' • ' + escAttr(r.cf_name) : ''}</small>
                         </td>
                         <td>
                             <input type="text" id="cf_phone_${rid}" value="${escAttr(r.phone)}" maxlength="15" class="form-control form-control-sm font-monospace" style="min-width: 120px;">
@@ -1372,94 +1404,93 @@
             window.location.href = '/cf/login';
         }
 
-
         let lastExistingExcelB64 = '';
-let lastExistingExcelName = 'Existing_Records_Skipped.xlsx';
+        let lastExistingExcelName = 'Existing_Records_Skipped.xlsx';
 
-async function onBulkFileChange() {
-    const fInput = document.getElementById('bulk_thrift_file');
-    const sSel = document.getElementById('bulk_thrift_sheet');
-    if (!fInput.files.length) return;
-    if (fInput.files[0].name.toLowerCase().endsWith('.csv')) {
-        sSel.innerHTML = '<option value="">-- CSV File --</option>';
-        return;
-    }
-    const fd = new FormData();
-    fd.append('file', fInput.files[0]);
-    const res = await fetch('/api/parse-excel-headers', { method: 'POST', body: fd });
-    const r = await res.json();
-    if (r.status === 'success') {
-        sSel.innerHTML = (r.sheets || []).map(s => `<option value="${escAttr(s)}">${escAttr(s)}</option>`).join('');
-    }
-}
-
-async function runBulkThriftUpload() {
-    const fInput = document.getElementById('bulk_thrift_file');
-    if (!fInput.files.length) {
-        alert('దయచేసి ముందుగా Excel లేదా CSV ఫైల్ ఎంచుకోండి!');
-        return;
-    }
-
-    const box = document.getElementById('bulk_upload_result_box');
-    const txt = document.getElementById('bulk_upload_summary_text');
-    const dlBtn = document.getElementById('btn_download_existing_excel');
-
-    box.className = 'alert alert-info mb-0';
-    box.classList.remove('d-none');
-    txt.textContent = '⏳ బల్క్ డేటా తనిఖీ చేసి ప్రాసెస్ చేస్తోంది...';
-    dlBtn.classList.add('d-none');
-    lastExistingExcelB64 = '';
-
-    const fd = new FormData();
-    fd.append('bulk_file', fInput.files[0]);
-    fd.append('bulk_sheet', document.getElementById('bulk_thrift_sheet').value || '');
-    fd.append('upload_mode', document.getElementById('bulk_upload_mode').value || 'insert_only');
-
-    try {
-        const res = await fetch('/cf/bulk-upload-thrift', { method: 'POST', body: fd });
-        const data = await res.json();
-
-        if (data.status === 'success') {
-            box.className = 'alert alert-success mb-0';
-            txt.textContent = data.message;
-            if (data.existing_excel_b64 && data.existing_skipped_count > 0) {
-                lastExistingExcelB64 = data.existing_excel_b64;
-                lastExistingExcelName = data.existing_filename || 'Existing_Records_Skipped.xlsx';
-                dlBtn.textContent = `📥 ఇదివరకు ఉన్న ${data.existing_skipped_count} రికార్డ్‌లను Excel డౌన్‌లోడ్ చేయండి`;
-                dlBtn.classList.remove('d-none');
+        async function onBulkFileChange() {
+            const fInput = document.getElementById('bulk_thrift_file');
+            const sSel = document.getElementById('bulk_thrift_sheet');
+            if (!fInput || !fInput.files.length) return;
+            if (fInput.files[0].name.toLowerCase().endsWith('.csv')) {
+                sSel.innerHTML = '<option value="">-- CSV File --</option>';
+                return;
             }
-            if (typeof loadMyCfBeneficiaries === 'function') {
-                loadMyCfBeneficiaries();
+            const fd = new FormData();
+            fd.append('file', fInput.files[0]);
+            const res = await fetch('/api/parse-excel-headers', { method: 'POST', body: fd });
+            const r = await res.json();
+            if (r.status === 'success') {
+                sSel.innerHTML = (r.sheets || []).map(s => `<option value="${escAttr(s)}">${escAttr(s)}</option>`).join('');
             }
-        } else {
-            box.className = 'alert alert-danger mb-0';
-            txt.textContent = `⚠️ ${data.message || 'లోపం జరిగింది.'}`;
         }
-    } catch (e) {
-        box.className = 'alert alert-danger mb-0';
-        txt.textContent = '⚠️ సర్వర్ కనెక్షన్ లోపం.';
-    }
-}
 
-function downloadExistingSkippedExcel() {
-    if (!lastExistingExcelB64) return;
-    const byteChars = atob(lastExistingExcelB64);
-    const byteNumbers = new Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) {
-        byteNumbers[i] = byteChars.charCodeAt(i);
-    }
-    const blob = new Blob([new Uint8Array(byteNumbers)], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = lastExistingExcelName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-}
+        async function runBulkThriftUpload() {
+            const fInput = document.getElementById('bulk_thrift_file');
+            if (!fInput || !fInput.files.length) {
+                alert('దయచేసి ముందుగా Excel లేదా CSV ఫైల్ ఎంచుకోండి!');
+                return;
+            }
+
+            const box = document.getElementById('bulk_upload_result_box');
+            const txt = document.getElementById('bulk_upload_summary_text');
+            const dlBtn = document.getElementById('btn_download_existing_excel');
+
+            box.className = 'alert alert-info mb-0';
+            box.classList.remove('d-none');
+            txt.textContent = '⏳ బల్క్ డేటా తనిఖీ చేసి ప్రాసెస్ చేస్తోంది...';
+            dlBtn.classList.add('d-none');
+            lastExistingExcelB64 = '';
+
+            const fd = new FormData();
+            fd.append('bulk_file', fInput.files[0]);
+            fd.append('bulk_sheet', document.getElementById('bulk_thrift_sheet').value || '');
+            fd.append('upload_mode', document.getElementById('bulk_upload_mode').value || 'insert_only');
+
+            try {
+                const res = await fetch('/cf/bulk-upload-thrift', { method: 'POST', body: fd });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    box.className = 'alert alert-success mb-0';
+                    txt.textContent = data.message;
+                    if (data.existing_excel_b64 && data.existing_skipped_count > 0) {
+                        lastExistingExcelB64 = data.existing_excel_b64;
+                        lastExistingExcelName = data.existing_filename || 'Existing_Records_Skipped.xlsx';
+                        dlBtn.textContent = `📥 ఇదివరకు ఉన్న ${data.existing_skipped_count} రికార్డ్‌లను Excel డౌన్‌లోడ్ చేయండి`;
+                        dlBtn.classList.remove('d-none');
+                    }
+                    if (typeof loadMyCfBeneficiaries === 'function') {
+                        loadMyCfBeneficiaries();
+                    }
+                } else {
+                    box.className = 'alert alert-danger mb-0';
+                    txt.textContent = `⚠️ ${data.message || 'లోపం జరిగింది.'}`;
+                }
+            } catch (e) {
+                box.className = 'alert alert-danger mb-0';
+                txt.textContent = '⚠️ సర్వర్ కనెక్షన్ లోపం.';
+            }
+        }
+
+        function downloadExistingSkippedExcel() {
+            if (!lastExistingExcelB64) return;
+            const byteChars = atob(lastExistingExcelB64);
+            const byteNumbers = new Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) {
+                byteNumbers[i] = byteChars.charCodeAt(i);
+            }
+            const blob = new Blob([new Uint8Array(byteNumbers)], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = lastExistingExcelName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
     </script>
 </body>
 </html>
