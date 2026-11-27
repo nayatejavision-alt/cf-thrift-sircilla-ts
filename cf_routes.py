@@ -478,16 +478,27 @@ def clean_area_for_matching(area_val):
 
 
 def extract_block_and_door(cleaned_hno):
+  """
+  1-2-41/1/1 లేదా 9-8-159 వంటి ఇంటి నంబర్ల నుండి బ్లాక్ ('1-2') మరియు
+  ప్రధాన డోర్ నంబర్ (41) ను ఖచ్చితంగా వేరు చేస్తుంది.
+  """
   if not cleaned_hno:
     return None, None
-  m = re.search(r'(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno)
+
+  # ముందు స్పేస్ లేకపోయినా పనిచేసేలా సరిచేశాం
+  m = re.search(
+      r'(?:^|[^\d-])(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno
+  )
   if m:
     return f'{int(m.group(1))}-{int(m.group(2))}', int(m.group(3))
-  m2 = re.search(r'(\d{1,2})\s*-\s*(\d{1,2})', cleaned_hno)
+
+  m2 = re.search(
+      r'(?:^|[^\d-])(\d{1,2})\s*-\s*(\d{1,2})(?:$|[^\d-])', cleaned_hno
+  )
   if m2:
     return f'{int(m2.group(1))}-{int(m2.group(2))}', None
-  return None, None
 
+  return None, None
 
 def _clean_ifsc(val):
   """11 అక్షరాల చెల్లుబాటు అయ్యే IFSC కోడ్‌ను క్లీన్ చేసి తిరిగి ఇస్తుంది (లేదా '')."""
