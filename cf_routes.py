@@ -347,6 +347,18 @@ def clean_str_cell(val):
   return s.replace("'", '').strip()
 
 
+def format_account_text(val):
+  """
+  బ్యాంకు అకౌంట్ నంబర్ (ముఖ్యంగా 0 తో మొదలయ్యే Union Bank & 16 అంకెల PNB ఖాతాలు)
+  Google Sheets / Excel లో టెక్స్ట్‌గా సేవ్ కావడానికి ముందు సింగిల్ కోట్ (') జోడిస్తుంది.
+  ఇప్పటికే ముందు ' ఉంటే మళ్ళీ కలపకుండా క్లీన్‌గా ఉంచుతుంది.
+  """
+  s = clean_str_cell(val)
+  if not s:
+    return ''
+  return f"'{s}"
+
+
 def clean_indian_mobile_10(raw_val):
   """10 అంకెల భారతీయ మొబైల్ నంబర్‌ను తిరిగి ఇస్తుంది (లేదా ఖాళీ స్ట్రింగ్)."""
   digits = re.sub(r'\D', '', clean_str_cell(raw_val))
@@ -426,13 +438,14 @@ def find_header_match(headers, candidates, allow_partial=True):
     if len(cn) < 4:
       continue
     pattern = re.compile(
-        rf'(?:^|\b|_|\s){re.escape(cn)}(?:$|\b|_|\s)', re.IGNORECASE
+        rf'(?:^||_|\s){re.escape(cn)}(?:$||_|\s)', re.IGNORECASE
     )
     for h_norm, h_orig in norm_map.items():
       if pattern.search(h_norm):
         return h_orig
 
   return None
+
 
 def clean_hno_for_matching(hno_val):
   if hno_val is None:
@@ -446,7 +459,7 @@ def clean_hno_for_matching(hno_val):
       s,
       flags=re.IGNORECASE,
   )
-  s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', '', s, flags=re.IGNORECASE)
+  s = re.sub(r'H\.?\s*N\.?\s*O\.?', '', s, flags=re.IGNORECASE)
   s = re.sub(r'\s*-\s*', '-', s)
   s = re.sub(r'\s*/\s*', '/', s)
   s = re.sub(r'\s+', ' ', s).strip(' -/')
@@ -459,7 +472,7 @@ def clean_area_for_matching(area_val):
   s = str(area_val).strip().upper()
   if not s or s in ['NAN', 'NONE', 'NULL', '-']:
     return ''
-  s = re.sub(r'\bH\.?\s*N\.?\s*O\.?\b', ' ', s, flags=re.IGNORECASE)
+  s = re.sub(r'H\.?\s*N\.?\s*O\.?', ' ', s, flags=re.IGNORECASE)
   s = re.sub(r'[^A-Z0-9\s]', ' ', s)
   s = re.sub(r'\s+', ' ', s).strip()
   return s
@@ -468,10 +481,10 @@ def clean_area_for_matching(area_val):
 def extract_block_and_door(cleaned_hno):
   if not cleaned_hno:
     return None, None
-  m = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno)
+  m = re.search(r'(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d+)', cleaned_hno)
   if m:
     return f'{int(m.group(1))}-{int(m.group(2))}', int(m.group(3))
-  m2 = re.search(r'\b(\d{1,2})\s*-\s*(\d{1,2})\b', cleaned_hno)
+  m2 = re.search(r'(\d{1,2})\s*-\s*(\d{1,2})', cleaned_hno)
   if m2:
     return f'{int(m2.group(1))}-{int(m2.group(2))}', None
   return None, None
@@ -968,7 +981,7 @@ def cf_my_beneficiaries():
 
 @cf_bp.route('/cf/quick-update-beneficiary', methods=['POST'])
 def cf_quick_update_beneficiary():
-  """CF డ్యాష్‌బోర్డ్ టేబుల్ నుండి లబ్ధిదారుడి పేరు, ఫోన్, RD1, RD2 తక్షణమే అప్‌డేట్ చేస్తుంది."""
+  """CF డ్యాష్‌బోర్డ్ టేబుల్ నుండి లబ్ధిదారుడి పేరు, ఫోన్, బ్యాంకు ఖాతా, RD1, RD2 తక్షణమే అప్‌డేట్ చేస్తుంది."""
   if not session.get('cf_logged_in'):
     return (
         jsonify({'status': 'error', 'message': 'దయచేసి లాగిన్ అవ్వండి!'}),
@@ -1020,6 +1033,9 @@ def cf_quick_update_beneficiary():
         'phone': find_header_match(
             headers, ['contact number', 'mobile', 'phone', 'contact']
         ),
+        'bank_acc': find_header_match(
+            headers, ['bank account number', 'account number', 'account']
+        ),
         'rd1': find_header_match(headers, ['rd 1', 'rd_1', 'rd1']),
         'rd2': find_header_match(headers, ['rd 2', 'rd_2', 'rd2']),
     }
@@ -1027,7 +1043,10 @@ def cf_quick_update_beneficiary():
     for key, col_name in col_map_fields.items():
       if key in payload and col_name:
         c_idx = headers.index(col_name) + 1
-        clean_v = clean_str_cell(payload.get(key))
+        if key in ('bank_acc', 'rd1', 'rd2'):
+          clean_v = format_account_text(payload.get(key))
+        else:
+          clean_v = clean_str_cell(payload.get(key))
         ws.update_cell(row_index, c_idx, clean_v)
 
     _cache_invalidate(f'ben:{cf_name}:')
@@ -1125,9 +1144,9 @@ def cf_generate_whatsapp_links_excel():
             'Beneficiary_Name': b_name,
             'Mobile_10_Digit': m10,
             'Bank_Name': b_bank,
-            'Bank_Account': b_acc,
-            'RD1_Account': r1,
-            'RD2_Account': r2,
+            'Bank_Account': format_account_text(b_acc),
+            'RD1_Account': format_account_text(r1),
+            'RD2_Account': format_account_text(r2),
             'Telugu_Message': msg,
             'WhatsApp_Link': (
                 f'https://api.whatsapp.com/send?phone=91{m10}&text={encoded_msg}'
@@ -1139,7 +1158,7 @@ def cf_generate_whatsapp_links_excel():
             'Row_No': idx + 2,
             'Beneficiary_Name': b_name,
             'Raw_Phone': clean_str_cell(row.get(col_phone, '')),
-            'RD1_Account': r1,
+            'RD1_Account': format_account_text(r1),
         })
 
     buf = io.BytesIO()
@@ -1202,12 +1221,10 @@ def _build_monthly_cross_df(spreadsheet, current_month):
       keep='first',
   )
 
-  df_thrift['RD 1_Clean'] = df_thrift['RD 1'].astype(str).str.strip()
-  df_trans_month['RD1_Clean'] = (
-      df_trans_month['RD ACCOUNT_1 (Beneficiary Contribution)']
-      .astype(str)
-      .str.strip()
-  )
+  df_thrift['RD 1_Clean'] = df_thrift['RD 1'].apply(clean_str_cell)
+  df_trans_month['RD1_Clean'] = df_trans_month[
+      'RD ACCOUNT_1 (Beneficiary Contribution)'
+  ].apply(clean_str_cell)
 
   df_cross = pd.merge(
       df_thrift,
@@ -1299,9 +1316,10 @@ def cf_download_report_by_bank():
 
 
 def generate_excel_response(group_df, cf_name, current_month, report_type):
-  for col in ['Bank Account Number', 'RD 1']:
+  # డబుల్ సింగిల్ కోట్స్ ('') రాకుండా format_account_text తో సురక్షితంగా ఫార్మాట్ చేయడం
+  for col in ['Bank Account Number', 'RD 1', 'RD 2']:
     if col in group_df.columns:
-      group_df[col] = "'" + group_df[col].astype(str)
+      group_df[col] = group_df[col].apply(format_account_text)
 
   df_active = group_df[group_df['Govt_Share'] > 0].copy()
   df_missing = group_df[group_df['Govt_Share'] == 0].copy()
@@ -1493,6 +1511,8 @@ def cf_search_beneficiary():
       for k, v in matched_record.items():
         if any(dk in k.lower() for dk in ['dob', 'date of birth', 'date']):
           cleaned_matched[k] = format_date_val(v)
+        elif k in ('Bank Account Number', 'RD 1', 'RD 2'):
+          cleaned_matched[k] = clean_str_cell(v)
         else:
           cleaned_matched[k] = v
       matched_record = cleaned_matched
@@ -1680,6 +1700,11 @@ def cf_save_beneficiary():
 
     form_data['Aadhar Number'] = form_aadhar_clean
 
+    # బ్యాంకు ఖాతా నంబర్, RD 1, RD 2 లను టెక్స్ట్‌గా సేవ్ చేయడానికి ముందు సింగిల్ కోట్ (') జోడించడం
+    for acc_col in ('Bank Account Number', 'RD 1', 'RD 2'):
+      if acc_col in form_data:
+        form_data[acc_col] = format_account_text(form_data.get(acc_col, ''))
+
     unit_hno = form_data.get('H.NO. Unit H.No', '')
     residential_hno = form_data.get('H.NO. Residentional H.No', '')
     unit_area = form_data.get('Area', '')
@@ -1761,7 +1786,16 @@ def cf_save_beneficiary():
       for col_name, val in form_data.items():
         if col_name in headers:
           c_idx = headers.index(col_name)
-          updated_row[c_idx] = '' if val is None else val
+          if col_name in ('Bank Account Number', 'RD 1', 'RD 2'):
+            updated_row[c_idx] = format_account_text(val)
+          else:
+            updated_row[c_idx] = '' if val is None else val
+
+      # పాత రో లో ఉన్న అకౌంట్ నంబర్లకు కూడా సింగిల్ కోట్ (') ఉండేలా నిర్ధారించడం
+      for acc_col in ('Bank Account Number', 'RD 1', 'RD 2'):
+        if acc_col in headers:
+          ac_idx = headers.index(acc_col)
+          updated_row[ac_idx] = format_account_text(updated_row[ac_idx])
 
       updated_row[aadhar_col_idx] = form_aadhar_clean
       end_col_letter = get_column_letter(len(headers))
@@ -1804,10 +1838,14 @@ def cf_save_beneficiary():
         )
 
       form_data['SNO'] = max_sno + 1
-      new_row = [
-          '' if form_data.get(h, '') is None else form_data.get(h, '')
-          for h in headers
-      ]
+      new_row = []
+      for h in headers:
+        raw_v = form_data.get(h, '')
+        if h in ('Bank Account Number', 'RD 1', 'RD 2'):
+          new_row.append(format_account_text(raw_v))
+        else:
+          new_row.append('' if raw_v is None else raw_v)
+
       next_row_num = get_last_non_empty_row(worksheet) + 1
       end_col_letter = get_column_letter(len(headers))
       worksheet.update(
@@ -1894,7 +1932,7 @@ Scan context: "{scan_type}". Use "" if not visible. Return ONLY raw JSON.
 
 
 # ==============================================================================
-# 5. BULK UPLOAD TO NEW THRIFT DATA (DEDUPLICATED & OPTIMIZED)
+# 5. BULK UPLOAD TO NEW THRIFT DATA (WITH TEXT ACCOUNT FORMATTING)
 # ==============================================================================
 def _build_existing_records_excel_b64(existing_items, headers):
   """ఇన్సర్ట్ చేయకుండా ఆపివేసిన (ఇదివరకు ఉన్న) రికార్డ్‌లను Excel బైట్స్/base64 గా మారుస్తుంది."""
@@ -1923,7 +1961,10 @@ def _build_existing_records_excel_b64(existing_items, headers):
     ]
     for h in headers:
       if h:
-        row_out.append(clean_str_cell(rec.get(h, '')))
+        if h in ('Bank Account Number', 'RD 1', 'RD 2'):
+          row_out.append(format_account_text(rec.get(h, '')))
+        else:
+          row_out.append(clean_str_cell(rec.get(h, '')))
     ws.append(row_out)
 
   buf = io.BytesIO()
@@ -2131,6 +2172,11 @@ def cf_bulk_upload_thrift():
 
       mapped_dict['Aadhar Number'] = a_clean
 
+      # బ్యాంకు ఖాతా నంబర్, RD 1, RD 2 లకు ముందు సింగిల్ కోట్ (') జోడించడం
+      for acc_col in ('Bank Account Number', 'RD 1', 'RD 2'):
+        if acc_col in mapped_dict and mapped_dict[acc_col]:
+          mapped_dict[acc_col] = format_account_text(mapped_dict[acc_col])
+
       clean_uhno, clean_rhno, clean_area = _clean_row_before_cf_mapping(
           mapped_dict
       )
@@ -2208,7 +2254,13 @@ def cf_bulk_upload_thrift():
             max_bank_sno_global += 1
             mapped_dict['BANK_SNO'] = str(max_bank_sno_global)
 
-        new_row_list = [mapped_dict.get(h, '') for h in headers]
+        new_row_list = []
+        for h in headers:
+          val_h = mapped_dict.get(h, '')
+          if h in ('Bank Account Number', 'RD 1', 'RD 2'):
+            new_row_list.append(format_account_text(val_h))
+          else:
+            new_row_list.append(val_h)
         to_insert_rows.append(new_row_list)
 
     updated_count = 0
@@ -2229,6 +2281,13 @@ def cf_bulk_upload_thrift():
       for idx_h, h_name in enumerate(headers):
         if h_name == 'Aadhar Number':
           merged[idx_h] = a_val
+          continue
+        if h_name in ('Bank Account Number', 'RD 1', 'RD 2'):
+          incoming_acc = clean_str_cell(n_dict.get(h_name, ''))
+          if incoming_acc != '':
+            merged[idx_h] = format_account_text(incoming_acc)
+          elif merged[idx_h]:
+            merged[idx_h] = format_account_text(merged[idx_h])
           continue
         incoming_v = clean_str_cell(n_dict.get(h_name, ''))
         if incoming_v != '':
