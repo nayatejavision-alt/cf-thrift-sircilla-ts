@@ -11,16 +11,16 @@
             background: linear-gradient(135deg, #eef2f3 0%, #cfd9df 100%);
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding: 25px 15px;
+            padding: 20px 15px;
         }
         .glass-card {
-            background: rgba(255, 255, 255, 0.96);
+            background: rgba(255, 255, 255, 0.97);
             backdrop-filter: blur(10px);
             border-radius: 16px;
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.6);
-            padding: 28px;
-            margin-bottom: 25px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            padding: 24px;
+            margin-bottom: 22px;
         }
         .header-title {
             color: #1a2a3a;
@@ -29,7 +29,8 @@
         .form-label {
             font-weight: 600;
             color: #495057;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            margin-bottom: 4px;
         }
         .live-badge {
             display: inline-flex;
@@ -37,14 +38,14 @@
             gap: 6px;
             background: #e8f5e9;
             color: #198754;
-            padding: 5px 12px;
+            padding: 4px 12px;
             border-radius: 20px;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             font-weight: 600;
         }
         .pulse-dot {
-            width: 9px;
-            height: 9px;
+            width: 8px;
+            height: 8px;
             background-color: #198754;
             border-radius: 50%;
             animation: pulse 1.5s infinite;
@@ -55,7 +56,7 @@
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(25, 135, 84, 0); }
         }
         .table-responsive {
-            max-height: 480px;
+            max-height: 550px;
             overflow-y: auto;
             border-radius: 10px;
             border: 1px solid #dee2e6;
@@ -68,186 +69,215 @@
             z-index: 2;
             font-size: 0.85rem;
             white-space: nowrap;
+            padding: 11px 10px;
         }
         .table tbody td {
             font-size: 0.88rem;
             vertical-align: middle;
+            padding: 9px 10px;
+        }
+        .btn-generate {
+            background: linear-gradient(45deg, #0d6efd, #0b5ed7);
+            border: none;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .btn-generate:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);
         }
     </style>
 </head>
 <body>
 
-<div class="container-xl">
-    <div class="row g-4">
-        <!-- ఎడమ వైపు: Gmail Draft Generator Form -->
-        <div class="col-lg-4">
-            <div class="glass-card h-100">
-                <div class="text-center mb-3">
-                    <i class="fa-solid fa-envelope-open-text fa-2x text-primary mb-2"></i>
-                    <h4 class="header-title">Gmail Draft Generator</h4>
-                    <p class="text-muted small mb-0">ఆటోమేటిక్ గా డ్రాఫ్ట్ & ఎక్సెల్ తయారు చేయండి</p>
+<div class="container-fluid px-lg-4">
+
+    <!-- ===================================================================== -->
+    <!-- పై భాగం (TOP SECTION): కాంపాక్ట్ Gmail Draft Generator ఫారమ్ -->
+    <!-- ===================================================================== -->
+    <div class="glass-card">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom">
+            <div class="d-flex align-items-center gap-2">
+                <i class="fa-solid fa-envelope-open-text fa-lg text-primary"></i>
+                <h5 class="header-title mb-0">Thrift Scheme Gmail Draft Generator</h5>
+            </div>
+            <span class="text-muted small">ఆటోమేటిక్ గా జిమెయిల్ డ్రాఫ్ట్ & ఎక్సెల్/వర్డ్ ఫైల్స్ తయారు చేయండి</span>
+        </div>
+
+        <form id="draftForm">
+            <div class="row g-3 align-items-end">
+                <!-- దశ (Process Step) -->
+                <div class="col-lg-3 col-md-6">
+                    <label for="process_step" class="form-label"><i class="fa-solid fa-list-check me-1 text-primary"></i>ప్రాసెస్ దశ (Step):</label>
+                    <select name="process_step" id="process_step" class="form-select form-select-sm" required>
+                        <option value="1">1. లబ్ధిదారుల ప్రాథమిక జాబితా తయారీ</option>
+                        <option value="2">2. కొత్త RD ఖాతాల ప్రారంభం కోసం అభ్యర్థన</option>
+                        <option value="3">3. బ్యాంకు నుండి కొత్త RD ఖాతా నంబర్ల స్వీకరణ</option>
+                        <option value="4">4. డేటా మ్యాపింగ్ మరియు మాస్టర్ షీట్ అప్‌డేట్</option>
+                        <option value="5">5. కార్మికుడి వాటా (8%) బ్యాంక్ స్టేట్‌మెంట్ల సేకరణ</option>
+                        <option value="6">6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (8%) గణన</option>
+                        <option value="7">7. ప్రభుత్వ వాటా నిధుల మంజూరు మరియు బదిలీ</option>
+                        <option value="8" selected>8. లబ్ధిదారుల వారీగా కేటాయింపు (Credit Advice)</option>
+                        <option value="9">9. ప్రభుత్వ వాటా జమ మరియు కన్ఫర్మేషన్</option>
+                        <option value="10">10. లోపాల సవరణ మరియు ఉత్తర ప్రత్యుత్తరాలు</option>
+                        <option value="11">11. ఎగ్జిక్యూటివ్ సమ్మరీ మరియు ఆడిట్ రిపోర్ట్స్</option>
+                        <option value="12">12. మెచ్యూరిటీ, NOC జారీ మరియు ఖాతా క్లోజర్</option>
+                    </select>
                 </div>
 
-                <form id="draftForm">
-                    <div class="mb-3">
-                        <label for="process_step" class="form-label">ప్రాసెస్ దశ (Process Step):</label>
-                        <select name="process_step" id="process_step" class="form-select" required>
-                            <option value="1">1. లబ్ధిదారుల ప్రాథమిక జాబితా తయారీ</option>
-                            <option value="2">2. కొత్త RD ఖాతాల ప్రారంభం కోసం అభ్యర్థన</option>
-                            <option value="3">3. బ్యాంకు నుండి కొత్త RD ఖాతా నంబర్ల స్వీకరణ</option>
-                            <option value="4">4. డేటా మ్యాపింగ్ మరియు మాస్టర్ షీట్ అప్‌డేట్</option>
-                            <option value="5">5. కార్మికుడి వాటా (8%) బ్యాంక్ స్టేట్‌మెంట్ల సేకరణ</option>
-                            <option value="6">6. రీకన్సిలియేషన్ మరియు ప్రభుత్వ వాటా (8%) గణన</option>
-                            <option value="7">7. ప్రభుత్వ వాటా నిధుల మంజూరు మరియు బదిలీ</option>
-                            <option value="8" selected>8. లబ్ధిదారుల వారీగా కేటాయింపు జాబితా (Credit Advice)</option>
-                            <option value="9">9. ప్రభుత్వ వాటా జమ మరియు కన్ఫర్మేషన్</option>
-                            <option value="10">10. లోపాల సవరణ మరియు ఉత్తర ప్రత్యుత్తరాలు</option>
-                            <option value="11">11. ఎగ్జిక్యూటివ్ సమ్మరీ మరియు ఆడిట్ రిపోర్ట్స్</option>
-                            <option value="12">12. మెచ్యూరిటీ, NOC జారీ మరియు ఖాతా క్లోజర్</option>
-                        </select>
-                    </div>
+                <!-- బ్యాంక్ పేరు -->
+                <div class="col-lg-3 col-md-6">
+                    <label for="bank_name" class="form-label"><i class="fa-solid fa-building-columns me-1 text-primary"></i>బ్యాంకు పేరు (Bank Name):</label>
+                    <select name="bank_name" id="bank_name" class="form-select form-select-sm" required>
+                        <option value="">-- బ్యాంక్ ఎంచుకోండి --</option>
+                        {% for bank in banks %}
+                            <option value="{{ bank }}">{{ bank }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label for="month" class="form-label">నెల (Month):</label>
-                            <select name="month" id="month" class="form-select" required>
-                                <option value="1">June 2026</option>
-                                <option value="2">July 2026</option>
-                                <option value="3">August 2026</option>
-                                <option value="4">September 2026</option>
-                                <option value="5">October 2026</option>
-                                <option value="6">November 2026</option>
-                                <option value="7">December 2026</option>
-                                <option value="8">January 2027</option>
-                                <option value="9">February 2027</option>
-                                <option value="10">March 2027</option>
-                                <option value="11">April 2027</option>
-                                <option value="12">May 2027</option>
-                            </select>
-                        </div>
-                        <div class="col-6">
-                            <label for="batch" class="form-label">బ్యాచ్ (Batch):</label>
-                            <select name="batch" id="batch" class="form-select" required>
-                                <option value="1">Batch 1</option>
-                                <option value="2">Batch 2</option>
-                                <option value="3">Batch 3</option>
-                                <option value="4">Batch 4</option>
-                            </select>
-                        </div>
-                    </div>
+                <!-- నెల (Month) -->
+                <div class="col-lg-2 col-md-4 col-6">
+                    <label for="month" class="form-label"><i class="fa-regular fa-calendar-alt me-1 text-primary"></i>నెల (Month):</label>
+                    <select name="month" id="month" class="form-select form-select-sm" required>
+                        <option value="1">June 2026</option>
+                        <option value="2">July 2026</option>
+                        <option value="3">August 2026</option>
+                        <option value="4">September 2026</option>
+                        <option value="5">October 2026</option>
+                        <option value="6">November 2026</option>
+                        <option value="7">December 2026</option>
+                        <option value="8">January 2027</option>
+                        <option value="9">February 2027</option>
+                        <option value="10">March 2027</option>
+                        <option value="11">April 2027</option>
+                        <option value="12">May 2027</option>
+                    </select>
+                </div>
 
-                    <div class="mb-3">
-                        <label for="bank_name" class="form-label">బ్యాంకు పేరు (Bank Name):</label>
-                        <select name="bank_name" id="bank_name" class="form-select" required>
-                            <option value="">-- బ్యాంక్ ఎంచుకోండి --</option>
-                            {% for bank in banks %}
-                                <option value="{{ bank }}">{{ bank }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
+                <!-- బ్యాచ్ (Batch) -->
+                <div class="col-lg-1 col-md-2 col-6">
+                    <label for="batch" class="form-label">బ్యాచ్:</label>
+                    <select name="batch" id="batch" class="form-select form-select-sm" required>
+                        <option value="1">Batch 1</option>
+                        <option value="2">Batch 2</option>
+                        <option value="3">Batch 3</option>
+                        <option value="4">Batch 4</option>
+                    </select>
+                </div>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-4">
-                            <label for="cheque_no" class="form-label">చెక్కు నంబర్:</label>
-                            <input type="text" id="cheque_no" name="cheque_no" class="form-control" placeholder="123456">
-                        </div>
-                        <div class="col-4">
-                            <label for="cheque_date" class="form-label">తేదీ:</label>
-                            <input type="text" id="cheque_date" name="cheque_date" class="form-control" placeholder="DD/MM/YYYY">
-                        </div>
-                        <div class="col-4">
-                            <label for="cheque_amount" class="form-label">మొత్తం (₹):</label>
-                            <input type="text" id="cheque_amount" name="cheque_amount" class="form-control" placeholder="Auto">
-                        </div>
-                    </div>
+                <!-- చెక్కు వివరాలు -->
+                <div class="col-lg-1 col-md-2 col-4">
+                    <label for="cheque_no" class="form-label">చెక్కు నం:</label>
+                    <input type="text" id="cheque_no" name="cheque_no" class="form-control form-control-sm" placeholder="123456">
+                </div>
+                <div class="col-lg-1 col-md-2 col-4">
+                    <label for="cheque_date" class="form-label">చెక్కు తేదీ:</label>
+                    <input type="text" id="cheque_date" name="cheque_date" class="form-control form-control-sm" placeholder="DD/MM/YYYY">
+                </div>
+                <div class="col-lg-1 col-md-2 col-4">
+                    <label for="cheque_amount" class="form-label">మొత్తం (₹):</label>
+                    <input type="text" id="cheque_amount" name="cheque_amount" class="form-control form-control-sm" placeholder="Auto">
+                </div>
 
-                    <button type="submit" id="submitBtn" class="btn btn-primary w-100 py-2 fw-bold">
+                <!-- సబ్‌మిట్ బటన్ (కుడి వైపు చివర లేదా పూర్తి వెడల్పు బటన్) -->
+                <div class="col-12 d-flex flex-wrap justify-content-between align-items-center mt-3 pt-2 border-top gap-2">
+                    <div id="liveTaskTracker" class="flex-grow-1"></div>
+                    <button type="submit" id="submitBtn" class="btn btn-primary btn-generate px-4 py-2">
                         <i class="fa-solid fa-paper-plane me-2"></i>Create Gmail Draft
                     </button>
-                </form>
+                </div>
+            </div>
+        </form>
 
-                <!-- లైవ్ బ్యాక్‌గ్రౌండ్ టాస్క్ ట్రాకర్ -->
-                <div id="liveTaskTracker" class="mt-3"></div>
-                <div id="resultAlert" class="alert mt-3 d-none small" role="alert"></div>
+        <div id="resultAlert" class="alert mt-3 mb-0 d-none small" role="alert"></div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- క్రింది భాగం (BOTTOM SECTION): ఫుల్-విడ్త్ LIVE Bank_Transactions టేబుల్ -->
+    <!-- ===================================================================== -->
+    <div class="glass-card">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <h5 class="header-title mb-0">
+                    <i class="fa-solid fa-table-list text-primary me-2"></i>Bank Transactions (Live Dashboard)
+                </h5>
+                <span class="live-badge">
+                    <span class="pulse-dot"></span> లైవ్ సింక్ ఆన్ (Auto-Refresh: 8s)
+                </span>
+            </div>
+
+            <div class="d-flex gap-2 align-items-center">
+                <span class="badge bg-dark px-3 py-2 fs-6" id="totalSummaryBadge">మొత్తం: 0 రికార్డులు | ₹0</span>
+                <button class="btn btn-outline-secondary btn-sm" onclick="fetchTransactions(true)" title="Refresh Now">
+                    <i class="fa-solid fa-arrows-rotate me-1"></i> రిఫ్రెష్
+                </button>
+                <button class="btn btn-success btn-sm fw-bold px-3" onclick="openAddModal()">
+                    <i class="fa-solid fa-plus me-1"></i> కొత్త ఎంట్రీ (Add)
+                </button>
             </div>
         </div>
 
-        <!-- కుడి వైపు: LIVE Bank_Transactions Manager -->
-        <div class="col-lg-8">
-            <div class="glass-card h-100">
-                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-                    <div>
-                        <h4 class="header-title mb-1">
-                            <i class="fa-solid fa-table-list text-primary me-2"></i>Bank Transactions (Live)
-                        </h4>
-                        <span class="live-badge">
-                            <span class="pulse-dot"></span> లైవ్ సింక్ ఆన్‌లో ఉంది (Auto-Refresh: 8s)
-                        </span>
-                    </div>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="fetchTransactions(true)" title="Refresh Now">
-                            <i class="fa-solid fa-arrows-rotate"></i> రిఫ్రెష్
-                        </button>
-                        <button class="btn btn-success btn-sm fw-bold" onclick="openAddModal()">
-                            <i class="fa-solid fa-plus me-1"></i> కొత్త ఎంట్రీ (Add)
-                        </button>
-                    </div>
-                </div>
-
-                <!-- సెర్చ్ & ఫిల్టర్ బార్ -->
-                <div class="row g-2 mb-3">
-                    <div class="col-md-6">
-                        <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="🔍 బ్యాంక్ పేరు, చెక్కు నంబర్ లేదా దశ ద్వారా వెతకండి..." onkeyup="filterTable()">
-                    </div>
-                    <div class="col-md-3">
-                        <select id="monthFilter" class="form-select form-select-sm" onchange="filterTable()">
-                            <option value="">అన్ని నెలలు (All Months)</option>
-                            <option value="June 2026">June 2026</option>
-                            <option value="July 2026">July 2026</option>
-                            <option value="August 2026">August 2026</option>
-                            <option value="September 2026">September 2026</option>
-                            <option value="October 2026">October 2026</option>
-                            <option value="November 2026">November 2026</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3 text-end">
-                        <span class="badge bg-dark p-2 w-100" id="totalSummaryBadge">మొత్తం: 0 రికార్డులు</span>
-                    </div>
-                </div>
-
-                <!-- లైవ్ డేటా టేబుల్ -->
-                <div class="table-responsive">
-                    <table class="table table-hover table-bordered mb-0" id="transactionsTable">
-                        <thead>
-                            <tr>
-                                <th>సమయం (Time)</th>
-                                <th>బ్యాంక్ పేరు</th>
-                                <th>దశ (Step)</th>
-                                <th>నెల / బ్యాచ్</th>
-                                <th>చెక్కు వివరాలు</th>
-                                <th>మొత్తం (₹)</th>
-                                <th>లబ్ధిదారులు</th>
-                                <th>స్టేటస్</th>
-                                <th class="text-center">మార్పులు (Actions)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="transactionsBody">
-                            <tr>
-                                <td colspan="9" class="text-center py-4 text-muted">
-                                    <i class="fa-solid fa-spinner fa-spin me-2"></i>డేటా లోడ్ అవుతోంది...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+        <!-- సెర్చ్ & ఫిల్టర్ బార్ -->
+        <div class="row g-2 mb-3">
+            <div class="col-md-5">
+                <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="🔍 బ్యాంక్ పేరు, చెక్కు నంబర్, స్టేటస్ లేదా దశ ద్వారా వెతకండి..." onkeyup="filterTable()">
             </div>
+            <div class="col-md-3">
+                <select id="monthFilter" class="form-select form-select-sm" onchange="filterTable()">
+                    <option value="">అన్ని నెలలు (All Months)</option>
+                    <option value="June 2026">June 2026</option>
+                    <option value="July 2026">July 2026</option>
+                    <option value="August 2026">August 2026</option>
+                    <option value="September 2026">September 2026</option>
+                    <option value="October 2026">October 2026</option>
+                    <option value="November 2026">November 2026</option>
+                    <option value="December 2026">December 2026</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <select id="statusFilter" class="form-select form-select-sm" onchange="filterTable()">
+                    <option value="">అన్ని స్టేటస్‌లు (All Status)</option>
+                    <option value="Draft Created">Draft Created</option>
+                    <option value="Email Sent">Email Sent</option>
+                    <option value="Credited by Bank">Credited by Bank</option>
+                    <option value="Pending / Issue">Pending / Issue</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ఫుల్-విడ్త్ డేటా టేబుల్ -->
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle mb-0" id="transactionsTable">
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">సమయం (Timestamp)</th>
+                        <th style="width: 18%;">బ్యాంక్ పేరు (Bank Name)</th>
+                        <th style="width: 18%;">ప్రాసెస్ దశ (Process Step)</th>
+                        <th style="width: 11%;">నెల & బ్యాచ్</th>
+                        <th style="width: 11%;">చెక్కు నం & తేదీ</th>
+                        <th style="width: 9%;" class="text-end">మొత్తం (₹)</th>
+                        <th style="width: 6%;" class="text-center">లబ్ధిదారులు</th>
+                        <th style="width: 8%;" class="text-center">స్టేటస్</th>
+                        <th style="width: 7%;" class="text-center">మార్పులు</th>
+                    </tr>
+                </thead>
+                <tbody id="transactionsBody">
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            <i class="fa-solid fa-spinner fa-spin me-2"></i>లైవ్ డేటా లోడ్ అవుతోంది...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
+
 </div>
 
 <!-- Add / Edit Modal (షీట్‌లోకి వెళ్లకుండా మార్పులు చేయడానికి) -->
 <div class="modal fade" id="transactionModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="modalTitle">ట్రాన్సాక్షన్ వివరాలు</h5>
@@ -320,11 +350,9 @@
     document.addEventListener('DOMContentLoaded', () => {
         txModal = new bootstrap.Modal(document.getElementById('transactionModal'));
         fetchTransactions();
-        // ప్రతీ 8 సెకన్లకు ఒకసారి లైవ్ డేటా అప్‌డేట్ అవుతుంది
         setInterval(() => fetchTransactions(false), 8000);
     });
 
-    // 1. బ్యాంక్ సెలెక్ట్ చేసినప్పుడు చెక్కు వివరాలు ఆటో-ఫిల్ చేయడం
     document.getElementById('bank_name').addEventListener('change', async function() {
         const bankName = this.value;
         if (!bankName) return;
@@ -338,7 +366,6 @@
         } catch (e) { console.error(e); }
     });
 
-    // 2. Gmail Draft ఫారమ్ సబ్‌మిషన్
     document.getElementById('draftForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const btn = document.getElementById('submitBtn');
@@ -367,17 +394,19 @@
             const result = await response.json();
 
             if (response.ok && result.status === 'success') {
-                alertBox.className = 'alert alert-success mt-3 small';
-                alertBox.innerHTML = `<i class="fa-solid fa-check-circle me-1"></i> ${result.message} <br><a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" class="fw-bold text-success">Gmail Drafts తెరవండి &rarr;</a>`;
+                alertBox.className = 'alert alert-success mt-3 mb-0 small d-flex justify-content-between align-items-center';
+                alertBox.innerHTML = `
+                    <span><i class="fa-solid fa-check-circle me-1"></i> ${result.message}</span>
+                    <a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" class="btn btn-sm btn-success fw-bold">Gmail Drafts తెరవండి &rarr;</a>`;
                 alertBox.classList.remove('d-none');
                 fetchTransactions(false);
             } else {
-                alertBox.className = 'alert alert-danger mt-3 small';
+                alertBox.className = 'alert alert-danger mt-3 mb-0 small';
                 alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-1"></i> ${result.message}`;
                 alertBox.classList.remove('d-none');
             }
         } catch (error) {
-            alertBox.className = 'alert alert-danger mt-3 small';
+            alertBox.className = 'alert alert-danger mt-3 mb-0 small';
             alertBox.innerHTML = `నెట్‌వర్క్ లోపం: ${error.message}`;
             alertBox.classList.remove('d-none');
         } finally {
@@ -386,7 +415,6 @@
         }
     });
 
-    // 3. లైవ్ ట్రాన్సాక్షన్స్ & యాక్టివ్ టాస్క్‌లు తీసుకురావడం
     async function fetchTransactions(showSpinner = false) {
         if (showSpinner) {
             document.getElementById('transactionsBody').innerHTML = `<tr><td colspan="9" class="text-center py-3"><i class="fa-solid fa-spinner fa-spin me-2"></i>రిఫ్రెష్ అవుతోంది...</td></tr>`;
@@ -399,38 +427,37 @@
                 renderActiveTasks(json.active_tasks || {});
                 filterTable();
             }
-        } catch (e) {
-            console.error("Live fetch error:", e);
-        }
+        } catch (e) { console.error("Live fetch error:", e); }
     }
 
-    // బ్యాక్‌గ్రౌండ్‌లో జరుగుతున్న పనులను లైవ్‌లో చూపించడం
     function renderActiveTasks(tasks) {
         const container = document.getElementById('liveTaskTracker');
         let html = '';
         Object.values(tasks).forEach(t => {
             if (t.status === 'processing') {
-                html += `<div class="alert alert-info py-2 px-3 small mb-2">
-                    <i class="fa-solid fa-gear fa-spin me-2"></i><b>${t.bank}:</b> ${t.stage}
-                </div>`;
+                html += `<span class="badge bg-info text-dark p-2 me-2">
+                    <i class="fa-solid fa-gear fa-spin me-1"></i> <b>${t.bank}:</b> ${t.stage}
+                </span>`;
             }
         });
         container.innerHTML = html;
     }
 
-    // 4. టేబుల్ ఫిల్టర్ & రెండరింగ్
     function filterTable() {
         const query = document.getElementById('searchInput').value.toLowerCase();
         const monthVal = document.getElementById('monthFilter').value;
+        const statusVal = document.getElementById('statusFilter').value;
 
         const filtered = allTransactions.filter(row => {
             const matchesSearch = (
                 (row['Bank Name'] || '').toLowerCase().includes(query) ||
                 (row['Process Step'] || '').toLowerCase().includes(query) ||
-                (row['Cheque No'] || '').toString().toLowerCase().includes(query)
+                (row['Cheque No'] || '').toString().toLowerCase().includes(query) ||
+                (row['Status'] || '').toLowerCase().includes(query)
             );
             const matchesMonth = !monthVal || (row['Month'] === monthVal);
-            return matchesSearch && matchesMonth;
+            const matchesStatus = !statusVal || (row['Status'] === statusVal);
+            return matchesSearch && matchesMonth && matchesStatus;
         });
 
         let totalAmt = 0;
@@ -444,18 +471,20 @@
         }
 
         tbody.innerHTML = filtered.map(row => {
-            const statusBadge = row['Status'] === 'Credited by Bank' ? 'bg-success' :
-                                row['Status'] === 'Pending / Issue' ? 'bg-danger' : 'bg-primary';
+            const status = row['Status'] || 'Completed';
+            const statusBadge = status === 'Credited by Bank' ? 'bg-success' :
+                                status === 'Pending / Issue' ? 'bg-danger' :
+                                status === 'Email Sent' ? 'bg-info text-dark' : 'bg-primary';
             return `
             <tr>
-                <td class="text-muted small">${row['Timestamp'] || ''}</td>
+                <td class="text-muted small text-nowrap">${row['Timestamp'] || ''}</td>
                 <td class="fw-bold text-dark">${row['Bank Name'] || ''}</td>
-                <td><span class="badge bg-light text-dark border">${row['Process Step'] || ''}</span></td>
-                <td>${row['Month'] || ''} <br><small class="text-muted">Batch: ${row['Batch'] || ''}</small></td>
-                <td>${row['Cheque No'] ? 'No: <b>' + row['Cheque No'] + '</b>' : '-'} <br><small class="text-muted">${row['Cheque Date'] || ''}</small></td>
-                <td class="fw-bold text-success">₹${parseFloat(row['Amount'] || 0).toLocaleString('en-IN')}</td>
-                <td class="text-center">${row['Beneficiaries Count'] || 0}</td>
-                <td><span class="badge ${statusBadge}">${row['Status'] || 'Completed'}</span></td>
+                <td><span class="badge bg-light text-dark border text-wrap text-start">${row['Process Step'] || ''}</span></td>
+                <td>${row['Month'] || ''} <span class="badge bg-secondary ms-1">B-${row['Batch'] || ''}</span></td>
+                <td>${row['Cheque No'] ? 'No: <b>' + row['Cheque No'] + '</b>' : '-'} <small class="text-muted d-block">${row['Cheque Date'] || ''}</small></td>
+                <td class="fw-bold text-success text-end">₹${parseFloat(row['Amount'] || 0).toLocaleString('en-IN')}</td>
+                <td class="text-center fw-semibold">${row['Beneficiaries Count'] || 0}</td>
+                <td class="text-center"><span class="badge ${statusBadge}">${status}</span></td>
                 <td class="text-center text-nowrap">
                     <button class="btn btn-sm btn-outline-primary me-1" onclick='openEditModal(${JSON.stringify(row)})' title="ఎడిట్ చేయండి">
                         <i class="fa-solid fa-pen"></i>
@@ -468,7 +497,6 @@
         }).join('');
     }
 
-    // 5. Add / Edit / Delete ఫంక్షన్లు
     function openAddModal() {
         document.getElementById('modalTitle').innerText = 'కొత్త ట్రాన్సాక్షన్ జతచేయండి';
         document.getElementById('editRowNum').value = '';
