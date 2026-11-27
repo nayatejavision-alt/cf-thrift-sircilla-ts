@@ -726,29 +726,28 @@ def backup_row_before_update(
 
 
 def analyze_cf_name(unit_hno, unit_area, residential_hno=''):
+  """
+  CF పరిధి పని చేసే యూనిట్ (Unit H.No / Unit Area) ఆధారంగా మాత్రమే నిర్ణయిస్తుంది.
+  residential_hno (లబ్ధిదారుని నివాస ఇంటి నంబర్) ను CF నిర్ణయానికి ఉపయోగించదు.
+  """
+  cleaned_unit_hno = clean_hno_for_matching(unit_hno)
   cleaned_area = clean_area_for_matching(unit_area)
-  hno_candidates = [
-      clean_hno_for_matching(unit_hno),
-      clean_hno_for_matching(residential_hno),
-  ]
 
-  for cleaned_hno in hno_candidates:
-    if not cleaned_hno:
-      continue
-    block_prefix, door_num = extract_block_and_door(cleaned_hno)
-    if not block_prefix:
-      continue
+  # 1. Unit H.No ఆధారంగా బ్లాక్ + డోర్ నంబర్ రేంజ్ తనిఖీ
+  if cleaned_unit_hno:
+    block_prefix, door_num = extract_block_and_door(cleaned_unit_hno)
+    if block_prefix:
+      if door_num is not None:
+        for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
+          if prefix == block_prefix and min_d <= door_num <= max_d:
+            if ward_no in WARD_CF_MAPPING:
+              return WARD_CF_MAPPING[ward_no]
 
-    if door_num is not None:
       for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
-        if prefix == block_prefix and min_d <= door_num <= max_d:
-          if ward_no in WARD_CF_MAPPING:
-            return WARD_CF_MAPPING[ward_no]
+        if prefix == block_prefix and ward_no in WARD_CF_MAPPING:
+          return WARD_CF_MAPPING[ward_no]
 
-    for prefix, min_d, max_d, ward_no in MUNICIPALITY_RANGES:
-      if prefix == block_prefix and ward_no in WARD_CF_MAPPING:
-        return WARD_CF_MAPPING[ward_no]
-
+  # 2. Unit Area ఆధారంగా ఏరియా మ్యాపింగ్ తనిఖీ
   if cleaned_area:
     for cf, areas in AREA_CF_MAPPING.items():
       for a in areas:
@@ -756,6 +755,7 @@ def analyze_cf_name(unit_hno, unit_area, residential_hno=''):
         if cleaned_mapped_area and cleaned_mapped_area in cleaned_area:
           return cf
 
+  # 3. డిఫాల్ట్ ఫాల్‌బ్యాక్
   return 'MARKANDEYULU'
 
 
